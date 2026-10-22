@@ -1,0 +1,10 @@
+# Read the original document.
+name: data-analysis
+metadata:
+  availability: active
+  default_enabled: true
+  read_only: false
+  required: false
+description: >-
+  Read the complete field.
+  Keep both lines together.

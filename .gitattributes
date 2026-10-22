@@ -1,0 +1,2 @@
+* text=auto eol=lf
+fixtures/unicode-crlf.md -text whitespace=cr-at-eol

@@ -1,0 +1,7 @@
+allowBuilds:
+  "@playwright/browser-chromium": true
+  esbuild: true
+  "@vscode/vsce-sign": false
+minimumReleaseAgeExclude:
+  - "@typescript-eslint/types@8.72.0"
+  - "@lezer/markdown@1.8.1"

@@ -1,0 +1,352 @@
+import { BatchPolicy } from "./planning.ts"
+import type { CompiledBatch } from "./planning.ts"
+import { TranslationUnit } from "./unit.ts"
+import type { PreparedInput, TranslationItem } from "../model/translation.ts"
+import type { RequestGate } from "./requestGate.ts"
+import { ModelRetry, TranslationFailure, cancellationReason, failureCode } from "../model/diagnostics.ts"
+import { request } from "./http.ts"
+import { getProvider } from "./providers/index.ts"
+import type { ProviderTrace, TranslationDetail, TranslationTrace } from "../model/events.ts"
+import type { ServiceSettings } from "./settings.ts"
+import { requestPolicyIdentity, validateService } from "./settings.ts"
+
+export class TranslationService {
+  private readonly policies = new Map<string, BatchPolicy>()
+  private sequence = 0
+
+  clear(): void {
+    this.policies.clear()
+  }
+
+  async request(
+    settings: ServiceSettings,
+    batch: PreparedInput,
+    signal: AbortSignal,
+    gate: RequestGate,
+    completed?: (item: TranslationItem) => void,
+    trace?: TranslationTrace,
+    interests?: ReadonlyMap<string, AbortSignal>
+  ): Promise<readonly TranslationItem[]> {
+    settings = { ...settings, sourceLanguage: settings.sourceLanguage.trim() || "auto", targetLanguage: settings.targetLanguage.trim() }
+    validateService(settings)
+    signal.throwIfAborted()
+    const key = requestPolicyIdentity(settings)
+    const policy = settings.adaptiveBatching
+      ? (this.policies.get(key) ?? new BatchPolicy(settings, getProvider(settings.provider)))
+      : new BatchPolicy(settings, getProvider(settings.provider))
+    if (settings.adaptiveBatching) {
+      this.policies.delete(key)
+      this.policies.set(key, policy)
+      while (this.policies.size > 16) this.policies.delete(this.policies.keys().next().value!)
+    }
+    return new TranslationRun(settings, batch, signal, gate, policy, "T" + ++this.sequence, completed, trace, interests).execute()
+  }
+}
+
+interface PreviousResponse {
+  readonly units: readonly TranslationUnit[]
+  readonly text: string
+  readonly items: ReadonlyMap<TranslationUnit, string>
+}
+
+class TranslationRun {
+  private readonly units: readonly TranslationUnit[]
+  private readonly controller = new AbortController()
+  private readonly combined: AbortSignal
+  private readonly started = performance.now()
+  private requestSequence = 0
+  private httpRequests = 0
+
+  constructor(
+    private readonly settings: ServiceSettings,
+    batch: PreparedInput,
+    private readonly signal: AbortSignal,
+    private readonly gate: RequestGate,
+    private readonly policy: BatchPolicy,
+    private readonly taskId: string,
+    private readonly completed?: (item: TranslationItem) => void,
+    private readonly trace?: TranslationTrace,
+    interests?: ReadonlyMap<string, AbortSignal>
+  ) {
+    const provider = getProvider(settings.provider)
+    this.units = batch.units.map((unit) => new TranslationUnit(unit, settings, provider, interests?.get(unit.id)))
+    this.combined = AbortSignal.any([signal, this.controller.signal])
+  }
+
+  private emit(event: TranslationDetail): void {
+    this.trace?.emit({ ...event, taskId: this.taskId })
+  }
+
+  private finish(error?: unknown): void {
+    const remaining = this.units.filter((unit) => unit.pending)
+    const accepted = this.units.filter((unit) => unit.translation !== undefined)
+    const skipped = accepted.filter((unit) => unit.skipped).length
+    const changed = accepted.filter((unit) => unit.translation !== unit.source.text).length
+    let status: Extract<TranslationDetail, { kind: "finish" }>["status"] = "complete"
+    if (this.signal.aborted || this.units.some((unit) => !unit.wanted)) status = "cancelled"
+    else if (remaining.length) status = accepted.length ? "partial" : "failed"
+    else if (error !== undefined) status = "failed"
+    this.emit({
+      kind: "finish",
+      status,
+      total: this.units.length,
+      completed: accepted.length,
+      skipped,
+      changed,
+      unchanged: accepted.length - skipped - changed,
+      httpRequests: this.httpRequests,
+      elapsedMs: Math.round(performance.now() - this.started),
+      failures: remaining.map((unit) => unit.diagnostic(unit.failure ?? error)),
+      cancellationReasons:
+        status === "cancelled"
+          ? [
+              ...new Set(
+                this.signal.aborted ? [cancellationReason(this.signal.reason)] : this.units.filter((unit) => !unit.wanted).map((unit) => cancellationReason(unit.interest?.reason))
+              )
+            ]
+          : undefined,
+      code: error === undefined ? undefined : failureCode(error)
+    })
+  }
+
+  private publish(unit: TranslationUnit, text: string): void {
+    this.combined.throwIfAborted()
+    if (!unit.pending) return
+    unit.accept(text, (review) => this.policy.fits(this.policy.compile([unit], review, text)))
+    this.completed?.({ id: unit.source.id, text: unit.translation! })
+  }
+
+  private async prepare(): Promise<void> {
+    const collisions = [
+      ...new Set(this.units.flatMap(({ source }) => [source.text, ...source.reference.map((block) => block.text)]).flatMap((text) => text.match(/<CTP(?:\d+_)?/g) ?? []))
+    ].join("\n")
+    let started = performance.now()
+    for (const unit of this.units) {
+      if (performance.now() - started >= 8) {
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        started = performance.now()
+      }
+      this.combined.throwIfAborted()
+      if (!unit.wanted) continue
+      unit.prepare(collisions)
+      if (unit.skipped) this.completed?.({ id: unit.source.id, text: unit.translation! })
+      else if (!unit.prepared!.needsTranslation) this.publish(unit, unit.prepared!.text)
+    }
+  }
+
+  private async run(candidates: readonly TranslationUnit[], batchReason = "重新组批待恢复项", compiled?: CompiledBatch, previous?: PreviousResponse): Promise<void> {
+    this.combined.throwIfAborted()
+    const units = candidates.filter((unit) => unit.pending)
+    if (!units.length) return
+    const previousOutput =
+      previous && units.length === previous.units.length && units.every((unit, index) => unit === previous.units[index])
+        ? previous.text
+        : previous && units.every((unit) => previous.items.has(unit))
+          ? units.map((unit) => previous.items.get(unit)!)
+          : undefined
+    const batch = compiled && units.length === candidates.length ? compiled : this.policy.compile(units, undefined, previousOutput)
+    const { payload, request: measurement } = batch
+    if (!this.policy.fits(batch)) {
+      if (units.length > 1) {
+        const middle = Math.ceil(units.length / 2)
+        await this.run(units.slice(0, middle), "重试消息超出预算，继续拆批", undefined, previous)
+        await this.run(units.slice(middle), "重试消息超出预算，继续拆批", undefined, previous)
+      } else units[0].reject(this.policy.oversized(measurement.characters))
+      return
+    }
+    const abandoned = new AbortController()
+    const signals = units.flatMap((unit) => (unit.interest ? [unit.interest] : []))
+    const cancelUnused = (): void => {
+      if (units.every((unit) => !unit.wanted)) abandoned.abort(signals.find((signal) => signal.aborted)?.reason)
+    }
+    for (const interest of signals) interest.addEventListener("abort", cancelUnused, { once: true })
+    cancelUnused()
+    const requestSignal = AbortSignal.any([this.combined, abandoned.signal])
+    for (const unit of units) unit.beginAttempt()
+    const attempt = Math.max(...units.map((unit) => unit.attempts))
+    const requestId = this.taskId + "/R" + ++this.requestSequence
+    const started = performance.now()
+    const targets = new Map(units.map((unit) => [unit.source.id, unit]))
+    const reasons = new Map<string, unknown>()
+    const diagnosticCodes =
+      this.settings.provider === "openai"
+        ? [
+            ...new Set([
+              ...units.flatMap((unit) => (unit.feedback ? [failureCode(unit.feedback)] : [])),
+              ...(payload.retryFeedback?.flatMap((feedback) => (feedback.reason + "\n" + feedback.instruction).match(/\b(?:translation|service)-[a-z][a-z0-9-]+\b/g) ?? []) ?? [])
+            ])
+          ]
+        : []
+    let modelRequest: Extract<ProviderTrace, { kind: "model-request" }>["payload"] | undefined
+    let modelResponse: string | undefined
+    let lastOutput: string | undefined
+    const outputItems = new Map<TranslationUnit, string>()
+    let sent = 0
+    let reason: unknown
+    try {
+      await measurement.send({
+        signal: requestSignal,
+        output: (text) => {
+          lastOutput = text
+        },
+        trace: (event) => {
+          if (!this.trace?.details) return
+          if (event.kind === "model-request") modelRequest = event.payload
+          else modelResponse = event.payload
+        },
+        accept: (item) => {
+          if (!item || typeof item.id !== "string" || typeof item.text !== "string")
+            throw new ModelRetry(
+              { reason: "The response item was missing or invalid.", instruction: "Provide a non-empty translation for this item." },
+              { code: "translation-item-invalid" }
+            )
+          const unit = targets.get(item.id)
+          if (!unit || outputItems.has(unit))
+            throw new ModelRetry(
+              { reason: "The response contained an unknown or duplicate item.", instruction: "Return exactly one translation per source item, in the original order." },
+              {
+                code: "translation-items-mismatch"
+              }
+            )
+          outputItems.set(unit, item.text)
+          try {
+            const leaked = diagnosticCodes.find((code) => item.text.includes(code) && !(unit.source.content ?? unit.source.text).includes(code))
+            if (leaked)
+              throw new ModelRetry(
+                {
+                  reason: "The response included a retry diagnostic identifier absent from the source.",
+                  instruction: `Exclude diagnostic text, including ${leaked}, and explanations from the translation.`
+                },
+                {
+                  code: "translation-feedback-leaked",
+                  difference: { reason: "模型将重试错误标识混入译文。", expected: "仅翻译当前原文，不翻译或引用重试诊断。", actual: leaked }
+                }
+              )
+            this.publish(unit, item.text)
+          } catch (error) {
+            reasons.set(item.id, error)
+          }
+        },
+        request: (url, init = {}) =>
+          request(this.gate, url, init, requestSignal, () => {
+            sent++
+            this.httpRequests++
+          })
+      })
+      requestSignal.throwIfAborted()
+      if (outputItems.size !== units.length)
+        throw new ModelRetry(
+          { reason: `The response returned ${outputItems.size} items; expected ${units.length}.`, instruction: "Return exactly one translation per source item, in the original order." },
+          {
+            code: "translation-items-mismatch"
+          }
+        )
+      reason = reasons.values().next().value
+    } catch (error) {
+      reason = error instanceof SyntaxError ? Error("service-response-invalid") : error
+    } finally {
+      for (const interest of signals) interest.removeEventListener("abort", cancelUnused)
+    }
+
+    const failed = units.filter((unit) => unit.pending)
+    for (const unit of failed) unit.reject(reasons.get(unit.source.id) ?? reason)
+    const record = (nextBatchSize?: number): void => {
+      this.emit({
+        kind: "request",
+        requestId,
+        ids: units.map((unit) => unit.source.id),
+        attempt,
+        elapsedMs: Math.round(performance.now() - started),
+        httpRequests: sent,
+        cancelled: requestSignal.aborted,
+        cancellationReason: requestSignal.aborted ? cancellationReason(requestSignal.reason) : undefined,
+        detailsIncluded: !!this.trace?.details,
+        completed: units.filter((unit) => unit.translation !== undefined).length,
+        failures: failed.map((unit) => unit.diagnostic(unit.failure, reasons.has(unit.source.id) || !reasons.size)),
+        nextBatchSize,
+        sourceCharacters: payload.items.reduce((sum, item) => sum + item.text.length, 0),
+        contextCharacters: measurement.referenceCharacters,
+        inputCharacters: measurement.characters,
+        referenceKinds: measurement.referenceCharacters ? [...new Set(units.flatMap((unit) => unit.source.reference.map((block) => block.kind)))] : [],
+        batchReason,
+        modelRequest,
+        modelResponse
+      })
+      modelRequest = undefined
+      modelResponse = undefined
+    }
+    if (this.combined.aborted) {
+      record()
+      this.combined.throwIfAborted()
+    }
+    if (abandoned.signal.aborted) {
+      record()
+      return
+    }
+    if (!failed.length) {
+      record()
+      this.policy.succeeded(units.length, batchReason)
+      return
+    }
+    let recovery: ReturnType<BatchPolicy["recover"]>
+    try {
+      recovery = this.policy.recover(failed, units.length)
+    } catch (error) {
+      record()
+      throw error
+    }
+    record(recovery?.size)
+    if (recovery) {
+      const response = lastOutput === undefined ? previous : { units, text: lastOutput, items: outputItems }
+      for (let index = 0; index < recovery.units.length; index += recovery.size) {
+        const next = recovery.units.slice(index, index + recovery.size)
+        await this.run(next, undefined, undefined, response)
+      }
+    }
+  }
+
+  async execute(): Promise<readonly TranslationItem[]> {
+    const active = new Set<Promise<void>>()
+    let failure: { error: unknown } | undefined
+    this.emit({ kind: "start", total: this.units.length })
+    try {
+      await this.prepare()
+      const pending = this.units.filter((unit) => unit.pending)
+      for (let index = 0; index < pending.length;) {
+        if (active.size >= this.settings.maxConcurrentRequests) await Promise.race(active)
+        if (failure) throw failure.error
+        this.combined.throwIfAborted()
+        if (!pending[index].pending) {
+          index++
+          continue
+        }
+        const batch = this.policy.plan(pending.slice(index))
+        if (batch.kind === "oversized") {
+          batch.unit.reject(this.policy.oversized(batch.characters))
+          index++
+          continue
+        }
+        const work = this.run(batch.units, batch.reason, batch.compiled)
+          .catch((error) => {
+            failure ??= { error }
+            this.controller.abort("request-failed")
+          })
+          .finally(() => active.delete(work))
+        active.add(work)
+        index += batch.units.length
+      }
+      await Promise.all(active)
+      if (failure) throw failure.error
+      this.combined.throwIfAborted()
+      const unresolved = this.units.find((unit) => unit.pending && unit.failure !== undefined)
+      if (unresolved) throw unresolved.failure
+      this.finish()
+      return this.units.filter((unit) => unit.translation !== undefined).map((unit) => ({ id: unit.source.id, text: unit.translation! }))
+    } catch (error) {
+      this.controller.abort("request-failed")
+      await Promise.allSettled(active)
+      this.finish(error)
+      throw this.signal.aborted ? error : new TranslationFailure(failureCode(error), !!this.trace)
+    }
+  }
+}

@@ -1,0 +1,34 @@
+name: Extension checks
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.14.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+      - run: pnpm test
+      - run: pnpm test:extension
+      - run: pnpm test:ui
+      - run: pnpm test:package
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: extension-validation
+          path: |
+            artifacts/comment-translate-plus.vsix
+            artifacts/extension-web.json
+            artifacts/package-web.json
+            artifacts/ui-web.json
+            artifacts/ui/

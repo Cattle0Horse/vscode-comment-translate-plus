@@ -1,0 +1,32 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "jsPlugins": ["@stylistic/eslint-plugin"],
+  "rules": {
+    "@stylistic/padding-line-between-statements": [
+      "error",
+      {
+        "blankLine": "always",
+        "prev": "*",
+        "next": ["function", "export", "type", "interface", "class"]
+      },
+      {
+        "blankLine": "always",
+        "prev": ["function", "export", "type", "interface", "class"],
+        "next": "*"
+      }
+    ],
+    "@stylistic/lines-between-class-members": [
+      "error",
+      {
+        "enforce": [
+          {
+            "blankLine": "always",
+            "prev": "method",
+            "next": "method"
+          }
+        ]
+      }
+    ]
+  },
+  "ignorePatterns": ["node_modules/**", "dist/**", "artifacts/**", ".vscode-test/**", "fixtures/**"]
+}

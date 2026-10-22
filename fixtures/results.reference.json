@@ -1,0 +1,469 @@
+{
+    "schemaVersion": 1,
+    "origin": "reference",
+    "revision": "hand-authored-contract-v1",
+    "cases": [
+        {
+            "id": "list-reflow",
+            "snapshot": {
+                "version": 1,
+                "providerId": "deterministic-replay",
+                "sourceLanguage": "en",
+                "targetLanguage": "zh-CN",
+                "sourceHash": "c1521b724411df5461455b1b01e4750389d46d54ef7acab710b2eead81deaf71",
+                "documentId": "lists.md",
+                "languageId": "markdown"
+            },
+            "sourceAfter": "1. Organize the page around the primary task, not around a catalog of available content. Every major region needs a distinct job.\n2. On scrolling pages, put the subject, decision, or primary working surface in the first viewport. On product, venue, portfolio, or object-focused pages, make the actual subject a strong first-viewport signal rather than a small navigation label.\n3. On a presentation slide, make one core claim or idea readable at presentation distance and keep its evidence on the same slide.\n4. Size headings to their role and container. Reserve display-scale type for a genuine page-level introduction; use compact headings inside operational surfaces.\n5. Keep supporting copy close to the visual, control, or claim it explains. Do not make users reconcile distant labels, legends, and conclusions.\n6. On scrolling pages, show a hint of the next meaningful section below a first-screen introduction so the page does not appear finished at the fold.\n7. Prefer one strong composition over a sequence of interchangeable full-width bands or repeated cards.\n",
+            "status": "translated",
+            "units": [
+                {
+                    "id": "item-1",
+                    "range": {
+                        "start": 0,
+                        "end": 129
+                    },
+                    "translation": "1. 围绕主要任务组织页面，每个主要区域都应承担明确的职责。"
+                },
+                {
+                    "id": "item-2",
+                    "range": {
+                        "start": 130,
+                        "end": 377
+                    },
+                    "translation": "2. 在滚动页面的首屏展示主题、决策或主要工作区域。\n   让实际主题成为首屏的视觉重点。"
+                },
+                {
+                    "id": "item-3",
+                    "range": {
+                        "start": 378,
+                        "end": 508
+                    },
+                    "translation": "3. 每张幻灯片清楚表达一个核心观点，并在同页给出依据。"
+                },
+                {
+                    "id": "item-4",
+                    "range": {
+                        "start": 509,
+                        "end": 670
+                    },
+                    "translation": "4. 根据标题的作用和容器调整字号，操作区域使用紧凑的标题。"
+                },
+                {
+                    "id": "item-5",
+                    "range": {
+                        "start": 671,
+                        "end": 816
+                    },
+                    "translation": "5. 将说明放在对应的图像、控件或观点附近，避免读者来回对照。"
+                },
+                {
+                    "id": "item-6",
+                    "range": {
+                        "start": 817,
+                        "end": 966
+                    },
+                    "translation": "6. 在首屏展示下一节的部分内容，让读者知道页面仍可向下滚动。"
+                },
+                {
+                    "id": "item-7",
+                    "range": {
+                        "start": 967,
+                        "end": 1070
+                    },
+                    "translation": "7. 优先采用有力的整体构图，减少可相互替换的通栏和重复卡片。"
+                }
+            ]
+        },
+        {
+            "id": "list-collapsed",
+            "snapshot": {
+                "version": 1,
+                "providerId": "deterministic-replay",
+                "sourceLanguage": "en",
+                "targetLanguage": "zh-CN",
+                "sourceHash": "c1521b724411df5461455b1b01e4750389d46d54ef7acab710b2eead81deaf71",
+                "documentId": "lists.md",
+                "languageId": "markdown"
+            },
+            "sourceAfter": "1. Organize the page around the primary task, not around a catalog of available content. Every major region needs a distinct job.\n2. On scrolling pages, put the subject, decision, or primary working surface in the first viewport. On product, venue, portfolio, or object-focused pages, make the actual subject a strong first-viewport signal rather than a small navigation label.\n3. On a presentation slide, make one core claim or idea readable at presentation distance and keep its evidence on the same slide.\n4. Size headings to their role and container. Reserve display-scale type for a genuine page-level introduction; use compact headings inside operational surfaces.\n5. Keep supporting copy close to the visual, control, or claim it explains. Do not make users reconcile distant labels, legends, and conclusions.\n6. On scrolling pages, show a hint of the next meaningful section below a first-screen introduction so the page does not appear finished at the fold.\n7. Prefer one strong composition over a sequence of interchangeable full-width bands or repeated cards.\n",
+            "status": "rejected",
+            "units": []
+        },
+        {
+            "id": "frontmatter-skill",
+            "snapshot": {
+                "version": 1,
+                "providerId": "deterministic-replay",
+                "sourceLanguage": "en",
+                "targetLanguage": "zh-CN",
+                "sourceHash": "5e56d11bc57862a64571dd7a9eee91ac6161a605853cd4a121996595dfb53b7e",
+                "documentId": "SKILL.md",
+                "languageId": "skill"
+            },
+            "sourceAfter": "---\nname: reading-helper\ndescription: >\n  Translate complete fields.\n  Keep their context together.\nnotes: \"Read the first line\n  and the second line together.\"\nenabled: true\n---\n\n# Reading helper\n\nRead [the guide](https://example.com/guide) and keep `sourceId` unchanged.\n\n```typescript\nconst message = 'Do not translate fenced code.';\n```\n",
+            "status": "translated",
+            "units": [
+                {
+                    "id": "name",
+                    "range": {
+                        "start": 4,
+                        "end": 24
+                    },
+                    "translation": "名称: 阅读助手"
+                },
+                {
+                    "id": "description",
+                    "range": {
+                        "start": 25,
+                        "end": 99
+                    },
+                    "translation": "描述: >\n  翻译完整字段，并保留上下文。"
+                },
+                {
+                    "id": "notes",
+                    "range": {
+                        "start": 100,
+                        "end": 160
+                    },
+                    "translation": "备注: \"一起阅读第一行和第二行。\""
+                },
+                {
+                    "id": "heading",
+                    "range": {
+                        "start": 180,
+                        "end": 196
+                    },
+                    "translation": "# 阅读助手"
+                },
+                {
+                    "id": "paragraph",
+                    "range": {
+                        "start": 198,
+                        "end": 272
+                    },
+                    "translation": "阅读[指南](https://example.com/guide)，保持 `sourceId` 不变。"
+                }
+            ]
+        },
+        {
+            "id": "frontmatter-markdown",
+            "snapshot": {
+                "version": 1,
+                "providerId": "deterministic-replay",
+                "sourceLanguage": "en",
+                "targetLanguage": "zh-CN",
+                "sourceHash": "5e56d11bc57862a64571dd7a9eee91ac6161a605853cd4a121996595dfb53b7e",
+                "documentId": "SKILL.md",
+                "languageId": "markdown"
+            },
+            "sourceAfter": "---\nname: reading-helper\ndescription: >\n  Translate complete fields.\n  Keep their context together.\nnotes: \"Read the first line\n  and the second line together.\"\nenabled: true\n---\n\n# Reading helper\n\nRead [the guide](https://example.com/guide) and keep `sourceId` unchanged.\n\n```typescript\nconst message = 'Do not translate fenced code.';\n```\n",
+            "status": "translated",
+            "units": [
+                {
+                    "id": "name",
+                    "range": {
+                        "start": 4,
+                        "end": 24
+                    },
+                    "translation": "名称: 阅读助手"
+                },
+                {
+                    "id": "description",
+                    "range": {
+                        "start": 25,
+                        "end": 99
+                    },
+                    "translation": "描述: >\n  翻译完整字段，并保留上下文。"
+                },
+                {
+                    "id": "notes",
+                    "range": {
+                        "start": 100,
+                        "end": 160
+                    },
+                    "translation": "备注: \"一起阅读第一行和第二行。\""
+                },
+                {
+                    "id": "heading",
+                    "range": {
+                        "start": 180,
+                        "end": 196
+                    },
+                    "translation": "# 阅读助手"
+                },
+                {
+                    "id": "paragraph",
+                    "range": {
+                        "start": 198,
+                        "end": 272
+                    },
+                    "translation": "阅读[指南](https://example.com/guide)，保持 `sourceId` 不变。"
+                }
+            ]
+        },
+        {
+            "id": "frontmatter-prompt",
+            "snapshot": {
+                "version": 1,
+                "providerId": "deterministic-replay",
+                "sourceLanguage": "en",
+                "targetLanguage": "zh-CN",
+                "sourceHash": "5e56d11bc57862a64571dd7a9eee91ac6161a605853cd4a121996595dfb53b7e",
+                "documentId": "SKILL.md",
+                "languageId": "prompt"
+            },
+            "sourceAfter": "---\nname: reading-helper\ndescription: >\n  Translate complete fields.\n  Keep their context together.\nnotes: \"Read the first line\n  and the second line together.\"\nenabled: true\n---\n\n# Reading helper\n\nRead [the guide](https://example.com/guide) and keep `sourceId` unchanged.\n\n```typescript\nconst message = 'Do not translate fenced code.';\n```\n",
+            "status": "translated",
+            "units": [
+                {
+                    "id": "name",
+                    "range": {
+                        "start": 4,
+                        "end": 24
+                    },
+                    "translation": "名称: 阅读助手"
+                },
+                {
+                    "id": "description",
+                    "range": {
+                        "start": 25,
+                        "end": 99
+                    },
+                    "translation": "描述: >\n  翻译完整字段，并保留上下文。"
+                },
+                {
+                    "id": "notes",
+                    "range": {
+                        "start": 100,
+                        "end": 160
+                    },
+                    "translation": "备注: \"一起阅读第一行和第二行。\""
+                },
+                {
+                    "id": "heading",
+                    "range": {
+                        "start": 180,
+                        "end": 196
+                    },
+                    "translation": "# 阅读助手"
+                },
+                {
+                    "id": "paragraph",
+                    "range": {
+                        "start": 198,
+                        "end": 272
+                    },
+                    "translation": "阅读[指南](https://example.com/guide)，保持 `sourceId` 不变。"
+                }
+            ]
+        },
+        {
+            "id": "frontmatter-instructions",
+            "snapshot": {
+                "version": 1,
+                "providerId": "deterministic-replay",
+                "sourceLanguage": "en",
+                "targetLanguage": "zh-CN",
+                "sourceHash": "5e56d11bc57862a64571dd7a9eee91ac6161a605853cd4a121996595dfb53b7e",
+                "documentId": "SKILL.md",
+                "languageId": "instructions"
+            },
+            "sourceAfter": "---\nname: reading-helper\ndescription: >\n  Translate complete fields.\n  Keep their context together.\nnotes: \"Read the first line\n  and the second line together.\"\nenabled: true\n---\n\n# Reading helper\n\nRead [the guide](https://example.com/guide) and keep `sourceId` unchanged.\n\n```typescript\nconst message = 'Do not translate fenced code.';\n```\n",
+            "status": "translated",
+            "units": [
+                {
+                    "id": "name",
+                    "range": {
+                        "start": 4,
+                        "end": 24
+                    },
+                    "translation": "名称: 阅读助手"
+                },
+                {
+                    "id": "description",
+                    "range": {
+                        "start": 25,
+                        "end": 99
+                    },
+                    "translation": "描述: >\n  翻译完整字段，并保留上下文。"
+                },
+                {
+                    "id": "notes",
+                    "range": {
+                        "start": 100,
+                        "end": 160
+                    },
+                    "translation": "备注: \"一起阅读第一行和第二行。\""
+                },
+                {
+                    "id": "heading",
+                    "range": {
+                        "start": 180,
+                        "end": 196
+                    },
+                    "translation": "# 阅读助手"
+                },
+                {
+                    "id": "paragraph",
+                    "range": {
+                        "start": 198,
+                        "end": 272
+                    },
+                    "translation": "阅读[指南](https://example.com/guide)，保持 `sourceId` 不变。"
+                }
+            ]
+        },
+        {
+            "id": "frontmatter-chatagent",
+            "snapshot": {
+                "version": 1,
+                "providerId": "deterministic-replay",
+                "sourceLanguage": "en",
+                "targetLanguage": "zh-CN",
+                "sourceHash": "5e56d11bc57862a64571dd7a9eee91ac6161a605853cd4a121996595dfb53b7e",
+                "documentId": "SKILL.md",
+                "languageId": "chatagent"
+            },
+            "sourceAfter": "---\nname: reading-helper\ndescription: >\n  Translate complete fields.\n  Keep their context together.\nnotes: \"Read the first line\n  and the second line together.\"\nenabled: true\n---\n\n# Reading helper\n\nRead [the guide](https://example.com/guide) and keep `sourceId` unchanged.\n\n```typescript\nconst message = 'Do not translate fenced code.';\n```\n",
+            "status": "translated",
+            "units": [
+                {
+                    "id": "name",
+                    "range": {
+                        "start": 4,
+                        "end": 24
+                    },
+                    "translation": "名称: 阅读助手"
+                },
+                {
+                    "id": "description",
+                    "range": {
+                        "start": 25,
+                        "end": 99
+                    },
+                    "translation": "描述: >\n  翻译完整字段，并保留上下文。"
+                },
+                {
+                    "id": "notes",
+                    "range": {
+                        "start": 100,
+                        "end": 160
+                    },
+                    "translation": "备注: \"一起阅读第一行和第二行。\""
+                },
+                {
+                    "id": "heading",
+                    "range": {
+                        "start": 180,
+                        "end": 196
+                    },
+                    "translation": "# 阅读助手"
+                },
+                {
+                    "id": "paragraph",
+                    "range": {
+                        "start": 198,
+                        "end": 272
+                    },
+                    "translation": "阅读[指南](https://example.com/guide)，保持 `sourceId` 不变。"
+                }
+            ]
+        },
+        {
+            "id": "unicode-crlf",
+            "snapshot": {
+                "version": 1,
+                "providerId": "deterministic-replay",
+                "sourceLanguage": "en",
+                "targetLanguage": "zh-CN",
+                "sourceHash": "adc7e9e2cde347bb4378d0483f57dc2408cd7e4a5866f6a6cefd77817352cf62",
+                "documentId": "unicode-crlf.md",
+                "languageId": "markdown"
+            },
+            "sourceAfter": "# Mixed text 😀\r\n\r\n- [ ] Read `sourceId` and [the guide](https://example.com).\r\n\t- Keep the child item here.\r\n\r\n> 1. Read the quoted item.\r\n",
+            "status": "translated",
+            "units": [
+                {
+                    "id": "heading",
+                    "range": {
+                        "start": 0,
+                        "end": 15
+                    },
+                    "translation": "# 混合文本 😀"
+                },
+                {
+                    "id": "task",
+                    "range": {
+                        "start": 19,
+                        "end": 78
+                    },
+                    "translation": "- [ ] 阅读 `sourceId` 和[指南](https://example.com)。"
+                },
+                {
+                    "id": "child",
+                    "range": {
+                        "start": 80,
+                        "end": 108
+                    },
+                    "translation": "\t- 将子项保留在这里。"
+                },
+                {
+                    "id": "quoted",
+                    "range": {
+                        "start": 112,
+                        "end": 138
+                    },
+                    "translation": "> 1. 阅读引用中的条目。"
+                }
+            ]
+        },
+        {
+            "id": "code-comments",
+            "snapshot": {
+                "version": 1,
+                "providerId": "deterministic-replay",
+                "sourceLanguage": "en",
+                "targetLanguage": "zh-CN",
+                "sourceHash": "cf9b93b703e1083b1efc8767acb6ba8e4e40b00dc66b779f51e61a596ee53935",
+                "documentId": "comments.ts",
+                "languageId": "typescript"
+            },
+            "sourceAfter": "// Load the configuration before starting.\nconst sourceId = 'untranslated string';\n\n/* Keep the request context\n * until its response arrives. */\nexport const enabled = true;\n",
+            "status": "translated",
+            "units": [
+                {
+                    "id": "line-comment",
+                    "range": {
+                        "start": 0,
+                        "end": 42
+                    },
+                    "translation": "// 启动前加载配置。"
+                },
+                {
+                    "id": "block-comment",
+                    "range": {
+                        "start": 84,
+                        "end": 145
+                    },
+                    "translation": "/* 保留请求上下文，直到响应到达。 */"
+                }
+            ]
+        },
+        {
+            "id": "edited-document",
+            "snapshot": {
+                "version": 2,
+                "providerId": "deterministic-replay",
+                "sourceLanguage": "en",
+                "targetLanguage": "zh-CN",
+                "sourceHash": "c1521b724411df5461455b1b01e4750389d46d54ef7acab710b2eead81deaf71",
+                "documentId": "lists.md",
+                "languageId": "markdown"
+            },
+            "sourceAfter": "1. Organize the page around the primary task, not around a catalog of available content. Every major region needs a distinct job.\n2. On scrolling pages, put the subject, decision, or primary working surface in the first viewport. On product, venue, portfolio, or object-focused pages, make the actual subject a strong first-viewport signal rather than a small navigation label.\n3. On a presentation slide, make one core claim or idea readable at presentation distance and keep its evidence on the same slide.\n4. Size headings to their role and container. Reserve display-scale type for a genuine page-level introduction; use compact headings inside operational surfaces.\n5. Keep supporting copy close to the visual, control, or claim it explains. Do not make users reconcile distant labels, legends, and conclusions.\n6. On scrolling pages, show a hint of the next meaningful section below a first-screen introduction so the page does not appear finished at the fold.\n7. Prefer one strong composition over a sequence of interchangeable full-width bands or repeated cards.\n",
+            "status": "stale",
+            "units": []
+        }
+    ]
+}

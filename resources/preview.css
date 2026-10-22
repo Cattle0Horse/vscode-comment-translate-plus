@@ -1,0 +1,18 @@
+@keyframes ctp-preview-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.ctp-preview-loading {
+  display: inline-block;
+  width: 0.9em;
+  height: 0.9em;
+  margin-left: 4px;
+  border: 2px solid transparent;
+  border-top-color: var(--vscode-progressBar-background, #0078d4);
+  border-left-color: var(--vscode-progressBar-background, #0078d4);
+  border-radius: 50%;
+  vertical-align: middle;
+  animation: ctp-preview-spin 0.8s linear infinite;
+}

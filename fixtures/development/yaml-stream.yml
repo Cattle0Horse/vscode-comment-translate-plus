@@ -1,0 +1,14 @@
+---
+name: reading-helper
+hints:
+  - Read the original document.
+  - Keep the second hint together.
+metadata: {enabled: TRUE, priority: 0x10, label: Read the nested label.}
+...
+---
+description: |-
+  Read the complete field.
+  Keep both lines together.
+optional: ~
+base: &base Read the original document.
+alias: *base
