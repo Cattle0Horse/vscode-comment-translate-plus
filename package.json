@@ -5,6 +5,10 @@
   "version": "0.1.0",
   "publisher": "cattle-horse",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Cattle0Horse/vscode-comment-translate-plus.git"
+  },
   "private": true,
   "packageManager": "pnpm@12.14.0",
   "type": "module",
