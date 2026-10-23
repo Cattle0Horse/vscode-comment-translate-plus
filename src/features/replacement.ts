@@ -1,10 +1,10 @@
 import * as vscode from "vscode"
-import { getTranslationSettings, isMarkdownDocument, isYamlDocument } from "../host/configuration.ts"
+import { isMarkdownDocument, isYamlDocument } from "../host/configuration.ts"
 import { translatedMarkdown } from "../documents/presentation.ts"
 import { assertMarkdownStructure } from "../documents/validation.ts"
 import { assertYamlStructure } from "../documents/yaml.ts"
 import type { TextUnit } from "../model/document.ts"
-import { describeError } from "../model/diagnostics.ts"
+import { describeError, TranslationFailure } from "../model/diagnostics.ts"
 import type { CancellationReason } from "../model/diagnostics.ts"
 import { requestPolicyIdentity } from "../translation/settings.ts"
 import type { DocumentReader } from "../host/documents.ts"
@@ -21,8 +21,8 @@ export interface SourceReplacement {
   readonly identity: string
 }
 
-export function replacementIdentity(uri: vscode.Uri): string {
-  const settings = getTranslationSettings(uri)
+export async function replacementIdentity(uri: vscode.Uri, translations: TranslationRuntime): Promise<string> {
+  const settings = await translations.settings(uri)
   return JSON.stringify([settings.identity, requestPolicyIdentity(settings)])
 }
 
@@ -54,7 +54,7 @@ export class SourceReplacementAction implements vscode.Disposable {
     this.replacements.get(uri)?.abort("retranslation")
     this.replacements.set(uri, controller)
     try {
-      const identity = replacementIdentity(document.uri)
+      const identity = await replacementIdentity(document.uri, this.translations)
       const unit: TextUnit | undefined = selection.isEmpty ? await this.documents.target(document, document.offsetAt(selection.active)) : this.documents.selection(document, selection)
       controller.signal.throwIfAborted()
       if (document.isClosed || document.version !== version) return false
@@ -78,7 +78,7 @@ export class SourceReplacementAction implements vscode.Disposable {
     } catch (error) {
       if (!controller.signal.aborted) {
         const code = this.translations.diagnose(error, document.uri)
-        void vscode.window.showWarningMessage(describeError(code))
+        if (!(error instanceof TranslationFailure && error.reported)) void vscode.window.showWarningMessage(describeError(code))
       }
       return false
     } finally {
@@ -127,7 +127,7 @@ export class SourceReplacementAction implements vscode.Disposable {
         void vscode.window.showWarningMessage("待替换的原文范围已变化，请重新翻译或悬停后替换。")
         return false
       }
-      if (replacementIdentity(document.uri) !== identity) {
+      if ((await replacementIdentity(document.uri, this.translations)) !== identity) {
         void vscode.window.showWarningMessage("翻译配置已变化，请重新翻译或悬停获取新配置的译文。")
         return false
       }
@@ -137,12 +137,13 @@ export class SourceReplacementAction implements vscode.Disposable {
         const unit = parsed.groups.flatMap((group) => group.units).find((unit) => unit.start === start && unit.end === end)
         if (unit?.embedding) translatedMarkdown(parsed, new Map([[unit.id, text]]))
         else assertMarkdownStructure(original, original.slice(0, start) + text + original.slice(end))
-        if (document.isClosed || document.version !== version || document.getText(range) !== source || replacementIdentity(document.uri) !== identity) return false
+        if ((await replacementIdentity(document.uri, this.translations)) !== identity) return false
       }
       if (isYamlDocument(document)) {
         const original = document.getText()
         assertYamlStructure(original, original.slice(0, start) + text + original.slice(end))
       }
+      if (document.isClosed || document.version !== version || document.getText(range) !== source) return false
       if (text === source) return true
       const applied = await editor.edit((edit) => edit.replace(range, text), { undoStopBefore: true, undoStopAfter: true })
       if (!applied) void vscode.window.showWarningMessage("编辑器未接受替换，原文已保留。")
@@ -150,7 +151,7 @@ export class SourceReplacementAction implements vscode.Disposable {
       return applied
     } catch (error) {
       const code = this.translations.diagnose(error, document.uri)
-      void vscode.window.showWarningMessage(describeError(code))
+      if (!(error instanceof TranslationFailure && error.reported)) void vscode.window.showWarningMessage(describeError(code))
       return false
     }
   }

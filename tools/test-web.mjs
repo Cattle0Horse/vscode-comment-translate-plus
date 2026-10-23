@@ -76,6 +76,8 @@ let damageLink = false
 let referenceContamination = false
 let slow = false
 let hold = false
+let termFile = '["Widget"]'
+let termFileReads = 0
 const heldResponses = new Set()
 let report
 const requests = []
@@ -148,10 +150,16 @@ const mock = createServer(async (request, response) => {
     return
   }
   if (request.url === "/state") {
-    response.end(JSON.stringify({ requests }))
+    response.end(JSON.stringify({ requests, termFileReads }))
     return
   }
   const url = new URL(request.url, "http://localhost")
+  if (url.pathname === "/preserve-terms.json") {
+    termFileReads++
+    if (termFile === null) response.writeHead(503).end("unavailable")
+    else response.end(termFile)
+    return
+  }
   if (url.pathname === "/google") {
     requests.push({ started: performance.now(), provider: "google", source: url.searchParams.get("sl"), target: url.searchParams.get("tl"), count: 1, authenticated: false })
     response.end(JSON.stringify([[[translatedText(url.searchParams.get("q"))]]]))
@@ -173,6 +181,7 @@ const mock = createServer(async (request, response) => {
     }
     const body = JSON.parse(raw)
     if (request.url === "/control") {
+      if ("termFile" in body) termFile = body.termFile
       if ("broken" in body) broken = body.broken
       if ("leakDiagnostics" in body) leakDiagnostics = body.leakDiagnostics
       if ("damageCode" in body) damageCode = body.damageCode
@@ -288,12 +297,12 @@ const mock = createServer(async (request, response) => {
                     ? ["label", "AcmeSDK"].includes(text)
                       ? text
                       : "\r\n" + text + "\r\n"
-                    : translatedText(damageCode && text.includes("Keep ") && /<CTP(?:\d+_)?\d+>|`[^`]+`/.test(text) ? dropLastProtection(text) : text)
+                    : translatedText(damageCode && text.includes("Keep ") ? text + "\n\nExtra paragraph." : text)
         )
         .map((text) => (damageLink && text.includes("code-only-no-request") ? dropLastProtection(text) : text))
         .map((text, index) =>
           pieces[index].includes("Reference contamination case.") && (referenceContamination === "always" || (referenceContamination === "once" && !record.retryFeedbackIncluded))
-            ? text + " 处理最终音频时调用 `run_command`。"
+            ? text + "\n\n处理最终音频时调用 `run_command`。"
             : text
         )
       if (broken) translations.pop()
@@ -310,6 +319,7 @@ const mock = createServer(async (request, response) => {
         else if (text.startsWith("in the `Working language:`"))
           content = "您必须在使用输入时，始终遵循位于顶部 `Working language:` 行中指定的工作语言，用于所有输出、内容生成以及摘要的生成。"
       }
+      if (text === "Read `sourceId` unchanged. InlineCodeToleranceCase.") content = "阅读 sourceChanged，并标记 `body/html`。"
       if (body.model === "retry-history-fixture" && text.includes("JointRetryHistoryCase.") && !record.retryFeedbackIncluded) content = "第一项丢失了代码。\n%%\n"
       response.end(JSON.stringify({ choices: [{ finish_reason: "stop", message: { content } }] }))
     } else response.writeHead(404).end("{}")

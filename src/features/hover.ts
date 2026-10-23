@@ -67,7 +67,9 @@ export class TranslationHover implements vscode.Disposable, vscode.HoverProvider
       // Native hover restarts as the mouse crosses characters; only a different text target cancels its translation.
       for (const other of active) if (other !== request && other.target !== undefined && other.target !== request.target) other.controller.abort("hover-target-changed")
       if (unit) {
-        const identity = replacementIdentity(document.uri)
+        const identity = await replacementIdentity(document.uri, this.translations)
+        controller.signal.throwIfAborted()
+        if (document.isClosed || document.version !== version) return
         const cached = this.inspect(document.uri)?.units.find((item) => item.id === unit.id)
         const batch: TranslationInput = { units: [unit] }
         const translated = cached?.translation ?? (await this.translations.translate(document, batch, controller.signal)).get(unit.id)

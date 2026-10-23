@@ -13,7 +13,7 @@ export function labelReference(node: MarkdownNode, source: string): boolean {
   )
 }
 
-export function protectedFragments(unit: TextUnit): readonly ProtectedFragment[] {
+export function protectedFragments(unit: TextUnit, tree?: MarkdownNode): readonly ProtectedFragment[] {
   if (unit.format === "yaml") return []
   const input = standalone(unit.text)
   let fragments: ProtectedFragment[] = []
@@ -65,7 +65,7 @@ export function protectedFragments(unit: TextUnit): readonly ProtectedFragment[]
     } else for (const child of children(node)) visit(child)
   }
 
-  if (unit.kind !== "string") visit(markdownTree(input).topNode)
+  if (unit.kind !== "string") visit(tree ?? markdownTree(input).topNode)
   fragments.sort((a, b) => a.start - b.start || b.end - a.end)
   const data = /[A-Za-z\d][A-Za-z\d._~:+/%=-]*/gu
   const patterns = [
@@ -126,15 +126,10 @@ export function protectedFragments(unit: TextUnit): readonly ProtectedFragment[]
   return fragments.filter((fragment) => !!fragment.text)
 }
 
-export function fragmentContents(unit: TextUnit): readonly (readonly [string, string])[] {
-  const fragments = protectedFragments(unit)
-  return [
-    ...fragments.filter((fragment) => fragment.kind !== "InlineCode" && fragment.kind !== "Technical").map((fragment) => [fragment.kind, fragment.text] as const),
-    ...fragments
-      .filter((fragment) => fragment.kind === "InlineCode" || fragment.kind === "Technical")
-      .map((fragment) => [fragment.kind, fragment.text] as const)
-      .sort((a, b) => a[0].localeCompare(b[0]) || a[1].localeCompare(b[1]))
-  ]
+export function fragmentContents(unit: TextUnit, tree?: MarkdownNode): readonly (readonly [string, string])[] {
+  return protectedFragments(unit, tree)
+    .filter((fragment) => fragment.kind !== "InlineCode" && fragment.kind !== "Technical")
+    .map((fragment) => [fragment.kind, fragment.text] as const)
 }
 
 /** Peel only complete prose wrappers; partial quotes and inline formatting remain in the sentence. */

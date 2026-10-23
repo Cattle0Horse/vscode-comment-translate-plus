@@ -1,15 +1,15 @@
+import { emptyPreserveTerms, prepareTranslation, parsePreserveTerms } from "../src/documents/terms.ts"
 import assert from "node:assert/strict"
 import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
 import { test } from "node:test"
 import { parseMarkdown } from "../src/documents/markdown.ts"
-import { validTranslation } from "../src/documents/validation.ts"
+import { validateTranslation } from "../src/documents/validation.ts"
 import { translatedMarkdown, translationDisplayText, progressiveMarkdown, previewLoadingMarker } from "../src/documents/presentation.ts"
 import type { TranslationItem } from "../src/model/translation.ts"
 import { RequestGate } from "../src/translation/requestGate.ts"
 import { TranslationStore } from "../src/translation/store.ts"
 import type { TranslationInput } from "../src/model/translation.ts"
-import { prepareTranslation, parsePreserveTerms } from "../src/documents/terms.ts"
 import { prepareInput } from "../src/translation/prepare.ts"
 import { TranslationService } from "../src/translation/engine.ts"
 import { serviceIdentity } from "../src/translation/settings.ts"
@@ -69,10 +69,10 @@ test("fenced Markdown and YAML reuse scalar and prose translation while preservi
       const translations = new Map<string, string>()
       for (const unit of units) {
         assert.equal(source.slice(unit.start, unit.end), unit.text)
-        const prepared = prepareTranslation(unit, [], 32)
+        const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
         assert.equal(prepared.restore(prepared.text), unit.text, "No-change translations must retain original YAML syntax and every container prefix.")
         const translated = prepared.restore(prepared.text.replaceAll("Read", "阅读"))
-        assert.ok(validTranslation(unit, translated))
+        assert.ok(validateTranslation(unit, translated) === undefined)
         translations.set(unit.id, translated)
       }
       const translated = translatedMarkdown(parsed, translations)
@@ -93,7 +93,7 @@ test("moving an embedded document reuses validated per-unit cache without retain
   const action: Parameters<TranslationStore["translate"]>[2] = async (input) => {
     calls++
     return input.units.map((unit) => {
-      const prepared = prepareTranslation(unit, [], 32)
+      const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
       return { id: unit.id, text: prepared.restore(prepared.text.replace("Read", "阅读")) }
     })
   }
@@ -109,7 +109,7 @@ test("custom preserved terms complete and cache only as whole units while mixed 
   const fixture = await chatFixture(t, (body) => modelInput(body).replace("Read ", "阅读 ").replace("Feature", "功能"))
   const settings = {
     ...fixture.settings,
-    preserveTerms: ["Feature", "Unused", "sourceId"]
+    preserveTerms: parsePreserveTerms(["Feature", "Unused", "sourceId"])
   }
   const local: TranslationInput = { units: [...inputOf(parseMarkdown("**Feature**")).units, { id: "code", start: 13, end: 23, text: "`sourceId`", format: "markdown" }] }
   const store = new TranslationStore()
@@ -136,7 +136,7 @@ test("custom preserved terms complete and cache only as whole units while mixed 
   assert.equal(result[0].text, "阅读 功能 and `sourceId`.")
   assert.ok(!fixture.seen.at(-1)!.body.messages.some((message) => /Terminology:|→/u.test(message.content)))
   assert.ok(modelInput(fixture.seen.at(-1)!.body).includes("Feature"), "A custom preserved word inside prose was hidden from the model.")
-  const changedSettings = { ...settings, preserveTerms: [] }
+  const changedSettings = { ...settings, preserveTerms: emptyPreserveTerms }
   const afterChange = await store.translate(
     serviceIdentity(changedSettings),
     local,
@@ -252,7 +252,7 @@ test("provider protocol cancels an active HTTP request and queued sibling items 
     apiKey: "",
     sourceLanguage: "auto",
     targetLanguage: "zh-CN",
-    preserveTerms: [],
+    preserveTerms: emptyPreserveTerms,
     skipSameLanguage: false
   }
   const controller = new AbortController()
@@ -294,7 +294,7 @@ test("shared HTTP transport reports connection failure with a diagnostic code in
     apiKey: "",
     sourceLanguage: "auto",
     targetLanguage: "zh-CN",
-    preserveTerms: [],
+    preserveTerms: emptyPreserveTerms,
     skipSameLanguage: false
   }
   await assert.rejects(requestTranslation(new TranslationService(), settings, batch, new AbortController().signal, new RequestGate(100, 1)), { message: "service-network-failed" })
@@ -573,8 +573,8 @@ test("unit cache keeps table cell validation distinct from plain paragraphs even
   const paragraph = { ...inputOf(parseMarkdown("Read text.")).units[0], reference: [] }
   const cell = { ...inputOf(parseMarkdown("| Read text. | Other |\n| --- | --- |")).units[0], reference: [] }
   assert.equal(paragraph.text, cell.text)
-  assert.equal(validTranslation(paragraph, "译文 | extra"), true)
-  assert.equal(validTranslation(cell, "译文 | extra"), false)
+  assert.equal(validateTranslation(paragraph, "译文 | extra") === undefined, true)
+  assert.equal(validateTranslation(cell, "译文 | extra") === undefined, false)
   let calls = 0
   const action = async (input: TranslationInput) => {
     calls++
@@ -720,7 +720,7 @@ test("retry feedback carries only the latest failed-unit diagnostic and repaired
 
 test("invalid units exhaust a finite budget while verified neighbours survive failure and offset changes in cache", async (t) => {
   let repair = false
-  const fixture = await chatFixture(t, (_body, items) => items.map((text) => (!repair && text.includes("Keep") ? dropLastProtection(text) : text)).join("\n\n%%\n\n"))
+  const fixture = await chatFixture(t, (_body, items) => items.map((text) => (!repair && text.includes("Keep") ? text + "\n\nExtra paragraph." : text)).join("\n\n%%\n\n"))
   const text = "1. Keep `code` unchanged.\n2. Retain the second paragraph.\n3. Retain the third paragraph."
   const original = inputOf(parseMarkdown(text))
   const store = new TranslationStore()

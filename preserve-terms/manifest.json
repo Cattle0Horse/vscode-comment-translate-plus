@@ -1,0 +1,116 @@
+{
+  "collectedOn": "2026-10-23",
+  "format": "preserveTerms 使用的 JSON 数组，支持字符串字面值与显式正则对象",
+  "normalization": "精确大小写去重；保留上游拼写；不生成忽略大小写正则；不取 Devicon tags/图标变体或 Linguist 文件扩展名",
+  "repositories": {
+    "cspell": "streetsidesoftware/cspell-dicts",
+    "devicon": "devicons/devicon",
+    "linguist": "github-linguist/linguist"
+  },
+  "outputs": {
+    "curated": "resources/preserve-terms.json",
+    "full": "resources/preserve-terms.full.json"
+  },
+  "counts": {
+    "cspell-computing-acronyms": 111,
+    "cspell-network-protocols": 65,
+    "cspell-software-tools": 588,
+    "cspell-software-services": 22,
+    "cspell-software-terms": 2292,
+    "devicon-names": 859,
+    "linguist-languages": 1271,
+    "linguist-filenames": 421,
+    "allUnique": 5439,
+    "selected": 304,
+    "curated": 265,
+    "full": 5521,
+    "rejected": 0
+  },
+  "licenses": {
+    "cspell": "MIT",
+    "devicon": "MIT",
+    "linguist": "MIT"
+  },
+  "sources": [
+    {
+      "id": "cspell-computing-acronyms",
+      "source": "cspell",
+      "path": "dictionaries/software-terms/src/computing-acronyms.txt",
+      "url": "https://raw.githubusercontent.com/streetsidesoftware/cspell-dicts/HEAD/dictionaries/software-terms/src/computing-acronyms.txt",
+      "snapshot": "snapshots/cspell-computing-acronyms.txt",
+      "bytes": 1380
+    },
+    {
+      "id": "cspell-network-protocols",
+      "source": "cspell",
+      "path": "dictionaries/software-terms/src/network-protocols.txt",
+      "url": "https://raw.githubusercontent.com/streetsidesoftware/cspell-dicts/HEAD/dictionaries/software-terms/src/network-protocols.txt",
+      "snapshot": "snapshots/cspell-network-protocols.txt",
+      "bytes": 356
+    },
+    {
+      "id": "cspell-software-tools",
+      "source": "cspell",
+      "path": "dictionaries/software-terms/src/software-tools.txt",
+      "url": "https://raw.githubusercontent.com/streetsidesoftware/cspell-dicts/HEAD/dictionaries/software-terms/src/software-tools.txt",
+      "snapshot": "snapshots/cspell-software-tools.txt",
+      "bytes": 6241
+    },
+    {
+      "id": "cspell-software-services",
+      "source": "cspell",
+      "path": "dictionaries/software-terms/src/software-services.txt",
+      "url": "https://raw.githubusercontent.com/streetsidesoftware/cspell-dicts/HEAD/dictionaries/software-terms/src/software-services.txt",
+      "snapshot": "snapshots/cspell-software-services.txt",
+      "bytes": 363
+    },
+    {
+      "id": "cspell-software-terms",
+      "source": "cspell",
+      "path": "dictionaries/software-terms/src/software-terms.txt",
+      "url": "https://raw.githubusercontent.com/streetsidesoftware/cspell-dicts/HEAD/dictionaries/software-terms/src/software-terms.txt",
+      "snapshot": "snapshots/cspell-software-terms.txt",
+      "bytes": 22593
+    },
+    {
+      "id": "devicon",
+      "source": "devicon",
+      "path": "devicon.json",
+      "url": "https://raw.githubusercontent.com/devicons/devicon/HEAD/devicon.json",
+      "snapshot": "snapshots/devicon.json",
+      "bytes": 313952
+    },
+    {
+      "id": "linguist",
+      "source": "linguist",
+      "path": "lib/linguist/languages.yml",
+      "url": "https://raw.githubusercontent.com/github-linguist/linguist/HEAD/lib/linguist/languages.yml",
+      "snapshot": "snapshots/linguist.yml",
+      "bytes": 166017
+    },
+    {
+      "id": "cspell-license",
+      "source": "cspell",
+      "path": "dictionaries/software-terms/LICENSE",
+      "url": "https://raw.githubusercontent.com/streetsidesoftware/cspell-dicts/HEAD/dictionaries/software-terms/LICENSE",
+      "snapshot": "licenses/cspell-MIT.txt",
+      "bytes": 1124
+    },
+    {
+      "id": "devicon-license",
+      "source": "devicon",
+      "path": "LICENSE",
+      "url": "https://raw.githubusercontent.com/devicons/devicon/HEAD/LICENSE",
+      "snapshot": "licenses/devicon-MIT.txt",
+      "bytes": 1072
+    },
+    {
+      "id": "linguist-license",
+      "source": "linguist",
+      "path": "LICENSE",
+      "url": "https://raw.githubusercontent.com/github-linguist/linguist/HEAD/LICENSE",
+      "snapshot": "licenses/linguist-MIT.txt",
+      "bytes": 1056
+    }
+  ]
+}

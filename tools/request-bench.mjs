@@ -4,7 +4,7 @@ import manifest from "../package.json" with { type: "json" }
 
 const { parseMarkdown } = await import("../artifacts/core/documents/markdown.mjs")
 const { prepareInput } = await import("../artifacts/core/translation/prepare.mjs")
-const { prepareTranslation } = await import("../artifacts/core/documents/terms.mjs")
+const { prepareTranslation, emptyPreserveTerms } = await import("../artifacts/core/documents/terms.mjs")
 const { referenceText } = await import("../artifacts/core/documents/references.mjs")
 const { modelRequest, defaultSystemPrompt, defaultUserPrompt, defaultLanguageNames } = await import("../artifacts/core/translation/providers/prompts.mjs")
 const source = "# Benchmark guide\n\n" + Array.from({ length: 200 }, (_, index) => `Original paragraph ${index + 1} keeps \`sourceId\` unchanged.`).join("\n\n")
@@ -23,7 +23,7 @@ const settings = {
   systemPrompt: defaultSystemPrompt,
   userPrompt: defaultUserPrompt,
   languageNames: defaultLanguageNames,
-  preserveTerms: [],
+  preserveTerms: emptyPreserveTerms,
   skipSameLanguage: false,
   minimumMarkerCharacters: manifest.contributes.configuration.properties["commentTranslatePlus.minimumMarkerCharacters"].default,
   maxItemsPerRequest: 20,

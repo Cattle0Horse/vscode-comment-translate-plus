@@ -1,7 +1,7 @@
+import { emptyPreserveTerms, prepareTranslation } from "../src/documents/terms.ts"
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { prepareTranslation } from "../src/documents/terms.ts"
-import { validTranslation } from "../src/documents/validation.ts"
+import { validateTranslation } from "../src/documents/validation.ts"
 import { parseMarkdown } from "../src/documents/markdown.ts"
 import { chatFixture, inputOf, requestTranslation } from "./support/fixtures.ts"
 import { splitTranslations } from "../src/translation/providers/prompts.ts"
@@ -16,9 +16,9 @@ test("response boundaries preserve native CRLF syntax inside each item and retai
   assert.deepEqual(splitTranslations("%%\r\n" + first, "%%", 2), ["", first])
   assert.deepEqual(splitTranslations(first + "\r\n%%\r\n", "%%", 2), [first, ""])
   const unit = inputOf(parseMarkdown("Keep `sourceId` unchanged.")).units[0]
-  const prepared = prepareTranslation(unit, [], 32)
+  const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
   const restored = prepared.restore("\r\n" + prepared.text + "\r\n")
-  assert.ok(validTranslation(unit, restored), "Boundary CRLF shifted a native code span during validation.")
+  assert.ok(validateTranslation(unit, restored) === undefined, "Boundary CRLF shifted a native code span during validation.")
 })
 
 test("copy-only fragments cross the length threshold without masking ordinary names or style boundaries", () => {
@@ -26,12 +26,12 @@ test("copy-only fragments cross the length threshold without masking ordinary na
     const url = "https://example.com/" + "a".repeat(size - 20)
     assert.equal(url.length, size)
     const unit = inputOf(parseMarkdown("Read **sourceId** at [guide](" + url + ").")).units[0]
-    const prepared = prepareTranslation(unit, [], 32)
+    const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
     assert.equal(prepared.hasMarkers, size >= 32)
     assert.ok(prepared.text.includes("**sourceId**"))
     assert.ok(prepared.text.includes(size >= 32 ? "[guide](<CTP0>)" : "[guide](" + url + ")"))
     const restored = prepared.restore(prepared.text.replace("Read", "阅读").replace("sourceId", "来源标识").replace("guide", "指南"))
-    assert.ok(validTranslation(unit, restored))
+    assert.ok(validateTranslation(unit, restored) === undefined)
     assert.ok(restored.includes(url))
     if (size >= 32) {
       assert.ok("<CTP0>".length * 4 <= url.length)
@@ -41,7 +41,7 @@ test("copy-only fragments cross the length threshold without masking ordinary na
   }
   const name = "runtime_context_snapshot_".repeat(20)
   const unit = { id: "name", text: "Read <" + name + "> and sourceId.", start: 0, end: name.length + 22, format: "text" as const, kind: "string" as const }
-  const prepared = prepareTranslation(unit, [], 32)
+  const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
   assert.equal(prepared.hasMarkers, false)
   assert.equal(prepared.restore("阅读 <运行时上下文快照> 和 来源标识。"), "阅读 <运行时上下文快照> 和 来源标识。")
 })
@@ -58,13 +58,13 @@ test("long numeric and mixed data stay exact without an address or hash type reg
   ]) {
     const text = "Read " + value + " now."
     const unit = { id: "data", text, start: 0, end: text.length, format: "text" as const, kind: "string" as const }
-    const prepared = prepareTranslation(unit, [], 32)
+    const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
     assert.equal(prepared.text, "Read <CTP0> now.", value)
     assert.equal(prepared.restore("阅读 <CTP0> now."), "阅读 " + value + " now.")
   }
   for (const value of ["::1", "2001:db8::1", "sourceId", "runtime_context_snapshot", "word1", "a1"]) {
     const text = "Read " + value + " now."
-    assert.equal(prepareTranslation({ id: "short", text, start: 0, end: text.length, format: "text", kind: "string" }, [], 32).text, text)
+    assert.equal(prepareTranslation({ id: "short", text, start: 0, end: text.length, format: "text", kind: "string" }, emptyPreserveTerms, 32).text, text)
   }
 })
 
@@ -95,7 +95,7 @@ test("configured marker thresholds isolate cached and in-flight translations and
   for (const minimumMarkerCharacters of [0, -1, 1.5, NaN, Infinity, 200001])
     assert.throws(() => validateService({ ...fixture.settings, minimumMarkerCharacters }), /service-settings-incomplete/u)
   const short = { ...input.units[0], text: "Read 0933.0sf0....ds now." }
-  assert.equal(prepareTranslation(short, [], 1).hasMarkers, false, "Lowering the threshold bypassed the minimum copying benefit.")
+  assert.equal(prepareTranslation(short, emptyPreserveTerms, 1).hasMarkers, false, "Lowering the threshold bypassed the minimum copying benefit.")
 })
 
 test("decoded JSON content translates labels without exposing serialization escapes or hiding This", async (t) => {
@@ -103,7 +103,7 @@ test("decoded JSON content translates labels without exposing serialization esca
     "<runtime_context_snapshot>\nThis is the complete application runtime context locked at run start.\n<user_timezone>\nAsia/Riyadh\n</user_timezone>\n<utc_date>2026-10-23</utc_date>\n</runtime_context_snapshot>"
   const text = JSON.stringify(content)
   const unit = { id: "json", text, content, start: 0, end: text.length, format: "text" as const, kind: "string" as const, language: "json" }
-  const prepared = prepareTranslation(unit, [], 32)
+  const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
   assert.equal(prepared.hasMarkers, false)
   assert.ok(prepared.text.includes("This is"))
   assert.ok(!prepared.text.includes("\\n"))
@@ -114,7 +114,7 @@ test("decoded JSON content translates labels without exposing serialization esca
   const fixture = await chatFixture(t, () => output)
   const results = await requestTranslation(fixture.service, fixture.settings, { units: [unit] }, new AbortController().signal, fixture.gate)
   assert.equal(fixture.seen.length, 1)
-  assert.ok(validTranslation(unit, results[0].text))
+  assert.ok(validateTranslation(unit, results[0].text) === undefined)
   assert.ok(JSON.parse(results[0].text).includes("<运行时上下文快照>"))
   assert.ok(JSON.parse(results[0].text).includes("Asia/Riyadh"))
 })

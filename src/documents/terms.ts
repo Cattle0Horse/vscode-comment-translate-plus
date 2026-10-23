@@ -1,21 +1,24 @@
 import { translationBody } from "./body.ts"
 import { embedTranslation } from "./embedding.ts"
 import type { TextUnit } from "../model/document.ts"
-import type { PreserveTerm } from "../model/translation.ts"
+import type { PreserveTerms } from "../model/translation.ts"
 import { ModelRetry } from "../model/diagnostics.ts"
-import { validTranslation } from "./validation.ts"
+import { validateTranslation, protectedContentFailure } from "./validation.ts"
 import { protectedFragments } from "./protection.ts"
 
 const markerFeedback = "Keep every <CTP...> marker unchanged and exactly once in its own item."
 
-/** Validate and compile user regexes at the configuration boundary, with absolute body boundaries even in multiline mode. */
-export function parsePreserveTerms(value: unknown): readonly PreserveTerm[] {
+/** Compile one validated list once, with absolute body boundaries even in multiline mode. */
+export function parsePreserveTerms(value: unknown): PreserveTerms {
   if (!Array.isArray(value)) throw Error("preserveTerms 必须是字符串或正则对象的数组。")
-  return value.map((term: unknown, index) => {
+  const literals = new Set<string>()
+  const expressions = new Map<string, RegExp>()
+  value.forEach((term: unknown, index) => {
     const label = "preserveTerms 第 " + (index + 1) + " 项"
     if (typeof term === "string") {
       if (!term.trim()) throw Error(label + "必须是非空字符串。")
-      return term
+      literals.add(term)
+      return
     }
     if (!term || typeof term !== "object" || Array.isArray(term)) throw Error(label + "必须是非空字符串或 { pattern, flags } 正则对象。")
     const entry = term as Record<string, unknown>
@@ -30,16 +33,23 @@ export function parsePreserveTerms(value: unknown): readonly PreserveTerm[] {
     if (!/^[imsu]*$/u.test(flags)) throw Error(label + "的 flags 只支持 i、m、s、u，不支持 g、y 等有状态标志。")
     try {
       const expression = new RegExp(entry.pattern, flags)
-      return new RegExp("(?<![\\s\\S])(?:" + expression.source + ")(?![\\s\\S])", expression.flags)
+      expressions.set(JSON.stringify([expression.source, expression.flags]), new RegExp("(?<![\\s\\S])(?:" + expression.source + ")(?![\\s\\S])", expression.flags))
     } catch {
       throw Error(label + "的正则表达式或 flags 无效。")
     }
   })
+  return {
+    literals,
+    expressions: [...expressions.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([, expression]) => expression),
+    identity: JSON.stringify([[...literals].sort(), [...expressions.keys()].sort()])
+  }
 }
+
+export const emptyPreserveTerms = parsePreserveTerms([])
 
 export function prepareTranslation(
   unit: TextUnit,
-  preserveTerms: readonly PreserveTerm[],
+  preserveTerms: PreserveTerms,
   minimumMarkerCharacters: number,
   context = ""
 ): { text: string; source: string; hasMarkers: boolean; needsTranslation: boolean; restore(text: string): string } {
@@ -53,7 +63,7 @@ export function prepareTranslation(
   while ([unit.text, original, context].some((value) => value.includes(prefix))) prefix = "<CTP" + ++namespace + "_"
   const markers = new Map<string, { value: string; inlineCode?: boolean }>()
   let remaining = ""
-  const nativeLiterals = new Map<string, boolean>()
+  const nativeLiterals = new Map<string, string | undefined>()
   const orderedTokens: string[] | undefined = unit.language === "python" && unit.kind === "string" ? [] : undefined
   let text = ""
   let position = 0
@@ -70,8 +80,8 @@ export function prepareTranslation(
     // Native syntax is easier to read and repeat than a marker. Mask only long
     // indivisible fragments when the body saves at least three quarters of its size.
     if (range.side || range.kind === undefined || range.kind === "LineBoundary" || value.length < minimumMarkerCharacters || marker.length * 4 > value.length) {
-      if (!range.side) {
-        nativeLiterals.set(value, range.kind === undefined)
+      if (!range.side && range.kind !== "InlineCode") {
+        nativeLiterals.set(value, range.kind)
         orderedTokens?.push(value)
       }
       return value
@@ -114,7 +124,7 @@ export function prepareTranslation(
     source,
     hasMarkers: markers.size > 0,
     needsTranslation:
-      !preserveTerms.some((term) => (typeof term === "string" ? term === source : term.test(source))) && !!remaining.trim() && (!protectedRanges.length || /\p{L}/u.test(remaining)),
+      !preserveTerms.literals.has(source) && !preserveTerms.expressions.some((term) => term.test(source)) && !!remaining.trim() && (!protectedRanges.length || /\p{L}/u.test(remaining)),
     restore: (translated) => {
       // Only a source-owned Markdown prefix may be echoed; restore its exact original numbering and syntax locally.
       if (echoedPrefix) translated = translated.replace(echoedPrefix, "")
@@ -188,21 +198,17 @@ export function prepareTranslation(
             }
           }
           const restoredCandidate = original.slice(0, start) + candidate.replace(pattern, (marker) => markers.get(marker)!.value) + original.slice(end)
-          if (validTranslation(unit, restoredCandidate)) translated = candidate
+          if (validateTranslation(unit, restoredCandidate) === undefined) translated = candidate
         }
       }
       // TextMate ranges have no translated offsets. Verify their exact content and
       // multiplicity before parsing the surrounding translated document.
       const occurrences = (value: string, content: string) => content.split(value).length - 1
-      for (const [value, raw] of nativeLiterals) {
-        if (occurrences(value, translated) !== occurrences(value, text))
-          throw new ModelRetry(
-            { reason: "The response changed required literal content.", instruction: "Keep source code, link targets, literal data and source-language syntax unchanged." },
-            {
-              code: "translation-structure-invalid",
-              difference: { reason: raw ? "模型修改了字符串转义、定界符或插值。" : "模型修改了必须保留的代码、链接或数据。", expected: value, actual: "原生内容缺失、重复或改写" }
-            }
-          )
+      for (const [value, kind] of nativeLiterals) {
+        if (occurrences(value, translated) !== occurrences(value, text)) {
+          const { instruction, ...difference } = protectedContentFailure({ kind, expected: value, actual: "原生内容缺失、重复或改写" })
+          throw new ModelRetry({ reason: difference.modelReason, instruction }, { code: "translation-structure-invalid", difference })
+        }
       }
       if (orderedTokens) {
         let cursor = 0
@@ -226,11 +232,11 @@ export function prepareTranslation(
         throw new ModelRetry(
           {
             reason: "The response introduced an internal line break.",
-            instruction: "Return each source item's translation on one line, keeping protected content unchanged and excluding explanatory lines."
+            instruction: "Return each source item's translation on one line. Exclude the reference/context, preceding or following blocks, and explanations."
           },
           {
             code: "translation-structure-invalid",
-            difference: { reason: "待译正文已转换为单行，模型新增了内部换行，可能混入独立说明。", expected: "单行正文，跨行文本以单个空格连接", actual: "包含内部换行" }
+            difference: { reason: "待译正文已转换为单行，模型新增了内部换行，可能混入参考译文或独立说明。", expected: "单行正文，跨行文本以单个空格连接", actual: "包含内部换行" }
           }
         )
       if (translated === text) return unit.text

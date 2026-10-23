@@ -59,7 +59,7 @@ export function serviceIdentity(settings: ServiceSettings): string {
     settings.languageNames,
     settings.sourceLanguage.trim() || "auto",
     settings.targetLanguage,
-    settings.preserveTerms.map((term) => (typeof term === "string" ? term : { pattern: term.source, flags: term.flags })),
+    settings.preserveTerms.identity,
     settings.skipSameLanguage,
     settings.minimumMarkerCharacters
   ])

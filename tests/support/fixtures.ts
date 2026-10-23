@@ -1,5 +1,5 @@
+import { emptyPreserveTerms, parsePreserveTerms, prepareTranslation } from "../../src/documents/terms.ts"
 import { readFileSync } from "node:fs"
-import { parsePreserveTerms } from "../../src/documents/terms.ts"
 import assert from "node:assert/strict"
 import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
@@ -17,10 +17,9 @@ import { TranslationService } from "../../src/translation/engine.ts"
 import { defaultSystemPrompt, defaultUserPrompt, defaultLanguageNames } from "../../src/translation/providers/prompts.ts"
 import type { ParsedDocument } from "../../src/model/document.ts"
 import { referenceText as mergeReferences } from "../../src/documents/references.ts"
-import { prepareTranslation } from "../../src/documents/terms.ts"
 import { protectedFragments } from "../../src/documents/protection.ts"
 
-export const defaultPreserveTerms = parsePreserveTerms(JSON.parse(readFileSync("package.json", "utf8")).contributes.configuration.properties["commentTranslatePlus.preserveTerms"].default)
+export const defaultPreserveTerms = parsePreserveTerms(JSON.parse(readFileSync("resources/preserve-terms.json", "utf8")))
 
 export async function embeddedMarkdown(source: string): Promise<ParsedDocument> {
   return parseMarkdownWithCode(source, async (text, language) => {
@@ -65,7 +64,7 @@ export function inputOf(parsed: ParsedDocument): TranslationInput {
 }
 
 export function referenceText(units: TranslationInput["units"]): string {
-  return mergeReferences(units.map((source) => ({ source, hasMarkers: prepareTranslation(source, [], 32).hasMarkers })))
+  return mergeReferences(units.map((source) => ({ source, hasMarkers: prepareTranslation(source, emptyPreserveTerms, 32).hasMarkers })))
 }
 
 export function unitReferences(unit: TranslationInput["units"][number], budget: number) {
@@ -80,7 +79,7 @@ export function unitReferences(unit: TranslationInput["units"][number], budget: 
       systemPrompt: defaultSystemPrompt,
       userPrompt: defaultUserPrompt,
       languageNames: defaultLanguageNames,
-      preserveTerms: [],
+      preserveTerms: emptyPreserveTerms,
       sourceLanguage: "auto",
       targetLanguage: "zh-CN",
       skipSameLanguage: false

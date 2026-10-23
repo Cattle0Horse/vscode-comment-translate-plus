@@ -1,3 +1,4 @@
+import { emptyPreserveTerms, prepareTranslation } from "../src/documents/terms.ts"
 import assert from "node:assert/strict"
 import { readFile } from "node:fs/promises"
 import { createServer } from "node:http"
@@ -10,7 +11,6 @@ import { translatedMarkdown, translationDisplayText, displayTranslations } from 
 import { validateTranslations } from "../src/translation/results.ts"
 import { RequestGate } from "../src/translation/requestGate.ts"
 import { TranslationStore } from "../src/translation/store.ts"
-import { prepareTranslation } from "../src/documents/terms.ts"
 import { prepareInput } from "../src/translation/prepare.ts"
 import { TranslationService } from "../src/translation/engine.ts"
 import { defaultSystemPrompt, defaultUserPrompt, defaultLanguageNames, renderPrompt, modelRequest, splitTranslations } from "../src/translation/providers/prompts.ts"
@@ -153,7 +153,7 @@ test("plain-text HTTP adapter sends context without JSON output constraints and 
     userPrompt: defaultUserPrompt,
     languageNames: defaultLanguageNames,
     apiKey: "",
-    preserveTerms: [],
+    preserveTerms: emptyPreserveTerms,
     skipSameLanguage: false,
     apiUrl: `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1/chat/completions`,
     model: "local-test",
@@ -252,7 +252,7 @@ test("redundant outer separators are tolerated without guessing ambiguous or exp
 })
 
 test("actual HTTP references merge table rows and YAML fields and retries retain only the failed row", async (t) => {
-  const fixture = await chatFixture(t, (_body, items, call) => items.map((item) => (call === 1 && item.includes("Keep") ? dropLastProtection(item) : item)).join("\n%%\n"))
+  const fixture = await chatFixture(t, (_body, items, call) => items.map((item) => (call === 1 && item.includes("Keep") ? item + "\n\nExtra paragraph." : item)).join("\n%%\n"))
   const settings = { ...fixture.settings, initialItemsPerRequest: 20, adaptiveBatching: false }
   const table = "| Signal | Action |\n| --- | --- |\n| Event | Keep `sourceId`. |\n| Market | Read industry. |"
   const input = inputOf(parseMarkdown(table))
@@ -269,7 +269,7 @@ test("actual HTTP references merge table rows and YAML fields and retries retain
 })
 
 test("actual HTTP budgets use merged code windows and retry only the failed unit's window", async (t) => {
-  const fixture = await chatFixture(t, (_body, items, call) => items.map((item) => (call === 1 && item.includes("Keep") ? dropLastProtection(item) : item)).join("\n%%\n"))
+  const fixture = await chatFixture(t, (_body, items, call) => items.map((item) => (call === 1 && item.includes("Keep") ? item + "\n\nExtra paragraph." : item)).join("\n%%\n"))
   const source = await readFile("fixtures/development/comments.rs", "utf8")
   const units = ["Read the original document.", "/* Keep `sourceId` unchanged. */", '"Read the original document."'].map((text, index) => {
     const start = source.indexOf(text)
@@ -525,7 +525,7 @@ test("changing retry instructions retains the full original message prefix for d
       languageNames: defaultLanguageNames,
       apiUrl: "http://fixture.invalid",
       apiKey: "",
-      preserveTerms: []
+      preserveTerms: emptyPreserveTerms
     }
     const request = { settings, context: "# Source reference", items: [{ id: "one", text: "Sources", format: "markdown" as const }] }
     const initial = modelRequest(request).payload.messages
@@ -644,7 +644,7 @@ test("configured shrink factor and attempt budget retain verified neighbours and
     fixture.seen.map((request) => request.items.length),
     [8, 2, 2, 2, 2]
   )
-  const broken = await chatFixture(t, (_body, items) => items.map((item) => (item.includes("Keep") ? dropLastProtection(item) : item)).join("\n\n%%\n\n"))
+  const broken = await chatFixture(t, (_body, items) => items.map((item) => (item.includes("Keep") ? item + "\n\nExtra paragraph." : item)).join("\n\n%%\n\n"))
   const input = inputOf(parseMarkdown("1. Keep `code` unchanged.\n2. Original neighbour."))
   for (const maximum of [1, 2, 4]) {
     const start = broken.seen.length
@@ -843,7 +843,7 @@ test("YAML key colon recovery preserves value punctuation, original key punctuat
     [4, "字段:", "字段:"]
   ] as const) {
     const unit = units[index]
-    const translated = prepareTranslation(unit, [], 32).restore(returned)
+    const translated = prepareTranslation(unit, emptyPreserveTerms, 32).restore(returned)
     assert.equal(translationDisplayText(translated, "yaml"), expected)
   }
 })

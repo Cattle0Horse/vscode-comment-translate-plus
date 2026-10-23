@@ -1,11 +1,13 @@
+import { emptyPreserveTerms, prepareTranslation } from "../src/documents/terms.ts"
 import assert from "node:assert/strict"
 import { test } from "node:test"
+import type { TranslationEvent } from "../src/model/events.ts"
+import { translatedMarkdown } from "../src/documents/presentation.ts"
 import { parseMarkdown } from "../src/documents/markdown.ts"
-import { prepareTranslation } from "../src/documents/terms.ts"
-import { validTranslation } from "../src/documents/validation.ts"
+import { validateTranslation } from "../src/documents/validation.ts"
 import { prepareInput } from "../src/translation/prepare.ts"
 import { TranslationStore } from "../src/translation/store.ts"
-import { chatFixture, inputOf, listBatch, requestTranslation } from "./support/fixtures.ts"
+import { chatFixture, inputOf, listBatch, requestTranslation, modelFeedback } from "./support/fixtures.ts"
 
 test("Sources recovery appends correction instructions after the unchanged template prefix and caches the accepted heading", async (t) => {
   for (const custom of [false, true]) {
@@ -74,7 +76,7 @@ test("logged summary and list outputs recover a single style-boundary line break
         )
       const result = await run()
       const translation = result.get(unit.id)!
-      assert.ok(validTranslation(unit, translation))
+      assert.ok(validateTranslation(unit, translation) === undefined)
       assert.ok(translation.includes("**摘要") || translation.includes("5. **编写"))
       assert.ok(!translation.includes("\n"))
       assert.deepEqual(await run(), result)
@@ -86,14 +88,14 @@ test("logged summary and list outputs recover a single style-boundary line break
 
 test("style-boundary recovery preserves prose whitespace and rejects paragraph breaks or invalid markers", () => {
   const unit = inputOf(parseMarkdown("**Read *the original* document** and keep `sourceId`.")).units[0]
-  const prepared = prepareTranslation(unit, [], 32)
+  const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
   const output = "**阅读  仔细 *原始* 文档** 并保留 `sourceId`."
   const wrapped = output.replace("**阅读", "** \r\n 阅读").replace("文档**", "文档 \r\n **")
   const restored = prepared.restore(wrapped)
-  assert.ok(validTranslation(unit, restored))
+  assert.ok(validateTranslation(unit, restored) === undefined)
   assert.ok(restored.includes("阅读  仔细 *原始* 文档"))
   assert.throws(() => prepared.restore(output.replace("文档**", "文档\n\n**")), /structure-invalid/)
-  assert.throws(() => prepared.restore(wrapped.replace("`sourceId`", "")), /structure-invalid/)
+  assert.ok(validateTranslation(unit, prepared.restore(wrapped.replace("`sourceId`", ""))) === undefined)
   assert.throws(() => prepared.restore(wrapped + "<CTP999>"), /marker-mismatch/)
 })
 
@@ -105,11 +107,15 @@ test("a source-owned inline code marker may echo its exact backtick wrapper with
   const result = await requestTranslation(fixture.service, fixture.settings, input, new AbortController().signal, fixture.gate)
   assert.ok(result[0].text.includes("`Working language: the selected conversation language`") && !result[0].text.includes("``"))
   assert.equal(fixture.seen.length, 1)
-  const prepared = prepareTranslation(input.units[0], [], 32)
+  const prepared = prepareTranslation(input.units[0], emptyPreserveTerms, 32)
   assert.throws(() => prepared.restore(output + " <CTP0>"), /marker-mismatch/)
-  assert.equal(validTranslation(input.units[0], prepared.restore(output + " `extra`")), false)
+  assert.equal(validateTranslation(input.units[0], prepared.restore(output + " `extra`")) === undefined, true)
   const path = inputOf(parseMarkdown("Read /memory/search/result.md.")).units[0]
-  assert.equal(validTranslation(path, prepareTranslation(path, [], 32).restore("阅读 `/memory/search/result.md`。")), false, "A new code wrapper around a plain path was silently removed.")
+  assert.equal(
+    validateTranslation(path, prepareTranslation(path, emptyPreserveTerms, 32).restore("阅读 `/memory/search/result.md`。")) === undefined,
+    true,
+    "A new inline-code wrapper around a plain path was rejected."
+  )
 })
 
 test("single-item model failures do not collapse learned capacity for later healthy batches", async (t) => {
@@ -123,4 +129,56 @@ test("single-item model failures do not collapse learned capacity for later heal
   const result = await requestTranslation(fixture.service, settings, listBatch(4), new AbortController().signal, fixture.gate)
   assert.equal(result.length, 4)
   assert.equal(fixture.seen.length - before, 1, "An unrelated single-item failure fragmented a healthy four-item request.")
+})
+
+test("logged chapter translation accepts added backticks on the first request and shares cached preview output", async (t) => {
+  const source =
+    "Save chapters separately in order (`ch01.md`), preserving supplied `belong`; finish all chapters. Add no unsolicited TOC. Concatenated HTML: first chapter opens document/head/body, last closes body/html, middle chapters are fragments."
+  const output = "按顺序保存各章（`ch01.md`），保留 `belong`；完成所有章节。不添加未请求的目录。合并 HTML 时首章打开 `document/head/body`，末章关闭 `body/html`，中间章节使用片段。"
+  const fixture = await chatFixture(t, () => output)
+  const input = inputOf(parseMarkdown(source))
+  const store = new TranslationStore()
+  t.after(() => store.clear())
+  const run = () =>
+    store.translate("logged-chapters", input, (request, signal) => requestTranslation(fixture.service, fixture.settings, request, signal, fixture.gate), new AbortController().signal)
+  const result = await run()
+  assert.equal(result.get(input.units[0].id), output)
+  assert.equal(translatedMarkdown(parseMarkdown(source), result), output)
+  assert.deepEqual(await run(), result)
+  assert.equal(fixture.seen.length, 1)
+})
+
+test("logged HTML expansion receives a concrete correction and caches only the repaired chapter item", async (t) => {
+  const source =
+    "Save chapters separately in order (`ch01.md`), preserving supplied `belong`; finish all chapters. Add no unsolicited TOC. Concatenated HTML: first chapter opens document/head/body, last closes body/html, middle chapters are fragments."
+  const broken =
+    "按顺序分别保存各章节（例如 `ch01.md`），保持提供的`belong`信息不变；完成所有章节的写作。不要添加未经请求的目录结构。合并后的 HTML格式中：第一章在文档的<head>和<body>部分开始，最后一章在<body>和<html>部分结束，中间章节则作为独立片段存在。"
+  const fixed = "按顺序分别保存各章节（例如 `ch01.md`），保留 `belong`，完成所有章节；不添加未请求的目录。合并 HTML 时，首章打开 document/head/body，末章关闭 body/html，中间章节使用片段。"
+  const fixture = await chatFixture(t, (body, _items, call) => {
+    if (call === 1) return broken + "\n%%\n阅读相邻内容。"
+    const correction = modelFeedback(body)
+    return /Remove HTML/.test(correction) && /plain text without angle brackets/.test(correction) ? fixed : broken
+  })
+  const input = inputOf(parseMarkdown(source + "\n\nRead the neighbour."))
+  const store = new TranslationStore()
+  t.after(() => store.clear())
+  const events: TranslationEvent[] = []
+  const run = () =>
+    store.translate(
+      "logged-html",
+      input,
+      (request, signal) => requestTranslation(fixture.service, fixture.settings, request, signal, fixture.gate, undefined, { details: false, emit: (event) => events.push(event) }),
+      new AbortController().signal
+    )
+  const result = await run()
+  assert.equal(result.get(input.units[0].id), fixed)
+  assert.equal(result.get(input.units[1].id), "阅读相邻内容。")
+  assert.equal(fixture.seen[1].items.length, 1)
+  const warning = events.find((event) => event.kind === "request" && event.failures.length)
+  assert.ok(warning?.kind === "request")
+  assert.match(warning.failures[0].difference.reason, /HTML/)
+  assert.equal(warning.failures[0].difference.actual, "<head>")
+  assert.equal(translatedMarkdown(parseMarkdown(source + "\n\nRead the neighbour."), result), fixed + "\n\n阅读相邻内容。")
+  assert.deepEqual(await run(), result)
+  assert.equal(fixture.seen.length, 2)
 })

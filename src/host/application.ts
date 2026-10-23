@@ -9,6 +9,7 @@ import { SourceReplacementAction } from "../features/replacement.ts"
 import type { ParsedDocument } from "../model/document.ts"
 import type { SourceEdit } from "../documents/edits.ts"
 import { requestPolicySchema } from "../translation/settings.ts"
+import { TranslationFailure } from "../model/diagnostics.ts"
 
 interface PendingEdit {
   readonly timer: ReturnType<typeof setTimeout>
@@ -19,7 +20,7 @@ interface PendingEdit {
 
 export class Application implements vscode.Disposable {
   readonly documents: DocumentReader
-  readonly translations = new TranslationRuntime()
+  readonly translations: TranslationRuntime
   readonly browse: BrowseWorkspace
   readonly hover: TranslationHover
   readonly preview: MarkdownPreview
@@ -28,7 +29,8 @@ export class Application implements vscode.Disposable {
   private readonly subscriptions: vscode.Disposable[]
   private readonly timers = new Map<string, PendingEdit>()
   private disposed = false
-  constructor(context: vscode.ExtensionContext) {
+  constructor(context: vscode.ExtensionContext, home?: string) {
+    this.translations = new TranslationRuntime(context, home)
     this.documents = new DocumentReader(context.extensionUri, "extension-output-" + context.extension.id + "-")
     this.browse = new BrowseWorkspace(
       context.extensionUri,
@@ -59,6 +61,16 @@ export class Application implements vscode.Disposable {
       this.browse.tryAutomatic()
     }
     this.subscriptions = [
+      this.translations.terms.onDidChange(() => void this.reconfigure({ affectsConfiguration: (section) => section === "commentTranslatePlus.preserveTerms" })),
+      vscode.commands.registerCommand("commentTranslatePlus.refreshPreserveTerms", async () => {
+        try {
+          const document = vscode.window.activeTextEditor?.document
+          if (document && this.documents.supports(document)) await this.translations.terms.get(document.uri)
+          await this.translations.terms.refresh()
+        } catch (error) {
+          if (!(error instanceof TranslationFailure && error.reported)) void vscode.window.showErrorMessage(error instanceof Error ? error.message : "无法刷新保留词文件。")
+        }
+      }),
       vscode.window.onDidChangeActiveTextEditor(refresh),
       vscode.window.onDidChangeVisibleTextEditors(refresh),
       vscode.window.onDidChangeTextEditorVisibleRanges(() => this.browse.refreshVisible()),
@@ -108,7 +120,7 @@ export class Application implements vscode.Disposable {
       if (before) {
         const current = await this.documents.parse(document, true)
         if (!isCurrent()) return
-        if (pending.retain) this.translations.retainUnchanged(document, before, current, pending.edits)
+        if (pending.retain) await this.translations.retainUnchanged(document, before, current, pending.edits)
       }
     } catch {
       // Browse and preview report parse/configuration failures through their
@@ -125,7 +137,7 @@ export class Application implements vscode.Disposable {
     const pending = this.timers.get(document.uri.toString())
     if (pending) pending.retain = false
     const parsed = await this.documents.parse(document)
-    this.translations.invalidate(document, parsed)
+    await this.translations.invalidate(document, parsed)
     this.hover.cancel(document.uri, "retranslation")
     this.replacement.cancel(document.uri, "retranslation")
     this.browse.restart(document.uri, true)

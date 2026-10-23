@@ -1,6 +1,10 @@
 import type { TextUnit, ReferenceBlock } from "./document.ts"
 
-export type PreserveTerm = string | RegExp
+export interface PreserveTerms {
+  readonly literals: ReadonlySet<string>
+  readonly expressions: readonly RegExp[]
+  readonly identity: string
+}
 
 export interface TranslationInput {
   readonly units: readonly TextUnit[]

@@ -11,17 +11,38 @@ import type { ParsedDocument } from "../model/document.ts"
 import type { SourceEdit } from "../documents/edits.ts"
 import type { PreparedInput, TranslationInput } from "../model/translation.ts"
 import type { TranslationItem } from "../model/translation.ts"
+import type { PreserveTerms } from "../model/translation.ts"
 import { describeError, TranslationFailure } from "../model/diagnostics.ts"
+import { TermFiles } from "./termFiles.ts"
 
 export class TranslationRuntime implements vscode.Disposable {
+  readonly terms: TermFiles
   private readonly gate = new RequestGate(2, 2)
   private readonly store = new TranslationStore()
   private readonly service = new TranslationService()
   private readonly output = vscode.window.createOutputChannel("注释翻译+")
   private readonly log = new TranslationLog((entry) => this.output.appendLine(entry))
   private disposed = false
-  constructor() {
+  constructor(context: vscode.ExtensionContext, home?: string) {
+    this.terms = new TermFiles(context, home)
     this.configureLog()
+  }
+
+  async settings(uri?: vscode.Uri): Promise<TranslationSettings> {
+    while (!this.disposed) {
+      const before = JSON.stringify(vscode.workspace.getConfiguration("commentTranslatePlus", uri).inspect("preserveTerms"))
+      let terms: PreserveTerms
+      try {
+        terms = await this.terms.get(uri)
+      } catch (error) {
+        if (!this.disposed && before !== JSON.stringify(vscode.workspace.getConfiguration("commentTranslatePlus", uri).inspect("preserveTerms"))) continue
+        throw error
+      }
+      if (before !== JSON.stringify(vscode.workspace.getConfiguration("commentTranslatePlus", uri).inspect("preserveTerms"))) continue
+      if (this.disposed) break
+      return getTranslationSettings(uri, terms)
+    }
+    throw Error("extension-disposed")
   }
 
   async translate(
@@ -30,10 +51,12 @@ export class TranslationRuntime implements vscode.Disposable {
     signal: AbortSignal,
     force = false,
     completed?: (item: TranslationItem) => void,
-    settings = getTranslationSettings(document.uri),
+    settings?: TranslationSettings,
     interests?: ReadonlyMap<string, AbortSignal>
   ): Promise<ReadonlyMap<string, string>> {
     if (this.disposed) throw Error("extension-disposed")
+    settings ??= await this.settings(document.uri)
+    signal.throwIfAborted()
     this.gate.configure(settings.rate, settings.maxConcurrentRequests)
     const units: PreparedInput["units"][number][] = []
     let started = performance.now()
@@ -92,13 +115,17 @@ export class TranslationRuntime implements vscode.Disposable {
     return translations
   }
 
-  invalidate(document: vscode.TextDocument, parsed: ParsedDocument): void {
-    const settings = getTranslationSettings(document.uri)
+  async invalidate(document: vscode.TextDocument, parsed: ParsedDocument): Promise<void> {
+    const version = document.version
+    const settings = await this.settings(document.uri)
+    if (document.isClosed || document.version !== version) return
     this.store.invalidate(settings.identity, [prepareInput(settings, { units: parsed.groups.flatMap((group) => group.units) })])
   }
 
-  retainUnchanged(document: vscode.TextDocument, previous: ParsedDocument, current: ParsedDocument, edits: readonly (readonly SourceEdit[])[]): void {
-    const settings = getTranslationSettings(document.uri)
+  async retainUnchanged(document: vscode.TextDocument, previous: ParsedDocument, current: ParsedDocument, edits: readonly (readonly SourceEdit[])[]): Promise<void> {
+    const version = document.version
+    const settings = await this.settings(document.uri)
+    if (document.isClosed || document.version !== version) return
     this.store.retainUnchanged(
       settings.identity,
       prepareInput(settings, { units: previous.groups.flatMap((group) => group.units) }),
@@ -152,6 +179,7 @@ export class TranslationRuntime implements vscode.Disposable {
 
   dispose(): void {
     this.disposed = true
+    this.terms.dispose()
     this.store.clear()
     this.service.clear()
     this.log.resetReferences()

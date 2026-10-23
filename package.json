@@ -16,7 +16,7 @@
     "node": ">=22",
     "vscode": "^1.140.0"
   },
-  "main": "./dist/extension.cjs",
+  "main": "./dist/desktop.cjs",
   "activationEvents": [
     "onStartupFinished",
     "onFileSystem:comment-translate-plus-preview"
@@ -26,7 +26,11 @@
     "dist/ThirdPartyNotices.txt",
     "dist/onig.wasm",
     "dist/loading.svg",
-    "resources/preview.css"
+    "resources/preview.css",
+    "dist/desktop.cjs",
+    "resources/preserve-terms.json",
+    "resources/preserve-terms.full.json",
+    "preserve-terms/licenses/*.txt"
   ],
   "scripts": {
     "check": "node tools/check.mjs && node tools/architecture.mjs && node --run typecheck && node --run format:check",
@@ -69,6 +73,7 @@
   },
   "dependencies": {
     "@lezer/markdown": "1.8.1",
+    "jsonc-parser": "3.3.1",
     "tinyld": "^1.3.4",
     "vscode-oniguruma": "^2.0.1",
     "vscode-textmate": "^9.3.2",
@@ -179,6 +184,11 @@
         "title": "重新翻译",
         "category": "Comment Translate Plus",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "commentTranslatePlus.refreshPreserveTerms",
+        "title": "刷新保留词",
+        "category": "Comment Translate Plus"
       }
     ],
     "configuration": {
@@ -746,7 +756,7 @@
               "systemPrompt": {
                 "type": "string",
                 "description": "自定义系统提示词；未配置时使用内置模板，空字符串不发送系统消息。支持 ${content}、${targetLang}、${sourceLang}、${targetLangCode}、${sourceLangCode}、${context}、${separator}、${itemCount}、${isBatch}、${hasProtectedMarkers}、${contentType}；{{#if context}}…{{/if}} 仅在对应变量非空时包含整段。模板完整控制原始系统消息；自动重试诊断由请求层追加为独立 user 消息",
-                "default": "Translate the following text into ${targetLang} accurately and fluently.\nOnly output the translated result without any additional explanation. Do not add code, links, formatting, or content absent from the source.{{#if hasProtectedMarkers}} Keep each <CTP...> marker unchanged.{{/if}}\n{{#if isBatch}}The input contains ${itemCount} items in order. Separate their translations with ${separator} on its own line.\n{{/if}}"
+                "default": "Translate the following text into ${targetLang} accurately and fluently.\nOnly output the translated result without any additional explanation.{{#if hasProtectedMarkers}} Keep each <CTP...> marker unchanged.{{/if}}\n{{#if isBatch}}The input contains ${itemCount} items in order. Separate their translations with ${separator} on its own line.\n{{/if}}"
               },
               "userPrompt": {
                 "type": "string",
@@ -884,123 +894,12 @@
         "commentTranslatePlus.preserveTerms": {
           "type": "array",
           "items": {
-            "oneOf": [
-              {
-                "type": "string",
-                "minLength": 1
-              },
-              {
-                "type": "object",
-                "required": [
-                  "pattern"
-                ],
-                "additionalProperties": false,
-                "properties": {
-                  "pattern": {
-                    "type": "string",
-                    "minLength": 1,
-                    "description": "JavaScript 正则表达式正文，不包含 / 分隔符；强制匹配整个待译正文"
-                  },
-                  "flags": {
-                    "type": "string",
-                    "default": "u",
-                    "pattern": "^[imsu]*$",
-                    "description": "JavaScript 正则标志，仅支持 i/m/s/u；省略时为 u，不支持 g/y 等有状态标志"
-                  }
-                }
-              }
-            ]
+            "type": "string",
+            "minLength": 1
           },
-          "default": [
-            {
-              "pattern": "HTTP(?:S|\\(S\\))?",
-              "flags": "i"
-            },
-            "HTTP/HTTPS",
-            "TCP/IP",
-            "TCP",
-            "UDP",
-            "IP",
-            "IPv4",
-            "IPv6",
-            "DNS",
-            "DHCP",
-            "TLS",
-            "SSL",
-            "SSH",
-            "FTP",
-            "FTPS",
-            "SFTP",
-            "SMTP",
-            "IMAP",
-            "POP3",
-            "WS",
-            "WSS",
-            "MQTT",
-            "AMQP",
-            "QUIC",
-            "JSON",
-            "JSONC",
-            "json",
-            "uv.lock",
-            "YAML",
-            "TOML",
-            "XML",
-            "HTML",
-            "CSS",
-            "CSV",
-            "TSV",
-            "SQL",
-            "UTF-8",
-            "UTF-16",
-            "UTF-32",
-            "ASCII",
-            "MIME",
-            "API",
-            "SDK",
-            "CLI",
-            "GUI",
-            "UI",
-            "URL",
-            "URI",
-            "UUID",
-            "GUID",
-            "RPC",
-            "gRPC",
-            "GraphQL",
-            "OAuth",
-            "OAuth2",
-            "JWT",
-            "DOM",
-            "BOM",
-            "CPU",
-            "GPU",
-            "RAM",
-            "ROM",
-            "SSD",
-            "HDD",
-            "I/O",
-            "GET",
-            "HEAD",
-            "POST",
-            "PUT",
-            "DELETE",
-            "CONNECT",
-            "OPTIONS",
-            "TRACE",
-            "PATCH",
-            "OPENAI",
-            "openai",
-            "claude",
-            "CLAUDE",
-            "string",
-            "Token",
-            "token",
-            "markdown",
-            "Markdown"
-          ],
-          "scope": "window",
-          "description": "整个待译正文匹配时原样保留，不发送翻译请求（用于节省 Token）；字符串按区分大小写的字面值匹配，正则对象使用 pattern 和可选 flags（i/m/s/u）；默认含常见短技术名称，自定义数组覆盖默认值，空数组清空，混合正文不保护其中的词"
+          "default": [],
+          "scope": "resource",
+          "description": "保留词 JSON/JSONC 文件来源列表：支持工作区相对路径、Windows/Linux 绝对路径、UNC、~/（桌面宿主）、file URI 和 HTTPS；多个文件合并。未设置使用内置词表，自定义列表替换默认，空数组清空；只匹配完整待译正文，不影响混合正文。HTTP 仅允许回环地址。"
         },
         "commentTranslatePlus.minimumMarkerCharacters": {
           "type": "integer",
@@ -1109,6 +1008,14 @@
           "maximum": 10,
           "scope": "window",
           "description": "OpenAI 每个单元在一次翻译任务中的最大尝试次数，包含首次请求；1 表示不自动重试。仅结果协议、完整性或结构校验等可恢复失败会重试，成功项不再请求"
+        },
+        "commentTranslatePlus.preserveTermsRefreshSeconds": {
+          "type": "integer",
+          "default": 900,
+          "minimum": 0,
+          "maximum": 86400,
+          "scope": "window",
+          "description": "本地和网络保留词文件的定时刷新间隔（秒），0 表示仅手动刷新。不监听本地文件变化；命令“刷新保留词”可立即刷新。"
         }
       }
     },

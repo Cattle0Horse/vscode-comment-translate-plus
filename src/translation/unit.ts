@@ -2,7 +2,7 @@ import type { PreparedInput } from "../model/translation.ts"
 import type { FailedTranslation } from "../model/events.ts"
 import { ModelRetry, TranslationFailure, describeError, failureCode } from "../model/diagnostics.ts"
 import { prepareTranslation } from "../documents/terms.ts"
-import { validTranslation, translationDifference, translationIsUnchanged } from "../documents/validation.ts"
+import { validateTranslation, translationIsUnchanged } from "../documents/validation.ts"
 import { isTargetLanguage, unlikelyTargetLanguage } from "../documents/languageDetection.ts"
 import type { ServiceSettings } from "./settings.ts"
 import type { TranslationProvider } from "./providers/protocol.ts"
@@ -54,25 +54,18 @@ export class TranslationUnit {
   }
 
   accept(text: string, canReview: (review: ModelRetry) => boolean): void {
-    if (!text.trim())
-      throw new ModelRetry(
-        { reason: "The response for this item was empty.", instruction: "Provide a non-empty translation for this item." },
-        {
-          code: "translation-item-invalid",
-          difference: { reason: "模型返回了空译文。", expected: "非空译文", actual: "空文本" }
-        }
-      )
-    const restored = this.prepared!.restore(text)
-    if (!validTranslation(this.source, restored)) {
-      const difference = translationDifference(this.source, restored)
+    const empty = !text.trim()
+    const restored = empty ? text : this.prepared!.restore(text)
+    const failure = validateTranslation(this.source, restored)
+    if (failure) {
+      const { instruction, ...difference } = failure
       throw new ModelRetry(
         {
-          reason: difference.modelReason ?? "The response changed the source structure or protected content.",
-          instruction:
-            "Translate only this item's source prose; do not translate or append the reference or other items. Preserve its document structure, source-language syntax, code, link targets, and literal data. Do not add code, links, or formatting absent from its source."
+          reason: difference.modelReason,
+          instruction
         },
         {
-          code: "translation-structure-invalid",
+          code: empty ? "translation-item-invalid" : "translation-structure-invalid",
           difference: { ...difference, expected: difference.expected ?? this.source.text, actual: difference.actual ?? restored }
         }
       )

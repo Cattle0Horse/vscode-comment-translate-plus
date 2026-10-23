@@ -129,13 +129,13 @@ test("added internal line breaks in single-line source retry without publishing 
   }
 })
 
-test("reference contamination is rejected with concrete added-code diagnostics and source-only recovery", async (t) => {
+test("context continuation after an internal line break is rejected, regenerated and cached without the continuation", async (t) => {
   const source =
     "- Use `get_artifact` or `read` to verify unsupported detailed claims. Before substantial delivery, check question coverage, key facts, constraints, and resources; repair affected content and disclose unresolved gaps or unperformed checks. Skip rereading when metadata/summary suffices or merely presenting a simple image."
   const reference =
     '- For final audio from `run_command`, save it under `/memory`, resolve its URL with `get_public_url`, then `report_artifacts` with `source="command"` and highlight the audio artifact.'
   const output =
-    '使用 `get_artifact` 或 `read` 来验证那些不受支持的详细信息。在正式交付之前，需检查问题的覆盖范围、关键事实、约束条件及资源情况；修复受影响的内容，并揭示未解决的缺陷或未进行的检查。当元数据/摘要已经足够时，或者只需要展示简单的图像时，则无需重新阅读。对于来自 `run_command` 的最终音频文件，将其保存在 `/memory` 目录下，使用 `get_public_url` 获取其 URL，然后以 `source="command"` 形式调用 `report_artifacts`，同时突出显示该音频文件。'
+    '使用 `get_artifact` 或 `read` 来验证那些不受支持的详细信息。在正式交付之前，需检查问题的覆盖范围、关键事实、约束条件及资源情况；修复受影响的内容，并揭示未解决的缺陷或未进行的检查。当元数据/摘要已经足够时，或者只需要展示简单的图像时，则无需重新阅读。\n\n对于来自 `run_command` 的最终音频文件，将其保存在 `/memory` 目录下，使用 `get_public_url` 获取其 URL，然后以 `source="command"` 形式调用 `report_artifacts`，同时突出显示该音频文件。'
   const translation =
     "使用 `get_artifact` 或 `read` 验证未经支持的具体论断。交付前检查覆盖范围、关键事实、约束及资源，修复问题并披露未完成的检查。元数据或摘要足够时，或仅展示简单图片时，无需重读。"
   for (const recover of [true, false]) {
@@ -177,11 +177,11 @@ test("reference contamination is rejected with concrete added-code diagnostics a
       "Model feedback included a localized log reason."
     )
     assert.match(hint, /(?:do not|without|exclude|omit)[^.\n]*reference/i, "Recovery did not explicitly exclude reference content.")
-    assert.match(hint, /(?:do not|without|exclude|omit)[^.\n]*(?:add|new)[^.\n]*code/i, "Recovery did not address the added code spans.")
+    assert.match(hint, /preceding or following blocks/i)
     assert.ok(!hint.includes("run_command") && !hint.includes("translation-structure-invalid"), "Raw source fragments or diagnostic codes leaked into recovery instructions.")
     const failure = events.find((event) => event.kind === "request" && event.failures.length)
-    assert.ok(failure?.kind === "request" && failure.failures[0].difference.reason.includes("新增"))
-    assert.equal(failure.failures[0].difference.actual, "`/memory`")
+    assert.ok(failure?.kind === "request" && failure.failures[0].difference.reason.includes("内部换行"))
+    assert.equal(failure.failures[0].difference.actual, "包含内部换行")
     assert.equal(failure.failures[0].difference.modelReason, hint.split("\n")[1], "Model feedback and structured diagnostics disagree about the failure reason.")
     store.clear()
   }
@@ -328,5 +328,28 @@ test("network recovery respects a one-attempt limit and explicit cancellation", 
     assert.deepEqual(published, [])
     const finish = events.find((event) => event.kind === "finish")!
     assert.ok(finish.kind === "finish" && finish.status === (cancelled ? "cancelled" : "failed"))
+  }
+})
+
+test("known structural errors send the matching correction and recover only the rejected item", async (t) => {
+  for (const scenario of [
+    { source: "Read [guide](https://example.com).", broken: "阅读 [指南](https://other.example)。", fixed: "阅读 [指南](https://example.com)。", correction: /source link target/ },
+    { source: "Read the original document.", broken: "## 阅读原始文档。", fixed: "阅读原始文档。", correction: /Remove headings/ },
+    { source: "Read the original document.", broken: "阅读 <span>原始文档</span>。", fixed: "阅读原始文档。", correction: /Remove HTML/ },
+    { source: "Read the original document.", broken: "阅读 **原始文档**。", fixed: "阅读原始文档。", correction: /Remove emphasis/ },
+    { source: "Read the original document.", broken: "阅读 <https://example.com>。", fixed: "阅读原始文档。", correction: /Remove link targets/ },
+    { source: "Read the original document.", broken: "阅读 \\*原始文档。", fixed: "阅读原始文档。", correction: /Remove Markdown escape/ },
+    { source: "Read <span>the original document</span>.", broken: "阅读 <div>原始文档</div>。", fixed: "阅读 <span>原始文档</span>。", correction: /source HTML tags/ }
+  ]) {
+    const fixture = await chatFixture(t, (_body, _items, call) => (call === 1 ? scenario.broken + "\n%%\n正确邻项。" : scenario.fixed))
+    const input = inputOf(parseMarkdown(scenario.source + "\n\nRead the neighbour."))
+    const result = await requestTranslation(fixture.service, fixture.settings, input, new AbortController().signal, fixture.gate)
+    assert.deepEqual(
+      result.map((item) => item.text),
+      [scenario.fixed, "正确邻项。"]
+    )
+    assert.equal(fixture.seen[1].items.length, 1)
+    assert.match(modelFeedback(fixture.seen[1].body), scenario.correction)
+    assert.ok(!modelFeedback(fixture.seen[1].body).includes("Preserve source syntax, document structure"))
   }
 })
