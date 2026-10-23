@@ -1,3 +1,4 @@
+import { emptyPreserveTerms } from "../src/documents/terms.ts"
 import assert from "node:assert/strict"
 import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
@@ -61,7 +62,7 @@ for (const provider of ["google", "bing"] as const) {
       systemPrompt: defaultSystemPrompt,
       userPrompt: defaultUserPrompt,
       languageNames: defaultLanguageNames,
-      preserveTerms: [],
+      preserveTerms: emptyPreserveTerms,
       sourceLanguage: "auto",
       targetLanguage: "zh-CN",
       skipSameLanguage: false

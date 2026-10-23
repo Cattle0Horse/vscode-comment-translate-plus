@@ -3,7 +3,7 @@ import type { TextUnit, ParsedDocument } from "../model/document.ts"
 import type { MarkdownNode } from "./tree.ts"
 import { children, markdownTree, standalone } from "./tree.ts"
 import { unembedTranslation } from "./embedding.ts"
-import { validTranslation, markdownDocumentShape } from "./validation.ts"
+import { validateTranslation, markdownDocumentShape } from "./validation.ts"
 import { assertYamlStructure } from "./yaml.ts"
 
 /** Assemble source-owned ranges once, rejecting overlap instead of guessing alignment. */
@@ -76,7 +76,7 @@ export function translatedMarkdown(document: ParsedDocument, translations: Reado
   const replacements = units.flatMap((unit) => {
     const text = translations.get(unit.id)
     if (text === undefined) return []
-    if (unit.embedding && !validTranslation(unit, text)) throw Error("translation-structure-invalid")
+    if (unit.embedding && validateTranslation(unit, text) !== undefined) throw Error("translation-structure-invalid")
     return [{ start: unit.start, end: unit.end, text }]
   })
   const translated = assembleText(document.source, replacements)

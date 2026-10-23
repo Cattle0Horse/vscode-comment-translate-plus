@@ -13,13 +13,15 @@ for (const arg of args) {
 if (args.has("--production") && (args.has("--watch") || args.has("--tests"))) throw Error("Production, watch and test builds must run separately.")
 
 const options = {
-  entryPoints: ["src/extension.ts"],
-  outfile: "dist/extension.cjs",
+  entryPoints: ["src/extension.ts", "src/desktop.ts"],
+  outdir: "dist",
+  outExtension: { ".js": ".cjs" },
   bundle: true,
   platform: "browser",
+  mainFields: ["module", "main"],
   target: "es2022",
   format: "cjs",
-  external: ["vscode"],
+  external: ["vscode", "node:os"],
   sourcemap: !args.has("--production"),
   minify: args.has("--production"),
   metafile: true,
@@ -98,8 +100,8 @@ if (args.has("--watch")) {
     for (const file of await readdir("artifacts/tests")) if (/\.test\.cjs(?:\.map)?$/.test(file)) await unlink(resolve("artifacts/tests", file))
     const tests = (await readdir("tests")).filter((file) => file.endsWith(".test.ts")).map((file) => "tests/" + file)
     await build({ ...options, platform: "node", entryPoints: tests, outfile: undefined, outdir: "artifacts/tests", outExtension: { ".js": ".cjs" } })
-    await build({ ...options, entryPoints: ["tests/extension/index.ts"], outfile: "artifacts/extension-tests/index.cjs" })
-    await build({ ...options, entryPoints: ["tests/extension/local.ts"], outfile: "artifacts/extension-tests/local.cjs" })
+    await build({ ...options, outdir: undefined, entryPoints: ["tests/extension/index.ts"], outfile: "artifacts/extension-tests/index.cjs" })
+    await build({ ...options, outdir: undefined, entryPoints: ["tests/extension/local.ts"], outfile: "artifacts/extension-tests/local.cjs" })
     await build({
       ...options,
       entryPoints: [

@@ -1,8 +1,9 @@
 import * as vscode from "vscode"
-import { automatic, displayMode, getTranslationSettings } from "../../host/configuration.ts"
+import { automatic, displayMode } from "../../host/configuration.ts"
 import type { DocumentReader } from "../../host/documents.ts"
 import type { TranslationRuntime } from "../../host/translations.ts"
 import type { CancellationReason } from "../../model/diagnostics.ts"
+import { TranslationFailure } from "../../model/diagnostics.ts"
 import { BrowseSession } from "./session.ts"
 import type { BrowseSnapshot } from "./session.ts"
 import { BrowseRenderer } from "./renderer.ts"
@@ -15,6 +16,7 @@ interface DocumentSession {
 export class BrowseWorkspace implements vscode.Disposable {
   private readonly sessions = new Map<string, DocumentSession>()
   private readonly overrides = new Map<string, boolean>()
+  private readonly starting = new Map<string, { document: vscode.TextDocument }>()
   private readonly renderer: BrowseRenderer
   private disposed = false
   constructor(
@@ -94,8 +96,11 @@ export class BrowseWorkspace implements vscode.Disposable {
       if (scope === "document") current.session.enableBrowse()
       return
     }
+    const start = { document }
+    this.starting.set(id, start)
     try {
-      const settings = getTranslationSettings(document.uri)
+      const settings = await this.translations.settings(document.uri)
+      if (this.disposed || document.isClosed || this.starting.get(id) !== start) return
       const session = new BrowseSession(
         (batch, signal, force, completed, interests) => this.translations.translate(document, batch, signal, force, completed, settings, interests),
         () => this.render(),
@@ -109,7 +114,10 @@ export class BrowseWorkspace implements vscode.Disposable {
       if (!vscode.workspace.getConfiguration("editor", document.uri).get<boolean>("codeLens", true) && displayMode(document.uri) === "contrast")
         void vscode.window.showWarningMessage("当前文件关闭了 editor.codeLens，对照译文没有独立行空间；可开启 CodeLens、切换占位模式或使用悬停翻译。")
     } catch (error) {
-      await vscode.window.showErrorMessage(error instanceof Error ? error.message : "无法启动注释浏览模式。")
+      if (!this.disposed && this.starting.get(id) === start && !(error instanceof TranslationFailure && error.reported))
+        await vscode.window.showErrorMessage(error instanceof Error ? error.message : "无法启动注释浏览模式。")
+    } finally {
+      if (this.starting.get(id) === start) this.starting.delete(id)
     }
   }
 
@@ -130,6 +138,7 @@ export class BrowseWorkspace implements vscode.Disposable {
 
   stop(uri: vscode.Uri, manual: boolean, reason: CancellationReason = "browse-stopped"): void {
     const id = uri.toString()
+    this.starting.delete(id)
     if (manual) this.overrides.set(id, false)
     const documentSession = this.sessions.get(id)
     this.sessions.delete(id)
@@ -172,7 +181,8 @@ export class BrowseWorkspace implements vscode.Disposable {
   }
 
   async reconfigure(): Promise<void> {
-    const documents = [...this.sessions.values()].map((item) => item.document)
+    const documents = [...new Set([...this.sessions.values(), ...this.starting.values()].map((item) => item.document))]
+    this.starting.clear()
     for (const document of documents) this.stop(document.uri, false, "configuration-changed")
     await Promise.all(documents.filter((document) => this.overrides.get(document.uri.toString()) === true || automatic(document)).map((document) => this.start(document, false)))
     this.tryAutomatic()
@@ -180,6 +190,7 @@ export class BrowseWorkspace implements vscode.Disposable {
 
   dispose(): void {
     this.disposed = true
+    this.starting.clear()
     for (const { session } of this.sessions.values()) session.dispose()
     this.sessions.clear()
     this.overrides.clear()

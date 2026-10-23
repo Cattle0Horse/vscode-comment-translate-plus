@@ -3,7 +3,7 @@ import { validateService, serviceIdentity, readRequestPolicy } from "../translat
 import { getProvider } from "../translation/providers/index.ts"
 import { defaultLanguageNames } from "../translation/providers/prompts.ts"
 import type { ServiceSettings } from "../translation/settings.ts"
-import { parsePreserveTerms } from "../documents/terms.ts"
+import type { PreserveTerms } from "../model/translation.ts"
 
 export interface TranslationProfile {
   readonly id: string
@@ -65,7 +65,7 @@ export function profiles(uri?: vscode.Uri): TranslationProfile[] {
   })
 }
 
-export function getTranslationSettings(uri?: vscode.Uri): TranslationSettings {
+export function getTranslationSettings(uri: vscode.Uri | undefined, preserveTerms: PreserveTerms): TranslationSettings {
   const config = vscode.workspace.getConfiguration("commentTranslatePlus", uri)
   const list = profiles(uri)
   const active = config.get<string>("activeProfile", "") || list[0]?.id
@@ -84,7 +84,6 @@ export function getTranslationSettings(uri?: vscode.Uri): TranslationSettings {
     return value
   }
 
-  const preserveTerms = parsePreserveTerms(config.get<unknown>("preserveTerms"))
   const skipSameLanguage = config.get<unknown>("skipSameLanguage", true)
   if (typeof skipSameLanguage !== "boolean") throw Error("skipSameLanguage 必须是布尔值。")
   const settings = {

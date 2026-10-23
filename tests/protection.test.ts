@@ -1,73 +1,70 @@
+import { emptyPreserveTerms, prepareTranslation, parsePreserveTerms } from "../src/documents/terms.ts"
 import assert from "node:assert/strict"
 import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
 import { test } from "node:test"
 import { parseMarkdown } from "../src/documents/markdown.ts"
 import { parseYaml } from "../src/documents/yaml.ts"
-import { validTranslation, translationIsUnchanged } from "../src/documents/validation.ts"
+import { validateTranslation, translationIsUnchanged } from "../src/documents/validation.ts"
 import { translatedMarkdown, progressiveMarkdown, previewLoadingMarker } from "../src/documents/presentation.ts"
 import { validateTranslations } from "../src/translation/results.ts"
 import { RequestGate } from "../src/translation/requestGate.ts"
 import type { TranslationInput } from "../src/model/translation.ts"
-import { prepareTranslation, parsePreserveTerms } from "../src/documents/terms.ts"
 import { protectedFragments } from "../src/documents/protection.ts"
 import { TranslationService } from "../src/translation/engine.ts"
 import { TranslationStore } from "../src/translation/store.ts"
 import { defaultSystemPrompt, defaultUserPrompt, defaultLanguageNames } from "../src/translation/providers/prompts.ts"
 import { limits, requestTranslation, batch, modelInput, chatFixture } from "./support/fixtures.ts"
 
-test("links keep native syntax with one protected target while captions remain translatable", () => {
-  for (const [source, input] of [
-    ["Read [Title](URL).", "Read [Title](<CTP0>)."],
-    ['Read [Title](URL "Caption").', 'Read [Title](<CTP0> "Caption").'],
-    ['Read [Title](<https://example.com/a b> "Caption").', 'Read [Title](<CTP0> "Caption").'],
-    ['Read ![Title](picture.png "Caption").', 'Read ![Title](<CTP0> "Caption").'],
-    ["Read [Title][guide].", "Read [Title][<CTP0>]."],
-    ["Read ![Title][guide].", "Read ![Title][<CTP0>]."],
-    ["Read <https://example.com>.", "Read <CTP0>."],
-    ["Read <a@example.com>.", "Read <CTP0>."]
-  ]) {
+test("short links reach the model in native form and retain exact targets", () => {
+  for (const source of [
+    "Read [Title](URL).",
+    'Read [Title](URL "Caption").',
+    'Read [Title](<https://example.com/a b> "Caption").',
+    'Read ![Title](picture.png "Caption").',
+    "Read [Title][guide].",
+    "Read ![Title][guide].",
+    "Read <https://example.com>.",
+    "Read <a@example.com>."
+  ])
     for (const format of ["markdown", "text"] as const) {
       const unit = { id: "link", text: source, start: 0, end: source.length, format }
-      const prepared = prepareTranslation(unit, [])
-      assert.equal(prepared.text, input, source)
-      const output = prepared.text.replace("Read", "阅读").replace("Title", "标题").replace("Caption", "说明")
-      const restored = prepared.restore(output)
-      assert.equal(restored, source.replace("Read", "阅读").replace("Title", "标题").replace("Caption", "说明"))
-      assert.ok(validTranslation(unit, restored), restored)
-      for (const damaged of [output.replace("<CTP0>", ""), output + "<CTP0>", output.replace("<CTP0>", "<CTP99>"), output.replace("<CTP0>", "<CTP0")])
-        assert.throws(() => prepared.restore(damaged), /marker-mismatch/u)
+      const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
+      assert.equal(prepared.text, source)
+      assert.equal(prepared.hasMarkers, false)
+      const restored = prepared.restore(source.replace("Read", "阅读").replace("Title", "标题").replace("Caption", "说明"))
+      assert.ok(validateTranslation(unit, restored) === undefined, restored)
+      assert.throws(() => prepared.restore(restored.replace(/URL|picture.png|guide|https:\/\/example.com(?:\/a b)?|a@example.com/u, "changed")), /structure-invalid/u)
     }
-  }
 })
 
 test("native link punctuation remains subject to structure and target validation", () => {
   const source = "Read [Title](URL) and ![Image](picture.png)."
   const unit = parseMarkdown(source).groups[0].units[0]
-  const prepared = prepareTranslation(unit, [])
-  assert.equal(prepared.text, "Read [Title](<CTP0>) and ![Image](<CTP1>).")
+  const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
+  assert.equal(prepared.text, source)
   for (const output of [
-    "阅读 [标题(<CTP0>) 和 ![图片](<CTP1>)。",
-    "阅读 [标题](<CTP0>) 和 [图片](<CTP1>)。",
-    "阅读 [标题](<CTP1>) 和 ![图片](<CTP0>)。",
-    "阅读 标题<CTP0> 和 ![图片](<CTP1>)。"
+    "阅读 [标题(URL) 和 ![图片](picture.png)。",
+    "阅读 [标题](URL) 和 [图片](picture.png)。",
+    "阅读 [标题](picture.png) 和 ![图片](URL)。",
+    "阅读 标题URL 和 ![图片](picture.png)。"
   ])
-    assert.equal(validTranslation(unit, prepared.restore(output)), false, output)
+    assert.equal(validateTranslation(unit, output) === undefined, false, output)
   const nested = parseMarkdown("Read [**Title**](URL) and **[Guide](OTHER)**.").groups[0].units[0]
-  const formatted = prepareTranslation(nested, [])
+  const formatted = prepareTranslation(nested, emptyPreserveTerms, 32)
   const restored = formatted.restore(formatted.text.replace("Read", "阅读").replace("Title", "标题").replace("Guide", "指南"))
-  assert.ok(validTranslation(nested, restored))
-  assert.equal(validTranslation(nested, restored.replace("[**标题**](URL)", "**[标题](URL)**")), false)
+  assert.ok(validateTranslation(nested, restored) === undefined)
+  assert.equal(validateTranslation(nested, restored.replace("[**标题**](URL)", "**[标题](URL)**")) === undefined, false)
 })
 
 test("empty explicit link destinations keep their labels translatable without placeholders", () => {
   for (const source of ["Read [Title]().", "Read ![Title]()."]) {
     const unit = parseMarkdown(source).groups[0].units[0]
-    const prepared = prepareTranslation(unit, [])
+    const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
     assert.equal(prepared.text, source)
     const restored = prepared.restore(source.replace("Read", "阅读").replace("Title", "标题"))
     assert.equal(restored, source.replace("Read", "阅读").replace("Title", "标题"))
-    assert.ok(validTranslation(unit, restored))
+    assert.ok(validateTranslation(unit, restored) === undefined)
   }
 })
 
@@ -75,19 +72,19 @@ test("label-derived reference targets stay intact rather than translating their 
   for (const reference of ["[Title]", "[Title][]", "![Title]", "![Title][]"]) {
     const source = "Read " + reference + "."
     const unit = parseMarkdown(source).groups[0].units[0]
-    const prepared = prepareTranslation(unit, [])
-    assert.equal(prepared.text, "Read <CTP0>.")
-    assert.equal(prepared.restore("阅读 <CTP0>。"), "阅读 " + reference + "。")
-    assert.ok(validTranslation(unit, "阅读 " + reference + "。"))
-    assert.equal(validTranslation(unit, source.replace("Title", "标题")), false)
+    const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
+    assert.equal(prepared.text, source)
+    assert.equal(prepared.restore("阅读 " + reference + "。"), "阅读 " + reference + "。")
+    assert.ok(validateTranslation(unit, "阅读 " + reference + "。") === undefined)
+    assert.equal(validateTranslation(unit, source.replace("Title", "标题")) === undefined, false)
   }
 })
 
 test("logged writing link uses two protected values and retries only damaged native structure before caching", async (t) => {
   const text =
     "Create outlines, drafts, rewrites, and finished documents directly. Read supplied research and current source documents before using them; delegate missing research to `SearchAgent` when needed. Match the user's language, audience, tone, format, and length, and cite sources with [Title](URL)."
-  const expectedInput = text.replace("`SearchAgent`", "<CTP0>").replace("URL", "<CTP1>")
-  const output = "直接创建提纲、草稿、重写稿和完整文档，先阅读研究和当前源文件，必要时委派给 <CTP0>，按用户需求写作并使用[标题](<CTP1>)标注来源。"
+  const expectedInput = text
+  const output = "直接创建提纲、草稿、重写稿和完整文档，先阅读研究和当前源文件，必要时委派给 `SearchAgent`，按用户需求写作并使用[标题](URL)标注来源。"
   const fixture = await chatFixture(t, (_body, items, call) => {
     assert.equal(items[0], expectedInput)
     return (call === 1 ? [output.replace("[标题]", "[标题"), "为长文档规划章节结构。"] : [output]).join("\n%%\n")
@@ -116,28 +113,28 @@ test("preserve regexes match complete bodies across wrappers without changing li
   const rules = parsePreserveTerms(["a.b", { pattern: "HTTP(?:S|\\(S\\))?", flags: "i" }, { pattern: "项目[甲乙]" }])
   const unit = (text: string) => ({ id: "regex", text, start: 0, end: text.length, format: "text" as const })
   for (const text of ["a.b", "HTTP", "https", "HtTp(S)", "项目甲", "项目乙"]) {
-    const prepared = prepareTranslation(unit(text), rules)
+    const prepared = prepareTranslation(unit(text), rules, 32)
     assert.equal(prepared.needsTranslation, false, text)
     assert.equal(prepared.restore(prepared.text), text)
   }
-  for (const text of ["axb", "HTTP/i", "HTTP!", "Read HTTP.", "HTTP HTTPS", "项目丙"]) assert.equal(prepareTranslation(unit(text), rules).needsTranslation, true, text)
+  for (const text of ["axb", "HTTP/i", "HTTP!", "Read HTTP.", "HTTP HTTPS", "项目丙"]) assert.equal(prepareTranslation(unit(text), rules, 32).needsTranslation, true, text)
   for (const parsed of [parseMarkdown("- **hTtPs**"), parseYaml('HTTP: "https"')]) {
     for (const item of parsed.groups.flatMap((group) => group.units)) {
-      const prepared = prepareTranslation(item, rules)
+      const prepared = prepareTranslation(item, rules, 32)
       assert.equal(prepared.needsTranslation, false, item.text)
       assert.equal(prepared.restore(prepared.text), item.text)
     }
   }
-  assert.equal(prepareTranslation(unit("http"), parsePreserveTerms(["/HTTP/i"])).needsTranslation, true, "A string was interpreted as a regex literal.")
+  assert.equal(prepareTranslation(unit("http"), parsePreserveTerms(["/HTTP/i"]), 32).needsTranslation, true, "A string was interpreted as a regex literal.")
   const alternatives = parsePreserveTerms([{ pattern: "foo|foobar" }])
-  assert.equal(prepareTranslation(unit("foobar"), alternatives).needsTranslation, false)
+  assert.equal(prepareTranslation(unit("foobar"), alternatives, 32).needsTranslation, false)
   const multiline = parsePreserveTerms([{ pattern: "^HTTP$", flags: "m" }])
-  for (const text of ["Read\nHTTP", "HTTP\nRead"]) assert.equal(prepareTranslation(unit(text), multiline).needsTranslation, true, "Multiline anchors escaped whole-body matching.")
+  for (const text of ["Read\nHTTP", "HTTP\nRead"]) assert.equal(prepareTranslation(unit(text), multiline, 32).needsTranslation, true, "Multiline anchors escaped whole-body matching.")
   for (const [pattern, flags] of [
     ["first.second", "s"],
     ["first\\nsecond", "u"]
   ])
-    assert.equal(prepareTranslation(unit("first\nsecond"), parsePreserveTerms([{ pattern, flags }])).needsTranslation, false)
+    assert.equal(prepareTranslation(unit("first\nsecond"), parsePreserveTerms([{ pattern, flags }]), 32).needsTranslation, false)
 })
 
 test("invalid preserve regexes fail at configuration parsing with their item location", () => {
@@ -235,7 +232,7 @@ test("multiline strings fold continuation layout while preserving local shells a
         { start: text.length - 3, end: text.length }
       ]
     }
-    const prepared = prepareTranslation(unit, [])
+    const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
     assert.equal(prepared.text, "Read carefully. Args: Read  slowly.")
     assert.equal(
       prepared.restore(prepared.text.replace("Read carefully.", "仔细阅读。").replace("Read  slowly.", "慢慢  阅读。")),
@@ -261,7 +258,7 @@ test("string boundary whitespace is restored exactly while internal or added out
       { start: text.length - 1, end: text.length }
     ]
   }
-  const prepared = prepareTranslation(unit, [])
+  const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
   assert.equal(prepared.text, "Read  carefully.")
   assert.equal(prepared.restore("仔细  阅读。"), '"  仔细  阅读。\t "')
   assert.equal(prepared.restore(prepared.text), text)
@@ -274,74 +271,60 @@ test("technical overlap handling preserves syntax and earlier rules across inter
   const unit = { id: "overlap", start: 0, end: text.length, text, format: "markdown" as const }
   assert.deepEqual(
     protectedFragments(unit).map((fragment) => fragment.text),
-    ["https://example.com/HTTP", "./API/config.json", "ops@API.example", "`API DNS`", "sourceId"]
+    ["https://example.com/HTTP", "./API/config.json", "ops@API.example", "`API DNS`"]
   )
-  const prepared = prepareTranslation(unit, [])
+  const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
   assert.equal(prepared.needsTranslation, true)
-  assert.equal(prepared.text, "API <CTP0> DNS <CTP1> JSON <CTP2> HTTP(S) CPU <CTP3> <CTP4>")
+  assert.equal(prepared.text, text)
   assert.equal(prepared.restore(prepared.text), text)
-  assert.throws(() => prepared.restore(prepared.text.replace("<CTP0>", "")), /translation-marker-mismatch/)
+  assert.throws(() => prepared.restore(prepared.text.replace("https://example.com/HTTP", "")), /translation-structure-invalid/)
 })
 
 test("dense technical prose keeps every occurrence and adjacent style boundary intact", () => {
   const text = "Read **sourceId** and *source_id*, then " + "HTTP/2 https://example.com/API ./API/config.json sourceId ".repeat(256) + "carefully."
   const unit = { id: "dense", start: 0, end: text.length, text, format: "markdown" as const }
-  const prepared = prepareTranslation(unit, [])
+  const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
   assert.equal(prepared.needsTranslation, true)
-  assert.deepEqual(prepared.text.replace(/<CTP\d+>/gu, " ").match(/\p{L}+/gu), ["Read", "and", "then", "carefully"])
+  assert.equal(prepared.text, text)
   assert.equal(prepared.restore(prepared.text.replace("Read", "阅读")), text.replace("Read", "阅读"))
   assert.throws(() => prepared.restore(prepared.text + "<CTP0>"), /translation-marker-mismatch/)
 })
 
 test("paired style boundaries tolerate added horizontal whitespace without changing prose or original outer spacing", () => {
   for (const [source, output, expected] of [
-    ["**Targeted search**: now.", "<CTP0> \t目标搜索\t <CTP1>: now.", "**目标搜索**: now."],
-    ["Read *carefully* now.", "阅读<CTP0> \t仔细 \t<CTP1>now.", "阅读 *仔细* now."],
-    ["Read _carefully_ now.", "阅读<CTP0> 仔细 <CTP1>now.", "阅读 _仔细_ now."],
-    ["Read __carefully__ now.", "阅读<CTP0> 仔细 <CTP1>now.", "阅读 __仔细__ now."],
-    ["Read ~~carefully~~ now.", "阅读<CTP0> 仔细 <CTP1>now.", "阅读 ~~仔细~~ now."],
-    ["Read ***carefully*** now.", "阅读<CTP0> <CTP1> 仔细 <CTP2> <CTP3>now.", "阅读 ***仔细*** now."],
-    ["Read **carefully and *slowly*** now.", "阅读<CTP0> 仔细  和<CTP1> 缓慢 <CTP2> <CTP3>now.", "阅读 **仔细  和 *缓慢*** now."],
-    ["Read\t **carefully**  now.", "阅读<CTP0> 仔细 <CTP1>now.", "阅读\t **仔细**  now."],
-    ["**First** and **second**.", "<CTP2> 第二 <CTP3>和<CTP0> 第一 <CTP1>.", " **第二**和**第一** ."]
+    ["**Targeted search**: now.", "** \t目标搜索\t **: now.", "**目标搜索**: now."],
+    ["Read *carefully* now.", "阅读 * \t仔细 \t* now.", "阅读 *仔细* now."],
+    ["Read _carefully_ now.", "阅读 _ 仔细 _ now.", "阅读 _仔细_ now."],
+    ["Read __carefully__ now.", "阅读 __ 仔细 __ now.", "阅读 __仔细__ now."],
+    ["Read ~~carefully~~ now.", "阅读 ~~ 仔细 ~~ now.", "阅读 ~~仔细~~ now."],
+    ["Read ***carefully*** now.", "阅读 *** 仔细 *** now.", "阅读 ***仔细*** now."],
+    ["Read **carefully and *slowly*** now.", "阅读 ** 仔细  和 * 缓慢 *** now.", "阅读 **仔细  和 *缓慢*** now."]
   ]) {
     const unit = parseMarkdown(source).groups[0].units[0]
-    const restored = prepareTranslation(unit, []).restore(output)
+    const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
+    assert.equal(prepared.hasMarkers, false)
+    const restored = prepared.restore(output)
     assert.equal(restored, expected)
-    assert.ok(validTranslation(unit, restored), source)
+    assert.ok(validateTranslation(unit, restored) === undefined, source)
   }
 })
 
 test("style whitespace tolerance preserves marker integrity, newlines, technical content and non-style whitespace", () => {
   const source = "Read **carefully** and keep `sourceId` at [guide](https://example.com)."
   const unit = parseMarkdown(source).groups[0].units[0]
-  const prepared = prepareTranslation(unit, [])
+  const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
   const output = prepared.text.replace("carefully", " 仔细 ").replace("Read", "阅读  ")
   const restored = prepared.restore(output)
   assert.equal(restored, source.replace("Read", "阅读  ").replace("carefully", "仔细"))
-  assert.ok(validTranslation(unit, restored))
+  assert.ok(validateTranslation(unit, restored) === undefined)
   assert.equal(prepared.restore(prepared.text.replace("carefully", " carefully ")), source)
-  assert.throws(() => prepared.restore(output.replace("<CTP0>", "")), /marker-mismatch/)
-  assert.throws(() => prepared.restore(output + "<CTP0>"), /marker-mismatch/)
+  assert.ok(validateTranslation(unit, prepared.restore(output.replace("`sourceId`", ""))) === undefined)
   assert.throws(() => prepared.restore(output + "<CTP99>"), /marker-mismatch/)
-  assert.equal(prepared.restore(output.replace("仔细", "\n仔细")), restored, "A single style-boundary line break did not restore the original inline structure.")
-  assert.throws(() => prepared.restore(output.replace("仔细", "\n\n仔细")), /structure-invalid/, "An added paragraph was accepted as style whitespace.")
-  const nested = prepareTranslation(parseMarkdown("Read ***carefully*** now.").groups[0].units[0], [])
-  assert.throws(() => nested.restore("Read<CTP0> <CTP1> 仔细 <CTP3> <CTP2>now."), /marker-mismatch/)
-  for (const text of ["Read `sourceId` now.", '"Read  carefully"', "Read  carefully."]) {
-    const plain = { id: "plain", start: 0, end: text.length, text, format: "text" as const }
-    const input = prepareTranslation(plain, [])
-    const output = input.text.replace("Read", "阅读").replace(/(<CTP\d+>)/g, " $1 ")
-    assert.equal(input.restore(output), text.replace("Read", "阅读").replace("`sourceId`", " `sourceId` "))
-  }
+  assert.equal(prepared.restore(output.replace("仔细", "\n仔细")), restored)
+  assert.throws(() => prepared.restore(output.replace("仔细", "\n\n仔细")), /structure-invalid/)
   const literal = '"Read **carefully**  now."'
-  const string = prepareTranslation({ id: "string", start: 0, end: literal.length, text: literal, format: "text", kind: "string" }, [])
+  const string = prepareTranslation({ id: "string", start: 0, end: literal.length, text: literal, format: "text", kind: "string" }, emptyPreserveTerms, 32)
   assert.equal(string.restore(string.text.replace("carefully", " carefully ")), literal.replace("carefully", " carefully "))
-  const yaml = parseYaml('label: "Read **carefully**  now."')
-    .groups.flatMap((group) => group.units)
-    .find((unit) => unit.content?.includes("Read"))!
-  const scalar = prepareTranslation(yaml, [])
-  assert.equal(scalar.restore(scalar.text.replace("carefully", " carefully ")), '"Read ** carefully **  now."')
 })
 
 test("style whitespace is repaired before attempt exhaustion and the validated translation is cached", async (t) => {
@@ -367,16 +350,16 @@ test("translated slash-separated prose is not mistaken for a new path while expl
       ["Read combining marks.", "Lire e\u0301/sortie."]
     ]) {
       const unit = { id: "slash", start: 0, end: text.length, text, format }
-      const restored = prepareTranslation(unit, []).restore(translated)
+      const restored = prepareTranslation(unit, emptyPreserveTerms, 32).restore(translated)
       assert.equal(restored, translated)
-      assert.ok(validTranslation(unit, restored), translated)
+      assert.ok(validateTranslation(unit, restored) === undefined, translated)
     }
     for (const path of ["/上下文/配置.json", "./上下文/配置.json", "../config.json", "C:\\项目\\config.json"]) {
       const text = "Read " + path + "."
       const unit = { id: "path", start: 0, end: text.length, text, format }
-      const prepared = prepareTranslation(unit, [])
+      const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
       assert.equal(prepared.restore(prepared.text.replace("Read", "读取")), text.replace("Read", "读取"))
-      assert.throws(() => prepared.restore("读取路径。"), /marker-mismatch/)
+      assert.throws(() => prepared.restore("读取路径。"), /structure-invalid/)
     }
   }
 })
@@ -398,29 +381,29 @@ test("Markdown prefixes stay local and one equivalent echoed prefix is tolerated
   ]) {
     const source = prefix + "Read the original document."
     const unit = parseMarkdown(source).groups[0].units[0]
-    const prepared = prepareTranslation(unit, [])
+    const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
     assert.equal(prepared.text, "Read the original document.")
     for (const output of ["阅读原始文档。", prefix + "阅读原始文档。", echoed + "阅读原始文档。"]) {
       const restored = prepared.restore(output)
       assert.equal(restored, prefix + "阅读原始文档。")
-      assert.ok(validTranslation(unit, restored))
+      assert.ok(validateTranslation(unit, restored) === undefined)
     }
   }
   const unit = parseMarkdown("- Read the original document.").groups[0].units[0]
-  const prepared = prepareTranslation(unit, [])
+  const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
   for (const output of ["- - 阅读原始文档。", "- 阅读原始文档。\n- 新增条目。", "- 阅读原始文档。\n\n新增段落。", "# 新增标题。"])
     if (/[\r\n]/u.test(output)) assert.throws(() => prepared.restore(output), /structure-invalid/, output)
-    else assert.equal(validTranslation(unit, prepared.restore(output)), false, output)
+    else assert.equal(validateTranslation(unit, prepared.restore(output)) === undefined, false, output)
   const ordered = parseMarkdown("2. Read the original document.").groups[0].units[0]
-  assert.equal(validTranslation(ordered, prepareTranslation(ordered, []).restore("- 阅读原始文档。")), false)
+  assert.equal(validateTranslation(ordered, prepareTranslation(ordered, emptyPreserveTerms, 32).restore("- 阅读原始文档。")) === undefined, false)
   const codeUnit = parseMarkdown("- Read `sourceId`.").groups[0].units[0]
-  const code = prepareTranslation(codeUnit, [])
+  const code = prepareTranslation(codeUnit, emptyPreserveTerms, 32)
   const echoedCode = "- " + code.text.replace("Read", "读取")
-  assert.ok(validTranslation(codeUnit, code.restore(echoedCode)))
-  assert.throws(() => code.restore("- 读取代码。"), /marker-mismatch/)
+  assert.ok(validateTranslation(codeUnit, code.restore(echoedCode)) === undefined)
+  assert.ok(validateTranslation(codeUnit, code.restore("- 读取代码。")) === undefined)
   for (const text of ["- Read the original document.", "2. Read the original document."]) {
     const literal = { id: "literal", start: 0, end: text.length, text, format: "text" as const, kind: "string" as const }
-    assert.equal(prepareTranslation(literal, []).text, text)
+    assert.equal(prepareTranslation(literal, emptyPreserveTerms, 32).text, text)
   }
 })
 
@@ -445,7 +428,7 @@ test("logged multiline slide handoff translates and caches without asking the mo
     assert.ok(!/[\r\n]/u.test(request.items[0]))
     assert.ok(!request.items[0].includes("<CTP"))
     assert.ok(!request.items[0].includes("  "))
-    assert.equal(prepareTranslation(unit, []).restore(request.items[0]), source)
+    assert.equal(prepareTranslation(unit, emptyPreserveTerms, 32).restore(request.items[0]), source)
   }
   assert.equal(fixture.seen.length, 2, "A validated folded translation bypassed the cache.")
 })
@@ -461,60 +444,63 @@ test("complete prose wrappers stay local while internal punctuation and formatti
     '[**Read the original document.**](https://example.com "Title")'
   ]) {
     const unit = parseMarkdown(source).groups[0].units[0]
-    const prepared = prepareTranslation(unit, [])
+    const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
     assert.equal(prepared.text, "Read the original document.")
     const restored = prepared.restore("阅读原始文档。")
     assert.equal(restored, source.replace("Read the original document.", "阅读原始文档。"))
-    assert.ok(validTranslation(unit, restored))
+    assert.ok(validateTranslation(unit, restored) === undefined)
   }
   for (const text of ['"First" and "second"', "don't", 'Read "this" document.', "Hotspot + industry + companies", "D — Integrated"]) {
-    assert.equal(prepareTranslation({ id: "plain", start: 0, end: text.length, text, format: "text" }, []).text, text)
+    assert.equal(prepareTranslation({ id: "plain", start: 0, end: text.length, text, format: "text" }, emptyPreserveTerms, 32).text, text)
   }
   const text = "Read **this** carefully."
   for (const reference of ["[Read]", "[Read][]"]) {
-    const prepared = prepareTranslation({ id: "reference", start: 0, end: reference.length, text: reference, format: "markdown" }, [])
+    const prepared = prepareTranslation({ id: "reference", start: 0, end: reference.length, text: reference, format: "markdown" }, emptyPreserveTerms, 32)
     assert.notEqual(prepared.text, "Read", "A label-derived reference target was incorrectly treated as a separate local shell.")
     assert.equal(prepared.restore(prepared.text), reference)
   }
-  const inline = prepareTranslation({ id: "inline", start: 0, end: text.length, text, format: "markdown" }, [])
-  assert.match(inline.text, /<CTP\d+>this<CTP\d+>/)
+  const inline = prepareTranslation({ id: "inline", start: 0, end: text.length, text, format: "markdown" }, emptyPreserveTerms, 32)
+  assert.equal(inline.text, text)
   assert.equal(inline.restore(inline.text.replace("this", "这部分")), text.replace("this", "这部分"))
   const spacedText = " \t“ Read the original document. ”\r\n"
   const spaced = { id: "spaces", start: 0, end: spacedText.length, text: spacedText, format: "text" as const }
-  const body = prepareTranslation(spaced, [])
+  const body = prepareTranslation(spaced, emptyPreserveTerms, 32)
   assert.equal(body.text, "Read the original document.")
   assert.equal(body.restore("阅读原始文档。"), spaced.text.replace("Read the original document.", "阅读原始文档。"))
   const scalar = parseMarkdown("---\nlabel: '  \"Read\"  '\n---").groups[0].units.find((unit) => !unit.yamlKey)!
-  assert.equal(prepareTranslation(scalar, []).text, scalar.content)
+  assert.equal(prepareTranslation(scalar, emptyPreserveTerms, 32).text, scalar.content)
 })
 
 test("comment shells stay local while documentation continuation prefixes fold into one space", () => {
   for (const newline of ["\n", "\r\n"]) {
     for (const text of ["/* Keep `sourceId` unchanged. */", "/**" + newline + " * Keep `sourceId` unchanged." + newline + " */", "/*! Keep `sourceId` unchanged. */"]) {
       const unit = { id: "comment", start: 0, end: text.length, text, format: "text" as const, kind: "comment" as const }
-      const prepared = prepareTranslation(unit, [])
-      assert.equal(prepared.text, "Keep <CTP0> unchanged.")
-      const restored = prepared.restore("保留 <CTP0> 不变。")
+      const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
+      assert.equal(prepared.text, "Keep `sourceId` unchanged.")
+      const restored = prepared.restore("保留 `sourceId` 不变。")
       assert.equal(restored, text.replace("Keep `sourceId` unchanged.", "保留 `sourceId` 不变。"))
-      assert.ok(validTranslation(unit, restored))
-      assert.equal(validTranslation(unit, restored.replace("保留", "*/ 保留 /*")), false)
-      if (text.includes(newline)) assert.throws(() => prepared.restore("保留 <CTP0>\n不变。"), /structure-invalid/)
+      assert.ok(validateTranslation(unit, restored) === undefined)
+      assert.equal(validateTranslation(unit, restored.replace("保留", "*/ 保留 /*")) === undefined, false)
+      if (text.includes(newline)) assert.throws(() => prepared.restore("保留 `sourceId`\n不变。"), /structure-invalid/)
     }
     const text = ["/**", " * Read the original document.", " *", " * Continue reading.", " * Keep `sourceId` unchanged.", " */"].join(newline)
-    const prepared = prepareTranslation({ id: "multiline", start: 0, end: text.length, text, format: "text", kind: "comment" }, [])
+    const unit = { id: "multiline", start: 0, end: text.length, text, format: "text" as const, kind: "comment" as const }
+    const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
     assert.ok(!prepared.text.includes("*") && !/[\r\n]/.test(prepared.text))
     assert.equal(
       prepared.restore(prepared.text.replace("Read the original document.", "阅读原始文档。").replace("Keep ", "保留 ")),
       ["/**", " * 阅读原始文档。 Continue reading. 保留 `sourceId` unchanged.", " */"].join(newline)
     )
-    const markers = prepared.text.match(/<CTP\d+>/g)!
-    assert.throws(() => prepared.restore(prepared.text.replace(markers[0], "")), /marker-mismatch/)
-    assert.equal(markers.length, 1, "Continuation decoration still consumed model markers.")
-    assert.throws(() => prepared.restore(prepared.text + markers[0]), /marker-mismatch/)
+    assert.equal(prepared.hasMarkers, false)
+    assert.ok(validateTranslation(unit, prepared.restore(prepared.text.replace("`sourceId`", ""))) === undefined)
+    assert.ok(validateTranslation(unit, prepared.restore(prepared.text + "`sourceId`")) === undefined)
     assert.throws(() => prepared.restore(prepared.text.replace("Continue", "\nContinue")), /structure-invalid/)
   }
   const literal = "/* Compute 2 * 3 and read *this* carefully. */"
-  assert.equal(prepareTranslation({ id: "literal", start: 0, end: literal.length, text: literal, format: "text", kind: "comment" }, []).text, "Compute 2 * 3 and read *this* carefully.")
+  assert.equal(
+    prepareTranslation({ id: "literal", start: 0, end: literal.length, text: literal, format: "text", kind: "comment" }, emptyPreserveTerms, 32).text,
+    "Compute 2 * 3 and read *this* carefully."
+  )
 })
 
 test("progressive preview preserves Markdown/YAML boundaries, maps length changes and removes completed loading markers", () => {
@@ -541,25 +527,25 @@ test("progressive preview preserves Markdown/YAML boundaries, maps length change
 
 test("custom preserved terms match complete prose bodies and never mask occurrences within mixed content", () => {
   const unit = parseMarkdown("Read Feature and `Feature` at [Feature](https://example.com/Feature).").groups[0].units[0]
-  const prepared = prepareTranslation(unit, ["Feature"])
+  const prepared = prepareTranslation(unit, parsePreserveTerms(["Feature"]), 32)
   assert.equal(prepared.restore(prepared.text), unit.text)
-  assert.equal(prepared.text, prepareTranslation(unit, []).text)
+  assert.equal(prepared.text, prepareTranslation(unit, emptyPreserveTerms, 32).text)
   assert.ok(prepared.text.includes("Feature"))
   assert.equal(prepared.needsTranslation, true)
-  assert.throws(() => prepared.restore(prepared.text + prepared.text), /marker-mismatch/)
-  assert.throws(() => prepared.restore("No placeholders survived."), /marker-mismatch/)
+  assert.throws(() => prepared.restore(prepared.text + prepared.text), /structure-invalid/)
+  assert.throws(() => prepared.restore("No placeholders survived."), /structure-invalid/)
   for (const source of ["Feature", "**Feature**", "  - Feature", "> Feature"]) {
     const unit = parseMarkdown(source)
       .groups.flatMap((group) => group.units)
       .at(-1)!
-    const body = prepareTranslation(unit, ["Feature"])
+    const body = prepareTranslation(unit, parsePreserveTerms(["Feature"]), 32)
     assert.equal(body.needsTranslation, false, source)
     assert.equal(body.restore(body.text), unit.text)
   }
   for (const source of ["Feature.", "feature", "Feature Widget", "Use Feature.", "FeatureWidget"]) {
     const unit = parseMarkdown(source).groups[0].units[0]
-    assert.equal(prepareTranslation(unit, ["Feature", "Widget"]).needsTranslation, true, source)
-    assert.equal(prepareTranslation(unit, ["Feature", "Widget"]).text, prepareTranslation(unit, []).text)
+    assert.equal(prepareTranslation(unit, parsePreserveTerms(["Feature", "Widget"]), 32).needsTranslation, true, source)
+    assert.equal(prepareTranslation(unit, parsePreserveTerms(["Feature", "Widget"]), 32).text, prepareTranslation(unit, emptyPreserveTerms, 32).text)
   }
   for (const unit of [
     ...parseYaml("Feature: Feature").groups.flatMap((group) => group.units),
@@ -576,33 +562,34 @@ test("custom preserved terms match complete prose bodies and never mask occurren
       ]
     }
   ]) {
-    const prepared = prepareTranslation(unit, ["Feature"])
+    const prepared = prepareTranslation(unit, parsePreserveTerms(["Feature"]), 32)
     assert.equal(prepared.needsTranslation, false)
     assert.equal(prepared.restore(prepared.text), unit.text)
   }
 })
 
-test("AI input masks exact protected ranges, including indented CRLF and repeated literal text", () => {
+test("only long copy-only fragments are masked across indentation and repeated text", () => {
   for (const source of [
-    'Use `supersedes` at [guide](https://example.com/private) and <span data-id="private">this label</span>.',
+    'Use `supersedes` at [guide](https://example.com/a-very-long-private-resource) and <span data-id="private">this label</span>.',
     "  - Use `supersedes` here.\r\n    Keep `members=[]` unchanged.",
     "Read ``code `with` delimiters`` and `a\nb` after 😀.",
     "Read [Feature](Feature), then translate the plain Feature label."
   ]) {
     const unit = { id: "protected", start: 0, end: source.length, text: source, format: "markdown" as const }
-    const prepared = prepareTranslation(unit, ["Feature"])
-    assert.ok(!prepared.text.includes("supersedes") && !prepared.text.includes("https://example.com/private") && !prepared.text.includes('data-id="private"'))
-    assert.ok(!prepared.text.includes("`"), "Protected code reached the AI input instead of an opaque placeholder.")
+    const prepared = prepareTranslation(unit, parsePreserveTerms(["Feature"]), 32)
+    assert.equal(prepared.text.includes("<CTP"), source.includes("a-very-long-private-resource"))
     assert.equal(prepared.restore(prepared.text), source)
+    const translated = prepared.restore(prepared.text.replace("Use", "使用").replace("Read", "阅读"))
+    assert.ok(validateTranslation(unit, translated) === undefined)
   }
 })
 
 test("placeholder namespaces avoid literal source, preserved terms and reference markers and restore them literally", () => {
   const term = "<CTP1_0> $& ${targetLang}"
-  const source = "Keep <CTP0> and " + term + " beside `members`."
+  const source = "Keep <CTP0> and " + term + " beside `members_abcdefghijklmnopqrstuvwxyz_0123456789`."
   const unit = { id: "collision", start: 0, end: source.length, text: source, format: "markdown" as const }
   const context = "Literal <CTP2_0> in reference context."
-  const prepared = prepareTranslation(unit, [term], context)
+  const prepared = prepareTranslation(unit, parsePreserveTerms([term]), 32, context)
   assert.equal(prepared.restore(prepared.text), source)
   assert.ok(prepared.text.includes("<CTP3_"))
 })
@@ -647,7 +634,7 @@ test("Google and Bing adapters preserve protected structure through bounded real
       apiKey: "",
       sourceLanguage: "auto",
       targetLanguage: "zh-CN",
-      preserveTerms: [],
+      preserveTerms: emptyPreserveTerms,
       skipSameLanguage: false
     }
     const content = await requestTranslation(new TranslationService(), settings, batch, new AbortController().signal, new RequestGate(100, 2))
@@ -706,9 +693,9 @@ test("short CTP markers protect internal syntax while separable code delimiters 
       { start: 19, end: 20 }
     ]
   }
-  const prepared = prepareTranslation(unit, [])
-  assert.equal(prepared.text, "Read <CTP0>")
-  assert.equal(prepared.restore("阅读 <CTP0>"), '"阅读 ${sourceId}\\n"')
-  assert.throws(() => prepared.restore("阅读 <CTP10>"), /marker-mismatch/)
-  assert.throws(() => prepared.restore("阅读 <CTP0> <CTP0>"), /marker-mismatch/)
+  const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
+  assert.equal(prepared.text, "Read ${sourceId}\\n")
+  assert.equal(prepared.restore("阅读 ${sourceId}\\n"), '"阅读 ${sourceId}\\n"')
+  assert.throws(() => prepared.restore("阅读"), /structure-invalid/)
+  assert.throws(() => prepared.restore("阅读 ${sourceId}\\n ${sourceId}\\n"), /structure-invalid/)
 })

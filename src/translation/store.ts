@@ -1,5 +1,5 @@
 import { validateTranslations } from "../translation/results.ts"
-import { validTranslation } from "../documents/validation.ts"
+import { validateTranslation } from "../documents/validation.ts"
 import { unchangedUnitRanges } from "../documents/edits.ts"
 import type { SourceEdit } from "../documents/edits.ts"
 import type { PreparedInput, TranslationInput } from "../model/translation.ts"
@@ -126,7 +126,7 @@ export class TranslationStore {
         created.controller.signal.throwIfAborted()
         const task = byId.get(item.id)
         if (task?.interest.signal.aborted) return
-        if (!task || !validTranslation(task.unit, item.text)) throw Error("translation-structure-invalid")
+        if (!task || validateTranslation(task.unit, item.text) !== undefined) throw Error("translation-structure-invalid")
         if (task.value !== undefined) return
         if (task.cacheable) this.remember(task.key, item.text)
         for (const notify of task.consumers.values()) notify(item.text)

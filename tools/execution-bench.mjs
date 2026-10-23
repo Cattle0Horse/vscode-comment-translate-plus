@@ -1,3 +1,4 @@
+const { emptyPreserveTerms } = await import("../artifacts/core/documents/terms.mjs")
 import assert from "node:assert/strict"
 import { resolve } from "node:path"
 import { createRequire } from "node:module"
@@ -22,7 +23,7 @@ const settings = {
   languageNames: {},
   sourceLanguage: "en",
   targetLanguage: "zh-CN",
-  preserveTerms: [],
+  preserveTerms: emptyPreserveTerms,
   skipSameLanguage: false,
   maxItemsPerRequest: 20,
   maxRequestCharacters: 12000,

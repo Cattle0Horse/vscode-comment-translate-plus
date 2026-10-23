@@ -1,4 +1,4 @@
-import type { TranslationItem, PreserveTerm } from "../../model/translation.ts"
+import type { TranslationItem, PreserveTerms } from "../../model/translation.ts"
 import type { TextUnit } from "../../model/document.ts"
 import type { ProviderTrace } from "../../model/events.ts"
 import type { ModelFeedback } from "../../model/diagnostics.ts"
@@ -9,7 +9,7 @@ export interface ProviderSettings {
   readonly systemPrompt: string
   readonly userPrompt: string
   readonly languageNames: Readonly<Record<string, string>>
-  readonly preserveTerms: readonly PreserveTerm[]
+  readonly preserveTerms: PreserveTerms
   readonly apiKey: string
   readonly sourceLanguage: string
   readonly targetLanguage: string

@@ -13,7 +13,7 @@ export function labelReference(node: MarkdownNode, source: string): boolean {
   )
 }
 
-export function protectedFragments(unit: TextUnit): readonly ProtectedFragment[] {
+export function protectedFragments(unit: TextUnit, tree?: MarkdownNode): readonly ProtectedFragment[] {
   if (unit.format === "yaml") return []
   const input = standalone(unit.text)
   let fragments: ProtectedFragment[] = []
@@ -65,23 +65,19 @@ export function protectedFragments(unit: TextUnit): readonly ProtectedFragment[]
     } else for (const child of children(node)) visit(child)
   }
 
-  if (unit.kind !== "string") visit(markdownTree(input).topNode)
+  if (unit.kind !== "string") visit(tree ?? markdownTree(input).topNode)
   fragments.sort((a, b) => a.start - b.start || b.end - a.end)
+  const data = /[A-Za-z\d][A-Za-z\d._~:+/%=-]*/gu
   const patterns = [
     /https?:\/\/[^\s<>"'\x60，。！？；]+/giu,
     /\b[\da-fA-F]{8}-[\da-fA-F]{4}-[\da-fA-F]{4}-[\da-fA-F]{4}-[\da-fA-F]{12}\b/gu,
     /\b[A-Za-z\d.!#$%&'*+/=?^_\x60{|}~-]+@[A-Za-z\d](?:[A-Za-z\d-]*[A-Za-z\d])?(?:\.[A-Za-z\d](?:[A-Za-z\d-]*[A-Za-z\d])?)+\b/gu,
-    /\b(?:0x[\da-fA-F]+|[\da-fA-F]{32}|[\da-fA-F]{40}|[\da-fA-F]{64})\b/gu,
+    /\b0x[\da-fA-F]+\b/gu,
     /(?<![\w.])v?\d+\.\d+\.\d+(?:-[A-Za-z\d]+(?:[.-][A-Za-z\d]+)*)?(?:\+[A-Za-z\d]+(?:[.-][A-Za-z\d]+)*)?(?!\w|\.\w)/gu,
-    /(?<![\p{L}\p{N}\p{M}_/\\])(?:[A-Za-z]:[\\/]|\.{1,2}[\\/]|\/(?!\/))[^\s<>"'\x60，。！？；]+/gu,
-    /(?<![\w$])HTTP(?:S|\(S\))?\/\d+(?:\.\d+)*(?![\w$])/giu
+    /(?<![\p{L}\p{N}\p{M}_/\\<])(?:[A-Za-z]:[\\/]|\.{1,2}[\\/]|\/(?!\/))[^\s<>"'\x60，。！？；]+/gu,
+    /(?<![\w$])HTTP(?:S|\(S\))?\/\d+(?:\.\d+)*(?![\w$])/giu,
+    data
   ]
-  // YAML keys are reading labels by product contract; values and prose share identifier rules.
-  if (!unit.yamlKey) {
-    patterns.push(/\$\{[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\}/gu)
-    patterns.push(/\b(?:[a-z][a-z\d]*[A-Z][A-Za-z\d]*|[A-Za-z][A-Za-z\d]*(?:_[A-Za-z\d]+)+)\b/gu)
-    patterns.push(/\b[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*){2,}\b/gu)
-  }
   if (unit.kind) patterns.push(/\b[1-5][xX]{2}\b/gu)
   for (const pattern of patterns) {
     // Matches from one regex never overlap and advance in source order. Check only prior rules,
@@ -90,6 +86,16 @@ export function protectedFragments(unit: TextUnit): readonly ProtectedFragment[]
     let occupied = 0
     for (const match of unit.text.matchAll(pattern)) {
       let text = match[0]
+      if (pattern === data) {
+        // Classify data by its shape, not by an exhaustive list of address/hash types.
+        // Custom tag names remain prose even when they contain digits.
+        if (unit.text.lastIndexOf("<", match.index) > unit.text.lastIndexOf(">", match.index)) continue
+        const digits = text.match(/\d/gu)?.length ?? 0
+        const hex = text.replace(/[.:_+-]/gu, "")
+        const numeric = digits >= 4 && !/[A-Za-z]/u.test(text)
+        const mixed = digits >= 4 && (digits * 2 >= text.length || /[^\w]{2}|(?:[.:/%+=-].*){2}/u.test(text))
+        if (!(/^[\da-f]{32,}$/iu.test(hex) || numeric || mixed)) continue
+      }
       if ((/^https?:\/\//iu.test(text) || /^[A-Za-z]:[\\/]|^\.{0,2}[\\/]/u.test(text)) && unit.kind !== "string") {
         text = text.replace(/[.,!?;:]+$/u, "")
         for (const [open, close] of [
@@ -101,6 +107,8 @@ export function protectedFragments(unit: TextUnit): readonly ProtectedFragment[]
       }
       const start = match.index
       const end = start + text.length
+      // Escapes and interpolations are lexical boundaries, not identifier characters.
+      if (unit.protected?.some((range) => range.start < end && range.end > start)) continue
       while (occupied < fragments.length && fragments[occupied].end <= start) occupied++
       if (occupied < fragments.length && fragments[occupied].start < end) continue
       accepted.push({ kind: "Technical", text, start, end })
@@ -118,15 +126,10 @@ export function protectedFragments(unit: TextUnit): readonly ProtectedFragment[]
   return fragments.filter((fragment) => !!fragment.text)
 }
 
-export function fragmentContents(unit: TextUnit): readonly (readonly [string, string])[] {
-  const fragments = protectedFragments(unit)
-  return [
-    ...fragments.filter((fragment) => fragment.kind !== "InlineCode" && fragment.kind !== "Technical").map((fragment) => [fragment.kind, fragment.text] as const),
-    ...fragments
-      .filter((fragment) => fragment.kind === "InlineCode" || fragment.kind === "Technical")
-      .map((fragment) => [fragment.kind, fragment.text] as const)
-      .sort((a, b) => a[0].localeCompare(b[0]) || a[1].localeCompare(b[1]))
-  ]
+export function fragmentContents(unit: TextUnit, tree?: MarkdownNode): readonly (readonly [string, string])[] {
+  return protectedFragments(unit, tree)
+    .filter((fragment) => fragment.kind !== "InlineCode" && fragment.kind !== "Technical")
+    .map((fragment) => [fragment.kind, fragment.text] as const)
 }
 
 /** Peel only complete prose wrappers; partial quotes and inline formatting remain in the sentence. */

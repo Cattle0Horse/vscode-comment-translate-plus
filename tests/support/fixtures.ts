@@ -1,5 +1,5 @@
+import { emptyPreserveTerms, parsePreserveTerms, prepareTranslation } from "../../src/documents/terms.ts"
 import { readFileSync } from "node:fs"
-import { parsePreserveTerms } from "../../src/documents/terms.ts"
 import assert from "node:assert/strict"
 import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
@@ -17,9 +17,9 @@ import { TranslationService } from "../../src/translation/engine.ts"
 import { defaultSystemPrompt, defaultUserPrompt, defaultLanguageNames } from "../../src/translation/providers/prompts.ts"
 import type { ParsedDocument } from "../../src/model/document.ts"
 import { referenceText as mergeReferences } from "../../src/documents/references.ts"
-import { prepareTranslation } from "../../src/documents/terms.ts"
+import { protectedFragments } from "../../src/documents/protection.ts"
 
-export const defaultPreserveTerms = parsePreserveTerms(JSON.parse(readFileSync("package.json", "utf8")).contributes.configuration.properties["commentTranslatePlus.preserveTerms"].default)
+export const defaultPreserveTerms = parsePreserveTerms(JSON.parse(readFileSync("resources/preserve-terms.json", "utf8")))
 
 export async function embeddedMarkdown(source: string): Promise<ParsedDocument> {
   return parseMarkdownWithCode(source, async (text, language) => {
@@ -30,6 +30,7 @@ export async function embeddedMarkdown(source: string): Promise<ParsedDocument> 
 }
 
 export const limits = {
+  minimumMarkerCharacters: 32,
   maxItemsPerRequest: 20,
   maxRequestCharacters: 12000,
   maxContextCharacters: 2000,
@@ -63,7 +64,7 @@ export function inputOf(parsed: ParsedDocument): TranslationInput {
 }
 
 export function referenceText(units: TranslationInput["units"]): string {
-  return mergeReferences(units.map((source) => ({ source, hasMarkers: prepareTranslation(source, []).hasReferenceMarkers })))
+  return mergeReferences(units.map((source) => ({ source, hasMarkers: prepareTranslation(source, emptyPreserveTerms, 32).hasMarkers })))
 }
 
 export function unitReferences(unit: TranslationInput["units"][number], budget: number) {
@@ -78,7 +79,7 @@ export function unitReferences(unit: TranslationInput["units"][number], budget: 
       systemPrompt: defaultSystemPrompt,
       userPrompt: defaultUserPrompt,
       languageNames: defaultLanguageNames,
-      preserveTerms: [],
+      preserveTerms: emptyPreserveTerms,
       sourceLanguage: "auto",
       targetLanguage: "zh-CN",
       skipSameLanguage: false
@@ -152,9 +153,9 @@ export function modelContext(body: ChatBody): string {
 }
 
 export function dropLastProtection(text: string): string {
-  const marker = text.match(/<CTP(?:\d+_)?\d+>/g)?.at(-1)
-  assert.ok(marker, "The fault fixture contains no protected placeholder.")
-  return text.replace(marker, "")
+  const fragment = text.match(/<CTP(?:\d+_)?\d+>/g)?.at(-1) ?? protectedFragments({ id: "fault", start: 0, end: text.length, text, format: "markdown" }).at(-1)?.text
+  assert.ok(fragment, "The fault fixture contains no protected content.")
+  return text.replace(fragment, "")
 }
 
 type ChatReply = string | { readonly disconnect: true } | { readonly status: number }

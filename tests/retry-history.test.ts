@@ -8,7 +8,7 @@ import { modelRequest, splitTranslations } from "../src/translation/providers/pr
 test("marker recovery identifies the missing or repeated marker before resending only the failed source", async (t) => {
   for (const count of [0, 2]) {
     const fixture = await chatFixture(t, (_body, items, call) => (call === 1 ? "正确邻项。\n%%\n" + items[1].replace("<CTP0>", "<CTP0>".repeat(count)) : items[0]))
-    const input = inputOf(parseMarkdown("- Read the original document.\n- Keep `sourceId` unchanged."))
+    const input = inputOf(parseMarkdown("- Read the original document.\n- Keep `sourceId_abcdefghijklmnopqrstuvwxyz_123456789` unchanged."))
     const result = await requestTranslation(fixture.service, fixture.settings, input, new AbortController().signal, fixture.gate)
     assert.equal(result.length, 2)
     const retry = fixture.seen[1]
@@ -80,7 +80,7 @@ test("partial success carries only the aligned failed output while ambiguous shr
 test("multiple invalid items retry together with the complete assistant response and numbered corrections for each current item", async (t) => {
   const output = "第一项丢失了代码。\n%%\n"
   const fixture = await chatFixture(t, (_body, items, call) => (call === 1 ? output : items.map((item) => item.replace("Keep", "保留").replace("Read", "阅读")).join("\n%%\n")))
-  const input = inputOf(parseMarkdown("Keep `firstId` unchanged.\n\nRead the original document."))
+  const input = inputOf(parseMarkdown("Keep `firstId_abcdefghijklmnopqrstuvwxyz_123456789` unchanged.\n\nRead the original document."))
   const result = await requestTranslation(fixture.service, { ...fixture.settings, batchShrinkFactor: 1 }, input, new AbortController().signal, fixture.gate)
   assert.equal(result.length, 2)
   assert.equal(fixture.seen.length, 2)
@@ -95,7 +95,7 @@ test("multiple invalid items retry together with the complete assistant response
   assert.match(correction, /2 item\(s\); separator: %% on its own line/)
   assert.match(correction, /Item 1:.*exactly once/)
   assert.match(correction, /Item 2: [^\n]+\n[^\n]*non-empty/)
-  assert.ok(result[0].text.includes("`firstId`"))
+  assert.ok(result[0].text.includes("`firstId_abcdefghijklmnopqrstuvwxyz_123456789`"))
 })
 
 test("shrinking an aligned failed batch selects the prior outputs matching each current source and renumbers corrections", async (t) => {

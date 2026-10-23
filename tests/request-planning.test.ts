@@ -1,3 +1,4 @@
+import { emptyPreserveTerms } from "../src/documents/terms.ts"
 import assert from "node:assert/strict"
 import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
@@ -49,6 +50,7 @@ test("a later batch recompiles its measured request when a consumer abandons one
     server.closeAllConnections()
   })
   const settings: ServiceSettings = {
+    minimumMarkerCharacters: 32,
     provider: "openai",
     apiUrl: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
     model: "mock",
@@ -56,7 +58,7 @@ test("a later batch recompiles its measured request when a consumer abandons one
     systemPrompt: "",
     userPrompt: "${content}",
     languageNames: {},
-    preserveTerms: [],
+    preserveTerms: emptyPreserveTerms,
     sourceLanguage: "auto",
     targetLanguage: "zh-CN",
     skipSameLanguage: false,

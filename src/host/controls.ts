@@ -7,6 +7,7 @@ import type { DocumentReader } from "./documents.ts"
 import type { TranslationRuntime } from "./translations.ts"
 import type { BrowseWorkspace } from "../features/browse/workspace.ts"
 import type { SourceReplacementAction } from "../features/replacement.ts"
+import { emptyPreserveTerms } from "../documents/terms.ts"
 
 export class Controls implements vscode.Disposable {
   private readonly status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100)
@@ -105,7 +106,7 @@ export class Controls implements vscode.Disposable {
     let label = "配置翻译"
     const details = ["注释翻译+：" + state]
     try {
-      const settings = getTranslationSettings(document.uri)
+      const settings = getTranslationSettings(document.uri, emptyPreserveTerms)
       label = settings.targetLanguage + suffix
       details.push("配置：" + settings.name, "语言：" + (settings.sourceLanguage === "auto" ? "自动检测" : settings.sourceLanguage) + " → " + settings.targetLanguage)
     } catch {

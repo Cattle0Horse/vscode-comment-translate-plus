@@ -5,7 +5,21 @@
   "semi": false,
   "trailingComma": "none",
   "sortPackageJson": false,
-  "ignorePatterns": [".agents/**", "PLAN.md", "pnpm-lock.yaml", "node_modules/**", "dist/**", "artifacts/**", ".vscode-test/**", "fixtures/**"],
+  "ignorePatterns": [
+    ".agents/**",
+    "PLAN.md",
+    "pnpm-lock.yaml",
+    "node_modules/**",
+    "dist/**",
+    "artifacts/**",
+    ".vscode-test/**",
+    "fixtures/**",
+    "preserve-terms/manifest.json",
+    "resources/preserve-terms.json",
+    "resources/preserve-terms.full.json",
+    "preserve-terms/snapshots/**",
+    "preserve-terms/licenses/**"
+  ],
   "tabWidth": 2,
   "useTabs": false
 }

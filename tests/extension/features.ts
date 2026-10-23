@@ -1,8 +1,8 @@
+import { emptyPreserveTerms, prepareTranslation } from "../../src/documents/terms.ts"
 import * as vscode from "vscode"
 import { markdownPreviewUri } from "../../src/features/preview.ts"
 import { displayTranslations, previewLoadingMarker, translationDisplayText } from "../../src/documents/presentation.ts"
 import { defaultSystemPrompt } from "../../src/translation/providers/prompts.ts"
-import { prepareTranslation } from "../../src/documents/terms.ts"
 import type { Application } from "../../src/host/application.ts"
 
 interface RequestRecord {
@@ -88,7 +88,11 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     for (const unit of (await owner.documents.parse(document)).groups.flatMap((group) => group.units)) {
       const position = document.positionAt(unit.start)
       if (!editor.visibleRanges.some((range) => range.contains(position))) editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.AtTop)
-      await waitFor(() => owner.browse.inspect(document.uri)?.units.some((translated) => translated.id === unit.id) ?? false, document.uri.path + " visible unit")
+      try {
+        await waitFor(() => owner.browse.inspect(document.uri)?.units.some((translated) => translated.id === unit.id) ?? false, document.uri.path + " visible unit")
+      } catch (error) {
+        throw Error(String(error) + " · unit=" + unit.id + " · state=" + JSON.stringify(owner.browse.inspect(document.uri)))
+      }
     }
     await waitFor(() => owner.browse.inspect(document.uri)?.status === "ready" && owner.browse.inspect(document.uri)?.units.length === count, document.uri.path + " browse")
   }
@@ -135,7 +139,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   await start(typescript.document, 2)
   const commentRequest = (await requests()).slice(beforeComments)
   assert(
-    commentRequest.length === 1 && commentRequest[0].inputFingerprint === (await requestFingerprint("Read the original document.\n\n%%\n\nKeep <CTP0> unchanged.")),
+    commentRequest.length === 1 && commentRequest[0].inputFingerprint === (await requestFingerprint("Read the original document.\n\n%%\n\nKeep `sourceId` unchanged.")),
     "Comment delimiters or documentation stars reached the translation body."
   )
   assert(
@@ -274,7 +278,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     "Rust source windows were duplicated or split into multiple requests."
   )
   assert(
-    rustRequests[0].inputFingerprint === (await requestFingerprint("Read the original document.\n\n%%\n\nKeep <CTP0> unchanged.\n\n%%\n\nRead the original document.")),
+    rustRequests[0].inputFingerprint === (await requestFingerprint("Read the original document.\n\n%%\n\nKeep `sourceId` unchanged.\n\n%%\n\nRead the original document.")),
     "Rust block delimiters reached the translation body."
   )
   assert(
@@ -351,6 +355,49 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
   checks.push("installed Python grammar supports comment browse and leaves executable code unchanged")
 
+  const jsonContent =
+    "<runtime_context_snapshot>\nThis is the complete application runtime context locked at run start.\n<user_timezone>\nAsia/Riyadh\n</user_timezone>\n</runtime_context_snapshot>"
+  const longData = "0123456789abcdef0123456789abcdef 2001:0db8:85a3:0000:0000:8a2e:0370:7334"
+  for (const [file, content, markers] of [
+    ["native-labels.json", jsonContent, false],
+    ["long-data.json", "Read the original document. " + longData, true]
+  ] as const) {
+    const source = JSON.stringify({ content })
+    const target = await open(file, "json", source)
+    const parsed = await owner.documents.parse(target.document, true)
+    const unit = parsed.groups.flatMap((group) => group.units).find((unit) => unit.content === content)
+    assert(unit, "Real JSON grammar lost the decoded string value.")
+    const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
+    assert(prepared.hasMarkers === markers && !prepared.text.includes("\\n"), "JSON exposed serialization escapes or masked ordinary labels.")
+    assert(markers || prepared.text.includes("This is"), "JSON preparation hid This behind an escape marker.")
+    const before = (await requests()).length
+    const result = await owner.translations.translate(target.document, { units: [unit] }, new AbortController().signal)
+    const translated = JSON.parse(result.get(unit.id)!) as string
+    assert(
+      markers ? translated.includes(longData) && translated.includes("阅读原始文档") : translated.includes("<运行时上下文快照>"),
+      "JSON labels or opaque data did not survive the real request chain."
+    )
+    const sent = (await requests()).slice(before)
+    assert(sent.length === 1 && sent[0].itemFingerprints?.includes(await requestFingerprint(prepared.text)), "JSON sent a different string representation or consumed retries.")
+    assert(target.document.getText() === source && !target.document.isDirty, "JSON translation edited its source.")
+    if (markers) {
+      const previous = config.get<number>("minimumMarkerCharacters")
+      await updateObserved("minimumMarkerCharacters", 256)
+      try {
+        const beforeThreshold = (await requests()).length
+        await owner.translations.translate(target.document, { units: [unit] }, new AbortController().signal)
+        const nativeFingerprint = await requestFingerprint(content)
+        assert(
+          (await requests()).slice(beforeThreshold).some((request) => request.itemFingerprints?.includes(nativeFingerprint)),
+          "Native threshold settings did not change the request or reused a result from another threshold."
+        )
+      } finally {
+        await updateObserved("minimumMarkerCharacters", previous)
+      }
+    }
+  }
+  checks.push("real JSON grammar decodes escapes, translates custom labels and uses CTP only for long hash and IPv6 data over mock HTTP without source edits")
+
   await config.update("browse.strings", true, vscode.ConfigurationTarget.Global)
   for (const quote of ['"""', "'''"]) {
     const source = quote + "Read the original document.\nKeep the original string.\n" + quote
@@ -359,7 +406,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     const units = parsed.groups.flatMap((group) => group.units)
     assert(units.length > 0, "Python grammar lost triple quoted strings.")
     for (const unit of units) {
-      const prepared = prepareTranslation(unit, [])
+      const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
       assert(!prepared.text.includes(quote) && !prepared.hasMarkers, "Python triple quote boundaries consumed model markers.")
       assert(prepared.restore(prepared.text) === unit.text, "Local triple quote restoration changed source content.")
     }
@@ -383,12 +430,12 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     assert(units.length === 1, "Python implicit concatenation was split into incomplete translation items.")
     const unit = units[0]
     assert(unit.text.startsWith('f"Skill') && unit.text.endsWith('content."'), "Python literal range lost its prefix or tail.")
-    const prepared = prepareTranslation(unit, [])
+    const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
     assert(
       prepared.text.startsWith("Skill '") && prepared.text.includes("is already loaded") && prepared.text.includes("session.") && prepared.text.endsWith("skill content."),
       "Python concatenation did not send the complete sentence."
     )
-    assert(!prepared.text.includes("{name}") && !/[\r\n]/u.test(prepared.text), "Python interpolation or syntax newlines reached model prose.")
+    assert(prepared.text.includes("{name}") && !prepared.hasMarkers, "Short Python syntax unnecessarily consumed CTP markers.")
     assert(prepared.restore(prepared.text) === unit.text, "Python concatenation no-op changed syntax or line endings.")
     const modified = prepared.restore(prepared.text.replace("Skill", "技能"))
     assert(modified === unit.text.replace("Skill", "技能"), "Python translation changed interpolation or concatenation syntax.")
@@ -411,9 +458,9 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     const units = parsed.groups.flatMap((group) => group.units)
     assert(units.length === count, "Python concatenation crossed a statement, comma or operator boundary: " + expression)
     for (const unit of units) {
-      const prepared = prepareTranslation(unit, [])
+      const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
       assert(prepared.restore(prepared.text) === unit.text, "Python expression no-op lost protected syntax.")
-      if (expression.includes("user.name")) assert(!prepared.text.includes("user.name"), "Python complex interpolation was sent for translation.")
+      if (expression.includes("user.name")) assert(prepared.text.includes("{user.name!r:>10}") && !prepared.hasMarkers, "Short Python interpolation consumed CTP markers.")
     }
   }
   await config.update("browse.strings", false, vscode.ConfigurationTarget.Global)
@@ -485,12 +532,12 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   const profile = await open("profile-switch.md", "markdown", markdownSource)
   const beforeLinks = (await requests()).length
   await start(profile.document, 2)
-  const linkFingerprint = await requestFingerprint("Keep <CTP0> and [guide](<CTP1>) and ![cover](<CTP2>).")
+  const linkFingerprint = await requestFingerprint("Keep `sourceId` and [guide](https://example.com) and ![cover](./cover.svg).")
   assert(
     (await requests()).slice(beforeLinks).some((request) => request.itemFingerprints?.includes(linkFingerprint)),
-    "The Web host did not send native link/image syntax with one angle-bracket marker per target."
+    "The Web host masked short code or link targets."
   )
-  checks.push("native link and image punctuation reaches HTTP unchanged with only their targets masked by angle-bracket CTP markers")
+  checks.push("short code, links and images reach HTTP in native syntax without CTP markers")
   const beforeSwitch = (await requests()).length
   await config.update("activeProfile", "other", vscode.ConfigurationTarget.Global)
   await waitFor(async () => owner.browse.inspect(profile.document.uri)?.status === "ready" && (await requests()).at(-1)?.model === "model-b", "model switch")
@@ -587,7 +634,9 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   await waitFor(() => restored.getText().includes("阅读原始文档") && !restored.getText().includes("正在翻译"), "restored virtual preview")
   assert(!restored.isDirty, "Restoring a preview made it dirty.")
   checks.push("native translated Markdown preview shares cache, refreshes edits, restores from its URI and delegates relative resources through a read-only filesystem")
-  await config.update("preserveTerms", ["Widget", "project.lock"], vscode.ConfigurationTarget.Global)
+  const termsFile = vscode.Uri.joinPath(workspace, "custom-terms.json")
+  await vscode.workspace.fs.writeFile(termsFile, new TextEncoder().encode(JSON.stringify(["Widget", "project.lock"])))
+  await config.update("preserveTerms", ["./custom-terms.json"], vscode.ConfigurationTarget.Global)
   const termsSource = "Read Feature, API and Widget project.lock. Keep `API` unchanged.\n\nWidget\n\nproject.lock\n\nAPI"
   const terms = await open("terms.md", "markdown", termsSource)
   const beforeTerms = (await requests()).length
@@ -615,7 +664,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     (await requests())
       .slice(beforeTerms)
       .flatMap((request) => request.itemFingerprints ?? [])
-      .includes(await requestFingerprint(prepareTranslation(termUnit, []).text)),
+      .includes(await requestFingerprint(prepareTranslation(termUnit, emptyPreserveTerms, 32).text)),
     "Custom preserved terms masked part of a mixed model request."
   )
   await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
@@ -631,7 +680,12 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     "An empty preserveTerms array retained a built-in short name."
   )
   await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
-  await config.update("preserveTerms", [{ pattern: "(?:Widget|project\\.lock|https?)", flags: "i" }], vscode.ConfigurationTarget.Global)
+  const regexFile = vscode.Uri.joinPath(workspace, "regex-terms.jsonc")
+  await vscode.workspace.fs.writeFile(
+    regexFile,
+    new TextEncoder().encode("[\n// Shared regex rule\n" + JSON.stringify({ pattern: "(?:Widget|project\\.lock|https?)", flags: "i" }) + ",\n]")
+  )
+  await config.update("preserveTerms", [regexFile.toString()], vscode.ConfigurationTarget.Global)
   const regexTerms = await open("regex-terms.md", "markdown", "wIDGET\n\nproject.lock\n\nHtTp\n\nRead HTTP with Widget.")
   const beforeRegexTerms = (await requests()).length
   await start(regexTerms.document, 4)
@@ -648,9 +702,93 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     "Regex terms changed original spelling."
   )
   assert(regexTerms.document.getText() === "wIDGET\n\nproject.lock\n\nHtTp\n\nRead HTTP with Widget." && !regexTerms.document.isDirty, "Regex matching edited source.")
+  // Changes remain on the last valid snapshot until scheduled or manual refresh.
+  const beforeLocalEdit = (await owner.translations.settings(regexTerms.document.uri)).identity
+  await config.update("preserveTermsRefreshSeconds", 0, vscode.ConfigurationTarget.Global)
+  await vscode.workspace.fs.writeFile(regexFile, new TextEncoder().encode("[]"))
+  assert((await owner.translations.settings(regexTerms.document.uri)).identity === beforeLocalEdit, "A local edit bypassed the configured refresh policy.")
+  await vscode.commands.executeCommand("commentTranslatePlus.refreshPreserveTerms")
+  const removedFingerprint = await requestFingerprint("wIDGET")
+  await waitFor(
+    async () =>
+      owner.browse.inspect(regexTerms.document.uri)?.status === "ready" &&
+      (await requests()).slice(beforeRegexTerms).some((request) => request.itemFingerprints?.includes(removedFingerprint)),
+    "manual term refresh invalidates prior local-only results"
+  )
+  const afterRuleRemoval = (await requests()).slice(beforeRegexTerms).flatMap((request) => request.itemFingerprints ?? [])
+  assert(afterRuleRemoval.includes(await requestFingerprint("wIDGET")), "Removing a rule reused its previous local-only cache result.")
+  const validSettings = await owner.translations.settings(regexTerms.document.uri)
+  await vscode.workspace.fs.writeFile(regexFile, new TextEncoder().encode('[{"pattern":"["}]'))
+  await vscode.commands.executeCommand("commentTranslatePlus.refreshPreserveTerms")
+  assert((await owner.translations.settings(regexTerms.document.uri)).identity === validSettings.identity, "An invalid saved file replaced the last valid rule set.")
   await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  await vscode.workspace.fs.writeFile(regexFile, new TextEncoder().encode('["Widget"]'))
+  const setTermFile = async (termFile: string | null) => {
+    const response = await fetch(origin + "/control", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ termFile }) })
+    assert(response.ok, "Could not configure mock term file.")
+  }
+  await setTermFile('["RemoteOnly", {"pattern":"HTTP", "flags":"i"}]')
+  await config.update("preserveTerms", [regexFile.toString(), origin + "/preserve-terms.json"], vscode.ConfigurationTarget.Global)
+  const remoteTerms = await open("remote-terms.md", "markdown", "Widget\n\nRemoteOnly\n\nhTtP\n\nRead Widget.")
+  const beforeRemote = (await requests()).length
+  await start(remoteTerms.document, 4)
+  assert(
+    JSON.stringify((await requests()).slice(beforeRemote).flatMap((request) => request.itemFingerprints ?? [])) === JSON.stringify([await requestFingerprint("Read Widget.")]),
+    "Local and remote term files were not merged with full-body matching."
+  )
+  const beforeFailure = (await owner.translations.settings(remoteTerms.document.uri)).identity
+  await setTermFile(null)
+  await vscode.workspace.fs.writeFile(regexFile, new TextEncoder().encode("[]"))
+  await vscode.commands.executeCommand("commentTranslatePlus.refreshPreserveTerms")
+  assert((await owner.translations.settings(remoteTerms.document.uri)).identity === beforeFailure, "A failed remote refresh discarded the last valid compiled snapshot.")
+  // Native configuration changes release the in-memory snapshot; recovery now needs persisted, revalidated data.
+  await config.update("preserveTerms", [], vscode.ConfigurationTarget.Global)
+  await config.update("preserveTerms", [regexFile.toString(), origin + "/preserve-terms.json"], vscode.ConfigurationTarget.Global)
+  assert((await owner.translations.settings(remoteTerms.document.uri)).identity === beforeFailure, "Offline recovery after releasing memory lost the persisted complete snapshot.")
+  await setTermFile("[]")
+  await config.update("preserveTermsRefreshSeconds", 1, vscode.ConfigurationTarget.Global)
+  await waitFor(
+    async () => (await owner.translations.settings(remoteTerms.document.uri)).identity !== beforeFailure && owner.browse.inspect(remoteTerms.document.uri)?.status === "ready",
+    "scheduled term refresh"
+  )
+  await config.update("preserveTermsRefreshSeconds", 0, vscode.ConfigurationTarget.Global)
+  assert((await owner.translations.settings(remoteTerms.document.uri)).identity !== beforeFailure, "Changed remote content did not isolate prior results.")
+  assert(
+    (await requests())
+      .slice(beforeRemote)
+      .flatMap((request) => request.itemFingerprints ?? [])
+      .includes(await requestFingerprint("RemoteOnly")),
+    "Removing remote terms retained local-only results."
+  )
+  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  await setTermFile(null)
+  await config.update("preserveTerms", [origin + "/preserve-terms.json?first-load=failed"], vscode.ConfigurationTarget.Global)
+  let initialFailure = false
+  try {
+    const parsed = await owner.documents.parse(remoteTerms.document)
+    await owner.translations.translate(remoteTerms.document, { units: parsed.groups.flatMap((group) => group.units) }, new AbortController().signal)
+  } catch {
+    initialFailure = true
+  }
+  assert(initialFailure, "An unavailable first-time term source was silently treated as an empty successful list.")
+  const failedReads = ((await (await fetch(origin + "/state")).json()) as { termFileReads: number }).termFileReads
+  for (let index = 0; index < 2; index++) {
+    try {
+      await owner.translations.settings(remoteTerms.document.uri)
+    } catch {
+      /* Re-reading settings must preserve the failed snapshot until refresh. */
+    }
+  }
+  assert(
+    ((await (await fetch(origin + "/state")).json()) as { termFileReads: number }).termFileReads === failedReads,
+    "A failed source was re-fetched outside the configured refresh policy."
+  )
+  await setTermFile("[]")
   await config.update("preserveTerms", undefined, vscode.ConfigurationTarget.Global)
-  checks.push("custom preserved terms complete locally only for whole units; mixed prose reaches the model unchanged; custom and empty arrays override defaults")
+  await config.update("preserveTermsRefreshSeconds", undefined, vscode.ConfigurationTarget.Global)
+  checks.push(
+    "local JSON/JSONC and remote term files merge compiled full-body rules, refresh only on schedule or manual command, retain last valid snapshots on failure and invalidate removed rules"
+  )
 
   const folder = vscode.workspace.getWorkspaceFolder(workspace)
   assert(folder, "Missing workspace folder for auto rules.")
@@ -742,7 +880,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   const beforeFiltered = (await requests()).length
   await start(filtered.document, 13)
   const sentItems = (await requests()).slice(beforeFiltered).flatMap((request) => request.itemFingerprints ?? [])
-  const expectedItems = await Promise.all(["all", "ai-collection", "Read the original document."].map(requestFingerprint))
+  const expectedItems = await Promise.all(["hostnameGroup", "QIYE_WX_KEY_5XX", "all", "ai-collection", "Read the original document."].map(requestFingerprint))
   assert(JSON.stringify(sentItems.sort()) === JSON.stringify(expectedItems.sort()), "Chinese comments or technical string values reached HTTP, or an ambiguous label was discarded.")
   const filteredState = owner.browse.inspect(filtered.document.uri)!
   assert(
@@ -791,7 +929,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   const beforeIdentifiers = (await requests()).length
   await start(identifiers.document, identifierCount)
   const identifierItems = (await requests()).slice(beforeIdentifiers).flatMap((request) => request.itemFingerprints ?? [])
-  assert(identifierItems.length === 1, "Standalone Markdown identifiers, paths, addresses, versions or hashes reached HTTP.")
+  assert(identifierItems.length === 4, "Standalone Markdown identifiers, paths, addresses, versions or hashes reached HTTP.")
   assert(owner.browse.inspect(identifiers.document.uri)!.units.filter((unit) => unit.translation !== unit.text).length === 1, "Identifier filtering hid the natural-language translation.")
   const identifierPreview = await vscode.workspace.openTextDocument(markdownPreviewUri(identifiers.document.uri))
   await waitFor(
@@ -809,7 +947,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   const beforeIdentifierYaml = (await requests()).length
   await start(identifierYaml.document, yamlIdentifierCount)
   const yamlIdentifierItems = (await requests()).slice(beforeIdentifierYaml).flatMap((request) => request.itemFingerprints ?? [])
-  const expectedYamlIdentifierItems = await Promise.all(["read_only", "endpoint", "version"].map(requestFingerprint))
+  const expectedYamlIdentifierItems = await Promise.all(["read_only", "sourceId", "endpoint", "version"].map(requestFingerprint))
   assert(JSON.stringify(yamlIdentifierItems.sort()) === JSON.stringify(expectedYamlIdentifierItems.sort()), "YAML keys stopped translating or technical values reached HTTP.")
   assert(identifierYaml.document.getText() === identifierYamlSource && !identifierYaml.document.isDirty, "Identifier filtering edited YAML source.")
   await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
@@ -895,7 +1033,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     const contaminationSource = "- Read the original document. Reference contamination case. " + mode + ". Keep `sourceId`.\n- 这是已有的中文说明，调用 `run_command`。"
     const contamination = await open("reference-contamination-" + mode + ".md", "markdown", contaminationSource)
     const target = (await owner.documents.parse(contamination.document)).groups.flatMap((group) => group.units)[0]
-    const fingerprint = await requestFingerprint(prepareTranslation(target, []).text)
+    const fingerprint = await requestFingerprint(prepareTranslation(target, emptyPreserveTerms, 32).text)
     const before = (await requests()).length
     await fetch(origin + "/control", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ referenceContamination: mode }) })
     try {
@@ -924,8 +1062,8 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
           output!
             .getText()
             .split(/(?=^\[\d{4}-\d{2}-\d{2}T)/m)
-            .some((entry) => entry.includes("] reference-contamination-" + mode + ".md · ") && entry.includes("新增") && entry.includes("`run_command`")),
-        "added reference code is identified in the output"
+            .some((entry) => entry.includes("] reference-contamination-" + mode + ".md · ") && entry.includes("内部换行")),
+        "context continuation is rejected with an internal-line-break diagnostic"
       )
       assert(contamination.document.getText() === contaminationSource && !contamination.document.isDirty, "Contamination handling changed the source.")
     } finally {
@@ -1577,7 +1715,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     assert(scopedResult.size === 9, "Scoped requests lost source units.")
     const scopedRequests = (await requests()).slice(beforeScopedReference)
     const paragraphReference = "# Scoped reference guide\n\n" + scopedUnits[1].text
-    const paragraphReferenceFingerprint = await requestFingerprint(paragraphReference)
+    const paragraphReferenceFingerprint = await requestFingerprint("")
     assert(
       scopedRequests.some((request) => request.count === 2 && request.contextFingerprint === paragraphReferenceFingerprint),
       "Masked paragraph reference lost its original source or included an unrelated table."
@@ -1954,7 +2092,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   const transportTarget = await open("transport-retry.md", "markdown", transportSource)
   const beforeTransport = (await requests()).length
   await start(transportTarget.document, 2)
-  const transportFingerprint = await requestFingerprint("Read the original document. TransportRetryCase.\n\n%%\n\nKeep <CTP0> unchanged.")
+  const transportFingerprint = await requestFingerprint("Read the original document. TransportRetryCase.\n\n%%\n\nKeep `sourceId` unchanged.")
   const transportRequests = (await requests()).slice(beforeTransport).filter((request) => request.inputFingerprint === transportFingerprint)
   assert(
     transportRequests.length === 2 && transportRequests.every((request) => request.count === 2 && !request.retryFeedbackIncluded),
@@ -1976,7 +2114,8 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   await config.update("activeProfile", "log-recovery", vscode.ConfigurationTarget.Global)
   for (const [name, source, expected, attempts] of [
     ["heading", "## Sources", "## 来源", 2],
-    ["style", "**Summary MUST be ≤ 800 characters.** Must directly answer the task with specific data.", "**摘要必须不超过 800 个字符。**  必须用具体数据直接回答任务要求。", 1],
+    ["inline", "Read `sourceId` unchanged. InlineCodeToleranceCase.", "阅读 sourceChanged，并标记 `body/html`。", 1],
+    ["style", "**Summary MUST be ≤ 800 characters.** Must directly answer the task with specific data.", "**摘要必须不超过 800 个字符。** 必须用具体数据直接回答任务要求。", 1],
     [
       "code",
       "- in the `Working language:` line at the top of your input for all outputs, content generation, and summaries.",
@@ -1986,7 +2125,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   ] as const) {
     const target = await open("log-recovery-" + name + ".md", "markdown", source)
     const unit = (await owner.documents.parse(target.document)).groups.flatMap((group) => group.units)[0]
-    const fingerprint = await requestFingerprint(prepareTranslation(unit, []).text)
+    const fingerprint = await requestFingerprint(prepareTranslation(unit, emptyPreserveTerms, 32).text)
     const before = (await requests()).length
     const sent = async () => (await requests()).slice(before).filter((request) => request.model === "log-recovery-fixture" && request.inputFingerprint === fingerprint)
     await start(target.document, 1)
@@ -2015,7 +2154,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   )
   await config.update("activeProfile", "history", vscode.ConfigurationTarget.Global)
   await config.update("batchShrinkFactor", 1, vscode.ConfigurationTarget.Global)
-  const historySource = "1. Keep `firstId` unchanged.\n2. Read the original document. JointRetryHistoryCase."
+  const historySource = "1. Keep `firstId_abcdefghijklmnopqrstuvwxyz_123456789` unchanged.\n2. Read the original document. JointRetryHistoryCase."
   const historyTarget = await open("joint-retry-history.md", "markdown", historySource)
   const historyFingerprint = await requestFingerprint("Keep <CTP0> unchanged.\n\n%%\n\nRead the original document. JointRetryHistoryCase.")
   const beforeHistory = (await requests()).length
@@ -2048,7 +2187,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     const target = await open(newline === "\n" ? "folded-prose-lf.md" : "folded-prose-crlf.md", "markdown", source)
     const before = (await requests()).length
     await start(target.document, 1)
-    const fingerprint = await requestFingerprint("Read the original document. Keep <CTP0> unchanged.")
+    const fingerprint = await requestFingerprint("Read the original document. Keep `sourceId` unchanged.")
     assert(
       (await requests()).slice(before).some((request) => request.itemFingerprints?.includes(fingerprint)),
       "Multiline prose still sent line markers, continuation prefixes or multiple joining spaces."
