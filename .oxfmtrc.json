@@ -1,0 +1,11 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "printWidth": 188,
+  "endOfLine": "lf",
+  "semi": false,
+  "trailingComma": "none",
+  "sortPackageJson": false,
+  "ignorePatterns": [".agents/**", "PLAN.md", "pnpm-lock.yaml", "node_modules/**", "dist/**", "artifacts/**", ".vscode-test/**", "fixtures/**"],
+  "tabWidth": 2,
+  "useTabs": false
+}

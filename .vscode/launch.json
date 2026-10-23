@@ -1,0 +1,16 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Attach VS Code Web",
+      "type": "pwa-chrome",
+      "request": "attach",
+      "address": "localhost",
+      "port": 9222,
+      "timeout": 120000,
+      "webRoot": "${workspaceFolder}",
+      "pathMapping": { "/static/devextensions": "${workspaceFolder}" },
+      "preLaunchTask": "web-host"
+    }
+  ]
+}

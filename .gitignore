@@ -1,0 +1,8 @@
+node_modules/
+artifacts/
+.vscode-test/
+dist/
+*.vsix
+.env
+.env.*
+!.env.example

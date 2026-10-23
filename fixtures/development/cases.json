@@ -1,0 +1,226 @@
+[
+    {
+        "id": "seven-list-items",
+        "file": "lists.md",
+        "languageId": "markdown",
+        "units": 7,
+        "anchorLines": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+        ]
+    },
+    {
+        "id": "unicode-crlf",
+        "file": "unicode-crlf.md",
+        "languageId": "markdown",
+        "units": 4,
+        "eol": "crlf",
+        "contains": [
+            "😀",
+            "\t- Keep the child item here."
+        ]
+    },
+    {
+        "id": "skill-fields",
+        "file": "SKILL.md",
+        "languageId": "skill",
+        "units": 9,
+        "contains": [
+            "description",
+            "Translate complete fields. Keep their context together.",
+            "notes",
+            "Read the first line and the second line together."
+        ]
+    },
+    {
+        "id": "nested-list-continuations",
+        "file": "development/nested-lists.md",
+        "languageId": "markdown",
+        "units": 7,
+        "contains": [
+            "1. Read the first parent item.\n   Keep the continuation with its parent.",
+            "> Read the quoted paragraph.\n> Keep both quoted lines together."
+        ],
+        "excludes": [
+            "const nestedCode"
+        ]
+    },
+    {
+        "id": "tables-links-code",
+        "file": "development/tables-links.md",
+        "languageId": "markdown",
+        "units": 8,
+        "contains": [
+            "**R**ead [the guide][guide] and keep `sourceId` unchanged."
+        ],
+        "excludes": [
+            "const untouched",
+            "[guide]:"
+        ]
+    },
+    {
+        "id": "nested-yaml-fields",
+        "file": "development/nested-frontmatter.md",
+        "languageId": "markdown",
+        "units": 14,
+        "contains": [
+            "description",
+            "Read the complete field.\nKeep both lines together.",
+            "label",
+            "Read the nested label.",
+            "enabled",
+            "priority"
+        ]
+    },
+    {
+        "id": "invalid-yaml-body",
+        "file": "development/invalid-frontmatter.md",
+        "languageId": "markdown",
+        "units": 1,
+        "error": "frontmatter-invalid",
+        "excludes": [
+            "description:"
+        ]
+    },
+    {
+        "id": "incomplete-yaml",
+        "file": "development/incomplete-frontmatter.md",
+        "languageId": "markdown",
+        "units": 0,
+        "error": "frontmatter-incomplete"
+    },
+    {
+        "id": "fenced-markdown-content",
+        "file": "development/code-only.md",
+        "languageId": "markdown",
+        "units": 2,
+        "contains": [
+            "1. This example is code, not a document list item.",
+            "2. Keep both example items unchanged."
+        ],
+        "excludes": [
+            "const message"
+        ]
+    },
+    {
+        "id": "scrolling-visible-batches",
+        "file": "development/scrolling.md",
+        "languageId": "markdown",
+        "units": 61,
+        "visitLines": [
+            2,
+            22,
+            42,
+            61
+        ]
+    },
+    {
+        "id": "typescript-comments",
+        "file": "development/comments.ts",
+        "languageId": "typescript",
+        "units": 2,
+        "contains": [
+            "// Read the original document.",
+            "/**\n * Keep `sourceId` unchanged.\n */"
+        ],
+        "excludes": [
+            "const value",
+            "const untouched"
+        ]
+    },
+    {
+        "id": "javascript-comments",
+        "file": "development/comments.js",
+        "languageId": "javascript",
+        "units": 2,
+        "excludes": [
+            "const value",
+            "const untouched"
+        ]
+    },
+    {
+        "id": "python-comments",
+        "file": "development/comments.py",
+        "languageId": "python",
+        "units": 2,
+        "excludes": [
+            "value =",
+            "untouched ="
+        ]
+    },
+    {
+        "id": "typescript-string-translation",
+        "file": "development/strings.ts",
+        "languageId": "typescript",
+        "units": 4,
+        "strings": true,
+        "contains": [
+            "${sourceId}\\n",
+            "`Read the original document.\nKeep both lines together.`"
+        ],
+        "excludes": [
+            "const message",
+            "const untouched"
+        ]
+    },
+    {
+        "id": "rust-comments",
+        "file": "development/comments.rs",
+        "languageId": "rust",
+        "units": 2,
+        "contains": [
+            "/// Read the original document.",
+            "/* Keep `sourceId` unchanged. */"
+        ],
+        "excludes": [
+            "let message",
+            "fn main"
+        ]
+    },
+    {
+        "id": "python-multiline-strings",
+        "file": "development/strings.py",
+        "languageId": "python",
+        "units": 3,
+        "strings": true,
+        "contains": [
+            "\"\"\"Read the original document.\nKeep both lines together.\"\"\""
+        ],
+        "excludes": [
+            "message =",
+            "untouched ="
+        ]
+    },
+    {
+        "id": "yaml-scalars-and-table-rows",
+        "file": "development/scalars-and-table.md",
+        "languageId": "markdown",
+        "units": 9,
+        "contains": [
+            "default_enabled",
+            "Read the complete field.\nKeep both lines together.",
+            "Read the original document."
+        ]
+    },
+    {
+        "id": "standalone-yaml-fields",
+        "file": "development/yaml-fields.yaml",
+        "languageId": "yaml",
+        "units": 11,
+        "contains": ["availability", "default_enabled", "Read the complete field. Keep both lines together.", "# Read the original document."],
+        "excludes": ["true", "false"]
+    },
+    {
+        "id": "standalone-yaml-stream",
+        "file": "development/yaml-stream.yml",
+        "languageId": "yaml",
+        "units": 16,
+        "contains": ["Read the complete field.\nKeep both lines together.", "Keep the second hint together."],
+        "excludes": ["TRUE", "0x10", "~", "*base"]
+    }
+]
