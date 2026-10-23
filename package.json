@@ -2,7 +2,7 @@
   "name": "vscode-comment-translate-plus",
   "displayName": "注释翻译+",
   "description": "注释、Markdown 与指令文件沉浸式翻译，独立悬停、Markdown 翻译预览和可切换翻译服务",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "cattle-horse",
   "license": "MIT",
   "repository": {
