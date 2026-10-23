@@ -42,21 +42,21 @@ test("logged summary and list outputs recover a single style-boundary line break
     {
       source: summary,
       output:
-        "<CTP0> 摘要的长度必须≤800个字符。  \n<CTP1> 必须使用具体数据来直接回答任务要求。请包含搜索文档的路径（例如，<CTP2>），以便父代理可以获取完整结果。不要列出所有的源URL——保持摘要的易读性。摘要应该是自包含的：读者无需打开文档就能理解答案。"
+        "** 摘要的长度必须≤800个字符。  \n** 必须使用具体数据来直接回答任务要求。请包含搜索文档的路径（例如，/memory/search/{topic}.md），以便父代理可以获取完整结果。不要列出所有的源URL——保持摘要的易读性。摘要应该是自包含的：读者无需打开文档就能理解答案。"
     },
     {
       source: summary,
       output:
-        "<CTP0> 摘要必须长度不超过 800 个字符。  \n<CTP1> 必须使用具体数据直接回答任务要求。需包含搜索文档的路径（例如，<CTP2>），以便父代理可以获取完整结果。不要列出所有的源 URL——保持摘要易于阅读。摘要应自成一体：读者无需打开文档即可理解答案。"
+        "** 摘要必须长度不超过 800 个字符。  \n** 必须使用具体数据直接回答任务要求。需包含搜索文档的路径（例如，/memory/search/{topic}.md），以便父代理可以获取完整结果。不要列出所有的源 URL——保持摘要易于阅读。摘要应自成一体：读者无需打开文档即可理解答案。"
     },
     {
       source: summary,
       output:
-        "<CTP0> 摘要必须不超过 800 个字符。  \n<CTP1> 必须用具体数据直接回答任务要求。需包含搜索文档的路径（例如，<CTP2>），以便父代理可以获取完整结果。不要列出所有源 URL——保持摘要易于阅读。摘要应自成一体：读者无需打开文档即可理解答案。"
+        "** 摘要必须不超过 800 个字符。  \n** 必须用具体数据直接回答任务要求。需包含搜索文档的路径（例如，/memory/search/{topic}.md），以便父代理可以获取完整结果。不要列出所有源 URL——保持摘要易于阅读。摘要应自成一体：读者无需打开文档即可理解答案。"
     },
     {
       source: "5. **Write a search results document** to `/memory/search/{topic}.md` summarizing findings (see below)",
-      output: "<CTP0> 编写搜索结果文档  \n<CTP1> 将结果总结到 <CTP2> 中（详见下文）"
+      output: "** 编写搜索结果文档  \n** 将结果总结到 `/memory/search/{topic}.md` 中（详见下文）"
     }
   ]
   for (const { source, output } of cases) {
@@ -86,30 +86,30 @@ test("logged summary and list outputs recover a single style-boundary line break
 
 test("style-boundary recovery preserves prose whitespace and rejects paragraph breaks or invalid markers", () => {
   const unit = inputOf(parseMarkdown("**Read *the original* document** and keep `sourceId`.")).units[0]
-  const prepared = prepareTranslation(unit, [])
-  const output = prepared.text.replace("Read", "阅读  仔细").replace("the original", "原始").replace("document", "文档").replace("and keep", "并保留")
-  const markers = prepared.text.match(/<CTP\d+>/g)!
-  const wrapped = output.replace(markers[0], markers[0] + " \r\n ").replace(markers[3], " \r\n " + markers[3])
+  const prepared = prepareTranslation(unit, [], 32)
+  const output = "**阅读  仔细 *原始* 文档** 并保留 `sourceId`."
+  const wrapped = output.replace("**阅读", "** \r\n 阅读").replace("文档**", "文档 \r\n **")
   const restored = prepared.restore(wrapped)
   assert.ok(validTranslation(unit, restored))
-  assert.ok(restored.includes("阅读  仔细 *原始* 文档"), "Recovery changed internal prose spacing or nested styles.")
-  assert.throws(() => prepared.restore(output.replace(markers[3], "\n\n" + markers[3])), /structure-invalid/, "An added paragraph was silently collapsed.")
-  for (const damaged of [wrapped.replace(markers[1], ""), wrapped + markers[0], wrapped + "<CTP999>"]) assert.throws(() => prepared.restore(damaged), /marker-mismatch/)
+  assert.ok(restored.includes("阅读  仔细 *原始* 文档"))
+  assert.throws(() => prepared.restore(output.replace("文档**", "文档\n\n**")), /structure-invalid/)
+  assert.throws(() => prepared.restore(wrapped.replace("`sourceId`", "")), /structure-invalid/)
+  assert.throws(() => prepared.restore(wrapped + "<CTP999>"), /marker-mismatch/)
 })
 
 test("a source-owned inline code marker may echo its exact backtick wrapper without changing code contents", async (t) => {
-  const source = "- in the `Working language:` line at the top of your input for all outputs, content generation, and summaries."
+  const source = "- in the `Working language: the selected conversation language` line at the top of your input for all outputs, content generation, and summaries."
   const output = "您必须在使用输入时，始终遵循位于顶部 `<CTP0>` 行中指定的工作语言，用于所有输出、内容生成以及摘要的生成。"
   const fixture = await chatFixture(t, () => output)
   const input = inputOf(parseMarkdown(source))
   const result = await requestTranslation(fixture.service, fixture.settings, input, new AbortController().signal, fixture.gate)
-  assert.ok(result[0].text.includes("`Working language:`") && !result[0].text.includes("``"))
+  assert.ok(result[0].text.includes("`Working language: the selected conversation language`") && !result[0].text.includes("``"))
   assert.equal(fixture.seen.length, 1)
-  const prepared = prepareTranslation(input.units[0], [])
+  const prepared = prepareTranslation(input.units[0], [], 32)
   assert.throws(() => prepared.restore(output + " <CTP0>"), /marker-mismatch/)
   assert.equal(validTranslation(input.units[0], prepared.restore(output + " `extra`")), false)
   const path = inputOf(parseMarkdown("Read /memory/search/result.md.")).units[0]
-  assert.equal(validTranslation(path, prepareTranslation(path, []).restore("阅读 `<CTP0>`。")), false, "A new code wrapper around a plain path was silently removed.")
+  assert.equal(validTranslation(path, prepareTranslation(path, [], 32).restore("阅读 `/memory/search/result.md`。")), false, "A new code wrapper around a plain path was silently removed.")
 })
 
 test("single-item model failures do not collapse learned capacity for later healthy batches", async (t) => {

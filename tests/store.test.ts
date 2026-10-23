@@ -69,7 +69,7 @@ test("fenced Markdown and YAML reuse scalar and prose translation while preservi
       const translations = new Map<string, string>()
       for (const unit of units) {
         assert.equal(source.slice(unit.start, unit.end), unit.text)
-        const prepared = prepareTranslation(unit, [])
+        const prepared = prepareTranslation(unit, [], 32)
         assert.equal(prepared.restore(prepared.text), unit.text, "No-change translations must retain original YAML syntax and every container prefix.")
         const translated = prepared.restore(prepared.text.replaceAll("Read", "阅读"))
         assert.ok(validTranslation(unit, translated))
@@ -93,7 +93,7 @@ test("moving an embedded document reuses validated per-unit cache without retain
   const action: Parameters<TranslationStore["translate"]>[2] = async (input) => {
     calls++
     return input.units.map((unit) => {
-      const prepared = prepareTranslation(unit, [])
+      const prepared = prepareTranslation(unit, [], 32)
       return { id: unit.id, text: prepared.restore(prepared.text.replace("Read", "阅读")) }
     })
   }
@@ -686,7 +686,7 @@ test("retry feedback carries only the latest failed-unit diagnostic and repaired
     if (call === 2) return items[0] + "\n\nExtra paragraph."
     return items[0].replace("Keep", "保留")
   })
-  const input = inputOf(parseMarkdown("Original neighbour.\n\nKeep `privateCode` unchanged."))
+  const input = inputOf(parseMarkdown("Original neighbour.\n\nKeep `privateCode_abcdefghijklmnopqrstuvwxyz_123456789` unchanged."))
   const store = new TranslationStore()
   t.after(() => store.clear())
   const translate = () =>
@@ -698,7 +698,7 @@ test("retry feedback carries only the latest failed-unit diagnostic and repaired
     )
   const result = await translate()
   assert.equal(result.get(input.units[0].id), "译文 neighbour.")
-  assert.equal(result.get(input.units[1].id), "保留 `privateCode` unchanged.")
+  assert.equal(result.get(input.units[1].id), "保留 `privateCode_abcdefghijklmnopqrstuvwxyz_123456789` unchanged.")
   assert.equal(fixture.seen.length, 3)
   assert.deepEqual(
     fixture.seen.map(({ body }) => body.messages.map((message) => message.role)),
@@ -729,7 +729,7 @@ test("invalid units exhaust a finite budget while verified neighbours survive fa
   const progress: string[] = []
   await assert.rejects(
     store.translate("same-profile", original, action, new AbortController().signal, false, (item) => progress.push(item.id)),
-    /marker-mismatch/
+    /structure-invalid/
   )
   assert.deepEqual(new Set(progress), new Set(original.units.slice(1).map((unit) => unit.id)))
   assert.equal(fixture.seen.filter((call) => call.items.some((text) => text.includes("Keep"))).length, 3)
@@ -822,10 +822,10 @@ test("technical code values complete locally while ambiguous names remain transl
   await taskFinished
   assert.deepEqual(
     fixture.seen.flatMap((request) => request.items),
-    values.slice(11)
+    [...values.slice(5, 7), ...values.slice(11)]
   )
   assert.deepEqual(
-    [...result.values()],
+    input.units.map((unit) => result.get(unit.id)),
     input.units.map((unit) => (unit.text === "'all'" ? "'全部'" : unit.text))
   )
   const finish = events.find((event) => event.kind === "finish")!

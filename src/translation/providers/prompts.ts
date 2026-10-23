@@ -105,7 +105,8 @@ export function modelRequest(request: TranslationRequest): {
 }
 
 export function splitTranslations(content: string, separator: string, count: number): string[] {
-  let lines = content.split(/\r?\n/)
+  // Keep each line's original terminator: native string syntax may contain CRLF.
+  let lines = content.split(/(?<=\n)/u)
   let boundaries = lines.flatMap((line, index) => (line.trim() === separator ? [index] : []))
   // Only redundant outer delimiters are disposable. An aligned empty item remains
   // an empty item, and an ambiguous internal count must still fail alignment.
@@ -117,6 +118,7 @@ export function splitTranslations(content: string, separator: string, count: num
     const candidate = lines.slice(start, end)
     const inner = candidate.flatMap((line, index) => (line.trim() === separator ? [index] : []))
     if (inner.length === count - 1 && candidate.length) {
+      candidate[candidate.length - 1] = candidate.at(-1)!.replace(/\r?\n$/u, "")
       lines = candidate
       boundaries = inner
     }
@@ -138,9 +140,10 @@ export function splitTranslations(content: string, separator: string, count: num
     )
   let start = 0
   return [...boundaries, lines.length].map((end) => {
-    let text = lines.slice(start, end).join("\n")
-    if (start > 0 && text.startsWith("\n")) text = text.slice(1)
-    if (end < lines.length && text.endsWith("\n")) text = text.slice(0, -1)
+    let text = lines.slice(start, end).join("")
+    if (end < lines.length) text = text.replace(/\r?\n$/u, "")
+    if (start > 0) text = text.replace(/^\r?\n/u, "")
+    if (end < lines.length) text = text.replace(/\r?\n$/u, "")
     start = end + 1
     return text
   })

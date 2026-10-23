@@ -84,9 +84,9 @@ test("the logged artifact handoff rewrites recover on the last attempt without p
   const original =
     "- Artifact/meta handoff: pass prior outputs via `__ARTIFACT_ID_PARAM__`; pass meta grouping as `__META_CONTEXT_KEY__=<meta_id>` and replacements as `__SUPERSEDES_CONTEXT_KEY__=<artifact_id>` in delegated context."
   const outputs = [
-    "Artifact/meta handoff: Pass previous outputs through <CTP0>; pass meta data as <CTP1>, and any replacements as <CTP2> in the delegated context.",
-    "Artifact/meta handoff: Pass previous outputs through <CTP0>; pass meta grouping as <CTP1> and replacements as <CTP2> in the delegated context.",
-    "产物与元数据交接：通过 <CTP0> 传递先前输出；在委派上下文中，以 <CTP1> 传递元数据分组，以 <CTP2> 传递替换关系。"
+    "Artifact/meta handoff: Pass previous outputs through `__ARTIFACT_ID_PARAM__`; pass meta data as <CTP0>, and any replacements as <CTP1> in the delegated context.",
+    "Artifact/meta handoff: Pass previous outputs through `__ARTIFACT_ID_PARAM__`; pass meta grouping as <CTP0> and replacements as <CTP1> in the delegated context.",
+    "产物与元数据交接：通过 `__ARTIFACT_ID_PARAM__` 传递先前输出；在委派上下文中，以 <CTP0> 传递元数据分组，以 <CTP1> 传递替换关系。"
   ]
   const fixture = await chatFixture(t, (_body, _items, call) => outputs[call - 1])
   const input = inputOf(parseMarkdown(original))
@@ -176,7 +176,7 @@ test("an over-budget language hint accepts only unchanged results and never rele
 
 test("language reviews still reject broken markers and recover within the original total attempt limit", async (t) => {
   const fixture = await chatFixture(t, (_body, items, call) => (call === 2 ? dropLastProtection(items[0]) : items[0]))
-  const input = inputOf(parseMarkdown(source + " Keep `sourceId` safe."))
+  const input = inputOf(parseMarkdown(source + " Keep `sourceId_abcdefghijklmnopqrstuvwxyz_123456789` safe."))
   const published: string[] = []
   const result = await requestTranslation(fixture.service, fixture.settings, input, new AbortController().signal, fixture.gate, (item) => published.push(item.text))
   assert.equal(result[0].text, input.units[0].text)

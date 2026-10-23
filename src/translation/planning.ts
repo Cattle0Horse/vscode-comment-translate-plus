@@ -34,7 +34,7 @@ export class BatchPolicy {
     const payload: TranslationRequest = {
       settings: this.settings,
       previousOutput: typeof previousOutput === "string" ? redact(previousOutput) : previousOutput?.map(redact),
-      context: referenceText(units.map((unit) => ({ source: unit.source, hasMarkers: unit.prepared!.hasReferenceMarkers }))),
+      context: referenceText(units.map((unit) => ({ source: unit.source, hasMarkers: unit.prepared!.hasMarkers }))),
       retryFeedback: units.flatMap((unit, index) => {
         const feedback = (review ?? unit.feedback)?.feedback
         return feedback ? [{ index, reason: redact(feedback.reason), instruction: redact(feedback.instruction) }] : []

@@ -5,6 +5,7 @@ import manifest from "../../package.json" with { type: "json" }
 const configuration = manifest.contributes.configuration.properties
 
 export const requestPolicySchema = {
+  minimumMarkerCharacters: configuration["commentTranslatePlus.minimumMarkerCharacters"],
   maxItemsPerRequest: configuration["commentTranslatePlus.maxItemsPerRequest"],
   maxRequestCharacters: configuration["commentTranslatePlus.maxRequestCharacters"],
   maxContextCharacters: configuration["commentTranslatePlus.maxContextCharacters"],
@@ -59,7 +60,8 @@ export function serviceIdentity(settings: ServiceSettings): string {
     settings.sourceLanguage.trim() || "auto",
     settings.targetLanguage,
     settings.preserveTerms.map((term) => (typeof term === "string" ? term : { pattern: term.source, flags: term.flags })),
-    settings.skipSameLanguage
+    settings.skipSameLanguage,
+    settings.minimumMarkerCharacters
   ])
 }
 

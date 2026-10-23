@@ -90,6 +90,7 @@ export async function extractCode(source: string, language: string, grammar: IGr
       start: span.start,
       end: span.end,
       text: source.slice(span.start, span.end),
+      content: span.kind === "string" && (language === "json" || language === "jsonc") ? (JSON.parse(source.slice(span.start, span.end)) as string) : undefined,
       format: "text" as const,
       kind: span.kind,
       reference: sourceReferences(source, span, language),

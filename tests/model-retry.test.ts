@@ -135,9 +135,9 @@ test("reference contamination is rejected with concrete added-code diagnostics a
   const reference =
     '- For final audio from `run_command`, save it under `/memory`, resolve its URL with `get_public_url`, then `report_artifacts` with `source="command"` and highlight the audio artifact.'
   const output =
-    '使用 <CTP0> 或 <CTP1> 来验证那些不受支持的详细信息。在正式交付之前，需检查问题的覆盖范围、关键事实、约束条件及资源情况；修复受影响的内容，并揭示未解决的缺陷或未进行的检查。当元数据/摘要已经足够时，或者只需要展示简单的图像时，则无需重新阅读。对于来自 `run_command` 的最终音频文件，将其保存在 `/memory` 目录下，使用 `get_public_url` 获取其 URL，然后以 `source="command"` 形式调用 `report_artifacts`，同时突出显示该音频文件。'
+    '使用 `get_artifact` 或 `read` 来验证那些不受支持的详细信息。在正式交付之前，需检查问题的覆盖范围、关键事实、约束条件及资源情况；修复受影响的内容，并揭示未解决的缺陷或未进行的检查。当元数据/摘要已经足够时，或者只需要展示简单的图像时，则无需重新阅读。对于来自 `run_command` 的最终音频文件，将其保存在 `/memory` 目录下，使用 `get_public_url` 获取其 URL，然后以 `source="command"` 形式调用 `report_artifacts`，同时突出显示该音频文件。'
   const translation =
-    "使用 <CTP0> 或 <CTP1> 验证未经支持的具体论断。交付前检查覆盖范围、关键事实、约束及资源，修复问题并披露未完成的检查。元数据或摘要足够时，或仅展示简单图片时，无需重读。"
+    "使用 `get_artifact` 或 `read` 验证未经支持的具体论断。交付前检查覆盖范围、关键事实、约束及资源，修复问题并披露未完成的检查。元数据或摘要足够时，或仅展示简单图片时，无需重读。"
   for (const recover of [true, false]) {
     const events: TranslationEvent[] = []
     const published: string[] = []
@@ -195,7 +195,7 @@ test("single-item validation recovery omits batch metadata and keeps original me
     { code: "translation-structure-invalid", damage: (text: string) => text + "\n\nExtra paragraph." }
   ]) {
     const fixture = await chatFixture(t, (_body, items, call) => (call === 1 ? scenario.damage(items[0]) : items[0]))
-    const input = inputOf(parseMarkdown("Keep `sourceId` unchanged."))
+    const input = inputOf(parseMarkdown("Keep `sourceId_abcdefghijklmnopqrstuvwxyz_123456789` unchanged."))
     const events: TranslationEvent[] = []
     const result = await requestTranslation(fixture.service, fixture.settings, input, new AbortController().signal, fixture.gate, undefined, {
       details: false,

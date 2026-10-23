@@ -221,7 +221,11 @@ test("default request scopes keep paragraph, table and fenced-string references 
   const paragraph = fixture.seen.find(({ items }) => items.some((item) => item.includes("ead ")))!
   const paragraphContext = modelContext(paragraph.body)
   assert.ok(
-    paragraph.items.length === 2 && paragraph.items[0] === "Links and tables" && paragraphContext.includes("`sourceId`") && !paragraphContext.includes("| Field |"),
+    paragraph.items.length === 2 &&
+      paragraph.items[0] === "Links and tables" &&
+      paragraph.items[1].includes("`sourceId`") &&
+      paragraphContext === "" &&
+      !paragraphContext.includes("| Field |"),
     "Paragraph context includes a different semantic scope or hides its original protected content: " + JSON.stringify(paragraph)
   )
   const code = fixture.seen.find(({ items }) => items.includes("Do not translate this fenced example."))!
@@ -367,7 +371,7 @@ test("reference accounting follows actual template expansion, including repeated
   await translate()
   const first = events.find((event) => event.kind === "request")!
   assert.ok(first.kind === "request" && first.contextCharacters > 0 && first.contextCharacters <= 120)
-  const context = unit.text + "\n\nSmall"
+  const context = "Small"
   assert.equal(first.contextCharacters, context.length * 2)
   assert.ok(
     fixture.seen[0].body.messages.every((message) => !message.content.includes("L".repeat(100))),
@@ -391,7 +395,7 @@ test("reference accounting follows actual template expansion, including repeated
   )
   const second = events.find((event) => event.kind === "request")!
   assert.ok(second.kind === "request" && second.contextCharacters === 0 && second.referenceKinds.length === 0)
-  assert.equal(modelInput(fixture.seen[1].body), "Original <CTP0> paragraph.")
+  assert.equal(modelInput(fixture.seen[1].body), "Original ${context} paragraph.")
   assert.equal(validateTranslations({ units: [unit] }, restored).get(unit.id), unit.text, "A protected source placeholder was interpreted as another template variable.")
   assert.equal(renderPrompt("${content}", { settings, context: "Other reference", items: [{ id: unit.id, text: unit.text, format: "text" }] }, "%%"), unit.text)
 })
@@ -839,7 +843,7 @@ test("YAML key colon recovery preserves value punctuation, original key punctuat
     [4, "字段:", "字段:"]
   ] as const) {
     const unit = units[index]
-    const translated = prepareTranslation(unit, []).restore(returned)
+    const translated = prepareTranslation(unit, [], 32).restore(returned)
     assert.equal(translationDisplayText(translated, "yaml"), expected)
   }
 })

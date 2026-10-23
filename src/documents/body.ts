@@ -90,7 +90,13 @@ export function translationBody(unit: TextUnit) {
     }
     ranges = [
       ...(natural.protected ?? []),
-      ...protectedFragments({ ...natural, text: input, protected: undefined }).map((range) => ({ ...range, start: range.start + start, end: range.end + start })),
+      ...protectedFragments({
+        ...natural,
+        text: input,
+        protected: natural.protected
+          ?.filter((range) => range.end > start && range.start < end)
+          .map((range) => ({ start: Math.max(start, range.start) - start, end: Math.min(end, range.end) - start }))
+      }).map((range) => ({ ...range, start: range.start + start, end: range.end + start })),
       ...layout
     ]
       .map((range) => ({ ...range }))

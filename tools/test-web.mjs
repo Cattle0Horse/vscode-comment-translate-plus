@@ -81,16 +81,18 @@ let report
 const requests = []
 
 function dropLastProtection(text) {
-  const marker = text.match(/<CTP(?:\d+_)?\d+>/g)?.at(-1)
+  const marker = text.match(/<CTP(?:\d+_)?\d+>/g)?.at(-1) ?? text.match(/`[^`]+`|https?:\/\/[^\s)]+/g)?.at(-1)
   assert.ok(marker, "The fault fixture contains no protected placeholder.")
   return text.replace(marker, "")
 }
 
 const translatedText = (text) =>
   text
+    .replaceAll("runtime_context_snapshot", "运行时上下文快照")
+    .replace("This is the complete application runtime context locked at run start.", "这是运行开始时锁定的完整应用运行时上下文。")
     .replace(/^Read task\/context fields\.$/u, "- 读取任务/上下文字段。")
     .replace(/^Read input\/output fields\.$/u, "1. 读取输入/输出字段。")
-    .replace(/(<CTP(?:\d+_)?\d+>) is required when (<CTP(?:\d+_)?\d+>) is set\./, "当设置 $2 时，必须提供 $1。")
+    .replace(/(`members`) is required when (`supersedes`) is set\./, "当设置 $2 时，必须提供 $1。")
     .replace("B — Industry / Competitive.", " \tB — 行业/竞争分析。\t ")
     .replace("Confirm scope across", "确认范围，按")
     .replace("Comparison dimensions", " 比较维度 ")
@@ -286,7 +288,7 @@ const mock = createServer(async (request, response) => {
                     ? ["label", "AcmeSDK"].includes(text)
                       ? text
                       : "\r\n" + text + "\r\n"
-                    : translatedText(damageCode && text.includes("Keep ") && /<CTP(?:\d+_)?\d+>/.test(text) ? dropLastProtection(text) : text)
+                    : translatedText(damageCode && text.includes("Keep ") && /<CTP(?:\d+_)?\d+>|`[^`]+`/.test(text) ? dropLastProtection(text) : text)
         )
         .map((text) => (damageLink && text.includes("code-only-no-request") ? dropLastProtection(text) : text))
         .map((text, index) =>
@@ -304,8 +306,9 @@ const mock = createServer(async (request, response) => {
             requests.filter((item) => item.model === body.model && item.inputFingerprint === record.inputFingerprint).length === 1
               ? "用于理解的上下文：\n<context>\n## 编写搜索结果文档\n</context>"
               : "来源"
-        else if (text.startsWith("<CTP0>Summary MUST")) content = "<CTP0> 摘要必须不超过 800 个字符。  \r\n<CTP1> 必须用具体数据直接回答任务要求。"
-        else if (text.startsWith("in the <CTP0>")) content = "您必须在使用输入时，始终遵循位于顶部 `<CTP0>` 行中指定的工作语言，用于所有输出、内容生成以及摘要的生成。"
+        else if (text.startsWith("**Summary MUST")) content = "** 摘要必须不超过 800 个字符。  \r\n** 必须用具体数据直接回答任务要求。"
+        else if (text.startsWith("in the `Working language:`"))
+          content = "您必须在使用输入时，始终遵循位于顶部 `Working language:` 行中指定的工作语言，用于所有输出、内容生成以及摘要的生成。"
       }
       if (body.model === "retry-history-fixture" && text.includes("JointRetryHistoryCase.") && !record.retryFeedbackIncluded) content = "第一项丢失了代码。\n%%\n"
       response.end(JSON.stringify({ choices: [{ finish_reason: "stop", message: { content } }] }))

@@ -988,10 +988,27 @@
             "CONNECT",
             "OPTIONS",
             "TRACE",
-            "PATCH"
+            "PATCH",
+            "OPENAI",
+            "openai",
+            "claude",
+            "CLAUDE",
+            "string",
+            "Token",
+            "token",
+            "markdown",
+            "Markdown"
           ],
           "scope": "window",
-          "description": "整个待译正文匹配时原样保留，不发送翻译请求；字符串按区分大小写的字面值匹配，正则对象使用 pattern 和可选 flags（i/m/s/u）；默认含常见短技术名称，自定义数组覆盖默认值，空数组清空，混合正文不保护其中的词"
+          "description": "整个待译正文匹配时原样保留，不发送翻译请求（用于节省 Token）；字符串按区分大小写的字面值匹配，正则对象使用 pattern 和可选 flags（i/m/s/u）；默认含常见短技术名称，自定义数组覆盖默认值，空数组清空，混合正文不保护其中的词"
+        },
+        "commentTranslatePlus.minimumMarkerCharacters": {
+          "type": "integer",
+          "default": 32,
+          "minimum": 1,
+          "maximum": 200000,
+          "scope": "window",
+          "description": "使用 CTP 压缩不可翻译长数据的最小 UTF-16 字符数；实际标记还须不超过原片段长度的四分之一。普通名称和自然语言不因长度生成 CTP"
         },
         "commentTranslatePlus.maxItemsPerRequest": {
           "type": "integer",

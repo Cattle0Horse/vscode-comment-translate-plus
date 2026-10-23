@@ -15,7 +15,7 @@ import { requestTranslation, inputOf, modelInput, dropLastProtection, chatFixtur
 test("full prompt replacement omits an empty system message and expands language aliases exactly once", async (t) => {
   const original = "Original ${targetLang} and $& text."
   const fixture = await chatFixture(t, (body) => {
-    assert.deepEqual(body.messages, [{ role: "user", content: "自定义中文名称 | en | zh-CN | 1\nCONTENT=Original <CTP0> and $& text." }])
+    assert.deepEqual(body.messages, [{ role: "user", content: "自定义中文名称 | en | zh-CN | 1\nCONTENT=Original ${targetLang} and $& text." }])
     assert.equal(body.response_format, undefined)
     return body.messages[0].content.split("\nCONTENT=")[1]
   })
@@ -42,17 +42,17 @@ test("URLs and code identifiers stay protected inside prose, and technical handl
     { id: "comment", start: 0, end: 0, text: "Read https://example.com/a and sourceId.", format: "text" as const, kind: "comment" as const },
     { id: "string", start: 0, end: 0, text: "Read https://example.com/a and source_id.", format: "text" as const, kind: "string" as const }
   ]) {
-    const prepared = prepareTranslation(unit, [])
-    assert.ok(!prepared.text.includes("https://") && !prepared.text.includes("source"))
+    const prepared = prepareTranslation(unit, [], 32)
+    assert.equal(prepared.text, unit.text)
     assert.equal(prepared.restore(prepared.text.replace("Read", "阅读")), unit.text.replace("Read", "阅读"))
-    assert.throws(() => prepared.restore(prepared.text.replace("<CTP0>", "changed")), /translation-marker-mismatch/)
+    assert.throws(() => prepared.restore(prepared.text.replace("https://example.com/a", "changed")), /translation-structure-invalid/)
   }
   const template = "Read ${targetLang} and ${source.id}."
-  const prepared = prepareTranslation({ id: "template", start: 0, end: template.length, text: template, format: "text", kind: "string" }, [])
-  assert.equal(prepared.text, "Read <CTP0> and <CTP1>.")
-  assert.equal(prepared.restore("阅读 <CTP0> 和 <CTP1>。"), "阅读 ${targetLang} 和 ${source.id}。")
-  assert.throws(() => prepared.restore("阅读 <CTP0> 和 ${source.id}。"), /translation-marker-mismatch/)
-  const reordered = prepared.restore("先阅读 <CTP1>，再阅读 <CTP0>。")
+  const prepared = prepareTranslation({ id: "template", start: 0, end: template.length, text: template, format: "text", kind: "string" }, [], 32)
+  assert.equal(prepared.text, template)
+  assert.equal(prepared.restore("阅读 ${targetLang} 和 ${source.id}。"), "阅读 ${targetLang} 和 ${source.id}。")
+  assert.equal(prepared.restore("阅读 ${目标语言} 和 ${来源.标识}。"), "阅读 ${目标语言} 和 ${来源.标识}。")
+  const reordered = prepared.restore("先阅读 ${source.id}，再阅读 ${targetLang}。")
   assert.equal(reordered, "先阅读 ${source.id}，再阅读 ${targetLang}。")
   assert.equal(validTranslation({ id: "template", start: 0, end: template.length, text: template, format: "text", kind: "string" }, reordered), true)
   const input: TranslationInput = { units: [{ id: "technical", start: 0, end: 3, text: "GET", format: "text", kind: "string" }] }
@@ -61,90 +61,42 @@ test("URLs and code identifiers stay protected inside prose, and technical handl
   assert.equal(fixture.seen.length, 0)
   for (const source of ["Read https://example.com/a?x=1&y=two.", "Read (https://example.com/a).", "Read https://example.com/a_(b)."]) {
     const unit = inputOf(parseMarkdown(source)).units[0]
-    const prepared = prepareTranslation(unit, [])
+    const prepared = prepareTranslation(unit, [], 32)
     assert.equal(prepared.restore(prepared.text.replace("Read", "阅读")), source.replace("Read", "阅读"))
   }
 })
 
-test("technical identifiers complete locally across prose, Markdown and YAML values regardless of target language", async (t) => {
-  const fixture = await chatFixture(t, (_body, items) => items.map((item) => item.replace("Read", "阅读")).join("\n%%\n"))
-  const values = [
-    ...defaultPreserveTerms.filter((term): term is string => typeof term === "string"),
-    "HTTP",
-    "HTTPS",
-    "HTTP(S)",
-    "http",
-    "https",
-    "http(s)",
-    "HtTp",
-    "sourceId",
-    "source_id",
-    "API_KEY",
-    "HTTP/1.1",
-    "HTTP/2",
-    "HTTP/3",
-    "${targetLang}",
-    "process.env.PORT",
-    "./src/config.ts",
-    "/usr/local/bin/tool",
-    "C:\\tools\\config.json",
-    "ops+test@example.com",
-    "v1.2.3-beta.1+build.7",
-    "0x1A2B",
-    "0123456789abcdef0123456789abcdef",
-    "HTTPS://example.com/a"
-  ]
-  for (const targetLanguage of ["zh-CN", "en-US", "ja"]) {
-    const units = values.flatMap((value, index) => [
-      { id: "text" + index, start: 0, end: value.length, text: value, format: "text" as const },
-      ...inputOf(parseMarkdown(value)).units.map((unit) => ({ ...unit, id: "md" + index })),
-      { id: "yaml" + index, start: 0, end: JSON.stringify(value).length, text: JSON.stringify(value), content: value, format: "yaml" as const }
-    ])
-    const input = { units }
-    const result = validateTranslations(
-      input,
-      await requestTranslation(fixture.service, { ...fixture.settings, targetLanguage, skipSameLanguage: false }, input, new AbortController().signal, fixture.gate)
-    )
-    assert.deepEqual(
-      [...result.values()],
-      units.map((unit) => unit.text)
-    )
+test("copy-only data completes locally while ordinary names remain translatable", async (t) => {
+  const fixture = await chatFixture(t, (_body, items) => items.map((item) => item.replace("Read", "阅读").replace("sourceId", "来源标识")).join("\n%%\n"))
+  for (const value of ["https://example.com/a", "./src/config.ts", "HTTP/2", "0x1234", "ops@example.com", "v1.2.3"]) {
+    for (const unit of [{ id: "plain", start: 0, end: value.length, text: value, format: "text" as const }, inputOf(parseYaml("label: " + JSON.stringify(value))).units[1]]) {
+      const prepared = prepareTranslation(unit, [], 32)
+      assert.equal(prepared.hasMarkers, false)
+      assert.equal(prepared.needsTranslation, false)
+      assert.equal(prepared.restore(prepared.text), unit.text)
+    }
   }
-  assert.equal(fixture.seen.length, 0, "A format or target language bypassed technical identifier classification.")
-  const list = "sourceId, source_id; ${targetLang}."
-  const listed = { id: "list", start: 0, end: list.length, text: list, format: "text" as const }
-  assert.equal(prepareTranslation(listed, []).needsTranslation, false, "Separators around fully protected identifiers triggered HTTP.")
-  const mixed = "Read sourceId and source_id at ./src/config.ts with v1.2.3."
-  const input = inputOf(parseMarkdown(mixed))
-  const result = validateTranslations(input, await requestTranslation(fixture.service, fixture.settings, input, new AbortController().signal, fixture.gate))
-  assert.equal(result.get(input.units[0].id), mixed.replace("Read", "阅读"))
-  assert.ok(fixture.seen[0].items[0].includes("Read") && !fixture.seen[0].items[0].includes("sourceId") && !fixture.seen[0].items[0].includes("./src"))
-  const yaml = inputOf(parseYaml("setting_name: sourceId\nother_label: source_id\nAPI: HTTP(S)\nDNS: HTTPS\n"))
-  const beforeYaml = fixture.seen.length
-  await requestTranslation(fixture.service, fixture.settings, yaml, new AbortController().signal, fixture.gate)
-  assert.deepEqual(
-    fixture.seen.slice(beforeYaml).flatMap((request) => request.items),
-    ["setting_name", "other_label"],
-    "YAML identifier values or protected keys violated the key/value reading contract."
-  )
-  for (const value of ["all", "wecom", "ai-collection", "and/or", "Read the original document."])
-    assert.equal(prepareTranslation({ id: "ordinary", start: 0, end: value.length, text: value, format: "text" }, []).needsTranslation, true, value)
+  const input = inputOf(parseMarkdown("Read sourceId and source_id."))
+  const result = await requestTranslation(fixture.service, fixture.settings, input, new AbortController().signal, fixture.gate)
+  assert.equal(result[0].text, "阅读 来源标识 and source_id.")
+  assert.equal(fixture.seen[0].items[0], input.units[0].text)
+  assert.equal(prepareTranslation(input.units[0], [], 32).hasMarkers, false)
 })
 
 test("default short names only preserve complete bodies and clearing the defaults restores HTTP translation", async (t) => {
   const source = "Read HTTP, HTTPS, HTTP(S), http(s), HTTP/HTTPS, HTTP/2, TCP/IP, DNS, JSON, json, uv.lock, UTF-8, API, GraphQL, CPU, I/O and https://example.com/a now."
   for (const kind of [undefined, "comment", "string"] as const) {
     const unit = { id: "protocol", start: 0, end: source.length, text: source, format: "text" as const, kind }
-    const prepared = prepareTranslation(unit, defaultPreserveTerms)
+    const prepared = prepareTranslation(unit, defaultPreserveTerms, 32)
     assert.equal(prepared.needsTranslation, true)
-    assert.equal(prepared.text, source.replace("HTTP/2", "<CTP0>").replace("https://example.com/a", "<CTP1>"))
+    assert.equal(prepared.text, source)
     const translated = prepared.restore(prepared.text.replace("API", "接口").replace("json", "数据格式"))
     assert.equal(validTranslation(unit, translated), true, "Former built-in short names still constrain validation.")
     assert.equal(translated, source.replace("API", "接口").replace("json", "数据格式"))
-    assert.throws(() => prepared.restore(prepared.text.replace("<CTP0>", "")), /translation-marker-mismatch/)
+    assert.throws(() => prepared.restore(prepared.text.replace("HTTP/2", "")), /translation-structure-invalid/)
   }
   for (const text of ["API!", "API JSON", "api", "JSONify", "myuv.lock", "uv.locker", "wecom"]) {
-    const prepared = prepareTranslation({ id: "word", start: 0, end: text.length, text, format: "text" }, defaultPreserveTerms)
+    const prepared = prepareTranslation({ id: "word", start: 0, end: text.length, text, format: "text" }, defaultPreserveTerms, 32)
     assert.equal(prepared.text, text)
     assert.equal(prepared.needsTranslation, true, text)
   }

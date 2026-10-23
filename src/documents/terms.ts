@@ -3,8 +3,10 @@ import { embedTranslation } from "./embedding.ts"
 import type { TextUnit } from "../model/document.ts"
 import type { PreserveTerm } from "../model/translation.ts"
 import { ModelRetry } from "../model/diagnostics.ts"
+import { validTranslation } from "./validation.ts"
+import { protectedFragments } from "./protection.ts"
 
-const markerFeedback = "Keep every <CTP...> marker unchanged and exactly once in its own item, preserving pairing and nesting."
+const markerFeedback = "Keep every <CTP...> marker unchanged and exactly once in its own item."
 
 /** Validate and compile user regexes at the configuration boundary, with absolute body boundaries even in multiline mode. */
 export function parsePreserveTerms(value: unknown): readonly PreserveTerm[] {
@@ -38,17 +40,21 @@ export function parsePreserveTerms(value: unknown): readonly PreserveTerm[] {
 export function prepareTranslation(
   unit: TextUnit,
   preserveTerms: readonly PreserveTerm[],
+  minimumMarkerCharacters: number,
   context = ""
-): { text: string; source: string; hasMarkers: boolean; hasReferenceMarkers: boolean; needsTranslation: boolean; restore(text: string): string } {
+): { text: string; source: string; hasMarkers: boolean; needsTranslation: boolean; restore(text: string): string } {
   if (unit.embedding) {
-    const prepared = prepareTranslation(unit.embedding.unit, preserveTerms, context)
+    const prepared = prepareTranslation(unit.embedding.unit, preserveTerms, minimumMarkerCharacters, context)
     return { ...prepared, restore: (text) => embedTranslation(unit, prepared.restore(text)) }
   }
   const { original, source, start, end, ranges: protectedRanges, echoedPrefix } = translationBody(unit)
   let prefix = "<CTP"
   let namespace = 0
   while ([unit.text, original, context].some((value) => value.includes(prefix))) prefix = "<CTP" + ++namespace + "_"
-  const markers = new Map<string, { value: string; pair?: string; side?: "open" | "close"; inlineCode?: boolean; lineBoundary?: boolean }>()
+  const markers = new Map<string, { value: string; inlineCode?: boolean }>()
+  let remaining = ""
+  const nativeLiterals = new Map<string, boolean>()
+  const orderedTokens: string[] | undefined = unit.language === "python" && unit.kind === "string" ? [] : undefined
   let text = ""
   let position = 0
   let rangeIndex = 0
@@ -61,13 +67,20 @@ export function prepareTranslation(
 
   function mask(value: string, range: (typeof protectedRanges)[number]): string {
     const marker = prefix + markers.size + ">"
+    // Native syntax is easier to read and repeat than a marker. Mask only long
+    // indivisible fragments when the body saves at least three quarters of its size.
+    if (range.side || range.kind === undefined || range.kind === "LineBoundary" || value.length < minimumMarkerCharacters || marker.length * 4 > value.length) {
+      if (!range.side) {
+        nativeLiterals.set(value, range.kind === undefined)
+        orderedTokens?.push(value)
+      }
+      return value
+    }
     markers.set(marker, {
       value,
-      pair: range.pair,
-      side: range.side,
-      inlineCode: range.kind === "InlineCode",
-      lineBoundary: range.kind === "LineBoundary" || (unit.language === "python" && unit.kind === "string")
+      inlineCode: range.kind === "InlineCode"
     })
+    orderedTokens?.push(marker)
     return marker
   }
 
@@ -92,16 +105,16 @@ export function prepareTranslation(
     const character = source[position++]
     if (afterBreak && /[\t ]/u.test(character)) continue
     text += character
+    remaining += character
     afterBreak = false
   }
   const pattern = new RegExp(prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "[0-9]+>", "g")
-  const remaining = text.replace(pattern, "")
   return {
     text,
     source,
     hasMarkers: markers.size > 0,
-    hasReferenceMarkers: protectedRanges.some((range) => !range.fold),
-    needsTranslation: !preserveTerms.some((term) => (typeof term === "string" ? term === source : term.test(source))) && !!remaining.trim() && (!markers.size || /\p{L}/u.test(remaining)),
+    needsTranslation:
+      !preserveTerms.some((term) => (typeof term === "string" ? term === source : term.test(source))) && !!remaining.trim() && (!protectedRanges.length || /\p{L}/u.test(remaining)),
     restore: (translated) => {
       // Only a source-owned Markdown prefix may be echoed; restore its exact original numbering and syntax locally.
       if (echoedPrefix) translated = translated.replace(echoedPrefix, "")
@@ -114,7 +127,6 @@ export function prepareTranslation(
       })
       const matches = translated.match(pattern) ?? []
       const counts = new Map<string, number>()
-      const stack: string[] = []
       for (const marker of matches) {
         const value = markers.get(marker)
         if (!value)
@@ -126,15 +138,6 @@ export function prepareTranslation(
             }
           )
         counts.set(marker, (counts.get(marker) ?? 0) + 1)
-        if (value.side === "open") stack.push(value.pair!)
-        else if (value.side === "close" && stack.pop() !== value.pair)
-          throw new ModelRetry(
-            { reason: `Marker ${marker} closes the wrong pair or nesting level.`, instruction: markerFeedback },
-            {
-              code: "translation-marker-mismatch",
-              difference: { reason: "模型打乱了样式标记的配对或嵌套。" }
-            }
-          )
       }
       for (const [marker, { value }] of markers) {
         const count = counts.get(marker) ?? 0
@@ -151,30 +154,75 @@ export function prepareTranslation(
             }
           )
       }
-      if (stack.length || translated.replace(pattern, "").includes(prefix))
+      if (translated.replace(pattern, "").includes(prefix))
         throw new ModelRetry(
-          { reason: `An unclosed style pair or malformed marker with prefix ${prefix} remains.`, instruction: markerFeedback },
+          { reason: `A malformed marker with prefix ${prefix} remains.`, instruction: markerFeedback },
           {
             code: "translation-marker-mismatch",
-            difference: { reason: "模型产生了无法识别或未闭合的保护标记。" }
+            difference: { reason: "模型产生了无法识别的保护标记。" }
           }
         )
-      const boundaries = [...markers].filter(([, value]) => value.lineBoundary).map(([marker]) => marker)
-      if (matches.filter((marker) => markers.get(marker)?.lineBoundary).some((marker, index) => marker !== boundaries[index]))
-        throw new ModelRetry(
-          { reason: "The response reordered structural boundaries.", instruction: "Keep structural boundary markers in their original order." },
-          { code: "translation-marker-mismatch", difference: { reason: "模型改变了结构边界的顺序。" } }
-        )
-      // Normalize only a style's immediate interior whitespace, with at most one soft line break.
-      // Blank lines, prose spacing, protected layouts, and source-owned outer spacing stay intact.
-      translated = translated
-        .replace(new RegExp("(" + pattern.source + ")([\\t \\r\\n]+)", "g"), (match, marker: string, space: string) =>
-          markers.get(marker)?.side === "open" && /^[\t ]*(?:\r?\n[\t ]*)?$/u.test(space) ? marker : match
-        )
-        .replace(new RegExp("([\\t \\r\\n]+)(" + pattern.source + ")", "g"), (match, space: string, marker: string) =>
-          markers.get(marker)?.side === "close" && /^[\t ]*(?:\r?\n[\t ]*)?$/u.test(space) ? marker : match
-        )
-      if (/[\r\n]/u.test(translated.trim()))
+      // Native emphasis delimiters need no IDs. Repair only their immediate inner
+      // whitespace when the complete restored document still has the source shape.
+      const styles = protectedRanges.filter((range) => range.side)
+      if (styles.length) {
+        const runs = (value: string) => [...value.matchAll(/\*+|_+|~{2,}/gu)]
+        const before = runs(source).filter((match) => styles.some((range) => range.start < match.index + match[0].length && range.end > match.index))
+        const literal = protectedFragments({ ...unit, text: translated, protected: undefined }).filter((range) => !range.side)
+        const after = runs(translated).filter((match) => !literal.some((range) => range.start < match.index + match[0].length && range.end > match.index))
+        if (before.length === after.length && before.every((match, index) => match[0] === after[index][0])) {
+          let candidate = translated
+          for (let index = after.length - 1; index >= 0; index--) {
+            const match = after[index]
+            const originalRun = before[index]
+            const sides = styles.filter((range) => range.start < originalRun.index + originalRun[0].length && range.end > originalRun.index)
+            let from = match.index
+            let to = from + match[0].length
+            if (sides.every((range) => range.side === "open")) {
+              const space = candidate.slice(to).match(/^[\t ]*(?:\r?\n[\t ]*)?/u)?.[0] ?? ""
+              candidate = candidate.slice(0, to) + candidate.slice(to + space.length)
+            }
+            if (sides.every((range) => range.side === "close")) {
+              const space = candidate.slice(0, from).match(/[\t ]*(?:\r?\n[\t ]*)?$/u)?.[0] ?? ""
+              candidate = candidate.slice(0, from - space.length) + candidate.slice(from)
+            }
+          }
+          const restoredCandidate = original.slice(0, start) + candidate.replace(pattern, (marker) => markers.get(marker)!.value) + original.slice(end)
+          if (validTranslation(unit, restoredCandidate)) translated = candidate
+        }
+      }
+      // TextMate ranges have no translated offsets. Verify their exact content and
+      // multiplicity before parsing the surrounding translated document.
+      const occurrences = (value: string, content: string) => content.split(value).length - 1
+      for (const [value, raw] of nativeLiterals) {
+        if (occurrences(value, translated) !== occurrences(value, text))
+          throw new ModelRetry(
+            { reason: "The response changed required literal content.", instruction: "Keep source code, link targets, literal data and source-language syntax unchanged." },
+            {
+              code: "translation-structure-invalid",
+              difference: { reason: raw ? "模型修改了字符串转义、定界符或插值。" : "模型修改了必须保留的代码、链接或数据。", expected: value, actual: "原生内容缺失、重复或改写" }
+            }
+          )
+      }
+      if (orderedTokens) {
+        let cursor = 0
+        for (const token of orderedTokens) {
+          const found = translated.indexOf(token, cursor)
+          if (found < 0)
+            throw new ModelRetry(
+              { reason: "The response reordered string syntax.", instruction: "Keep string delimiters and interpolations in their source order." },
+              { code: "translation-structure-invalid", difference: { reason: "模型改变了字符串语法的顺序。" } }
+            )
+          cursor = found + token.length
+        }
+      }
+      let prose = translated
+      for (const range of protectedRanges) {
+        if (range.fold) continue
+        const value = source.slice(range.start, range.end)
+        if (/[\r\n]/u.test(value)) prose = prose.replaceAll(value, "")
+      }
+      if (/[\r\n]/u.test(prose.trim()))
         throw new ModelRetry(
           {
             reason: "The response introduced an internal line break.",

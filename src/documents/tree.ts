@@ -25,12 +25,10 @@ export function children(node: MarkdownNode): MarkdownNode[] {
 
 export function standalone(text: string): string {
   const indent = text.match(/^[\t ]*/)?.[0] ?? ""
-  return indent
-    ? text
-        .split(/\r?\n/)
-        .map((line) => (line.startsWith(indent) ? line.slice(indent.length) : line))
-        .join("\n")
-    : text
+  return text
+    .split(/\r?\n/)
+    .map((line) => (line.startsWith(indent) ? line.slice(indent.length) : line))
+    .join("\n")
 }
 
 export function makeUnit(source: string, start: number, end: number, format: TextUnit["format"]): TextUnit {

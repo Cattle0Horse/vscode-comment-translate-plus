@@ -39,7 +39,7 @@ export class TranslationUnit {
     if (this.settings.skipSameLanguage && isTargetLanguage(this.source, this.settings.targetLanguage)) {
       this.skipped = true
       this.translation = this.source.text
-    } else this.prepared = prepareTranslation(this.source, this.settings.preserveTerms, collisions)
+    } else this.prepared = prepareTranslation(this.source, this.settings.preserveTerms, this.settings.minimumMarkerCharacters, collisions)
   }
 
   beginAttempt(): void {
@@ -69,7 +69,7 @@ export class TranslationUnit {
         {
           reason: difference.modelReason ?? "The response changed the source structure or protected content.",
           instruction:
-            "Translate only this item's source prose; do not translate or append the reference or other items. Preserve its document structure, code, links, and identifiers. Do not add code, links, or formatting absent from its source."
+            "Translate only this item's source prose; do not translate or append the reference or other items. Preserve its document structure, source-language syntax, code, link targets, and literal data. Do not add code, links, or formatting absent from its source."
         },
         {
           code: "translation-structure-invalid",

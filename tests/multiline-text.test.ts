@@ -17,7 +17,7 @@ test("natural-language line boundaries collapse to exactly one space without cha
       inputOf(parseYaml("message: " + JSON.stringify(text))).units[1]
     ]
     for (const unit of units) {
-      const prepared = prepareTranslation(unit, [])
+      const prepared = prepareTranslation(unit, [], 32)
       assert.equal(prepared.text, "Read  carefully. Continue reading.")
       assert.equal(prepared.hasMarkers, false)
       assert.equal(prepared.restore(prepared.text), unit.text)
@@ -28,7 +28,7 @@ test("natural-language line boundaries collapse to exactly one space without cha
     }
   }
   const markdown = inputOf(parseMarkdown("Read  carefully.  \n  Continue reading.")).units[0]
-  const prepared = prepareTranslation(markdown, [])
+  const prepared = prepareTranslation(markdown, [], 32)
   assert.equal(prepared.text, "Read  carefully. Continue reading.")
   assert.ok(validTranslation(markdown, prepared.restore("仔细  阅读。 继续阅读。")))
 })
@@ -37,13 +37,13 @@ test("documentation prefixes collapse with their line boundary while code, escap
   for (const newline of ["\n", "\r\n", "\r"]) {
     const text = ["/**", " * Read `sourceId` carefully.  ", " *", " * Continue reading.", " */"].join(newline)
     const unit = { id: "doc", start: 0, end: text.length, text, format: "text" as const, kind: "comment" as const }
-    const prepared = prepareTranslation(unit, [])
-    assert.equal(prepared.text, "Read <CTP0> carefully. Continue reading.")
+    const prepared = prepareTranslation(unit, [], 32)
+    assert.equal(prepared.text, "Read `sourceId` carefully. Continue reading.")
     assert.equal(prepared.restore(prepared.text), text)
-    const translated = prepared.restore("仔细阅读 <CTP0>。 继续阅读。")
+    const translated = prepared.restore("仔细阅读 `sourceId`。 继续阅读。")
     assert.equal(translated, ["/**", " * 仔细阅读 `sourceId`。 继续阅读。", " */"].join(newline))
     assert.ok(validTranslation(unit, translated))
-    assert.throws(() => prepared.restore("仔细阅读。 继续阅读。"), /marker-mismatch/u)
+    assert.throws(() => prepared.restore("仔细阅读。 继续阅读。"), /structure-invalid/u)
     const string = '"""Read \\n carefully.' + newline + '  Continue ${name}."""'
     const literal = prepareTranslation(
       {
@@ -59,27 +59,28 @@ test("documentation prefixes collapse with their line boundary while code, escap
           { start: 8, end: 10 }
         ]
       },
-      []
+      [],
+      32
     )
-    assert.equal(literal.text, "Read <CTP0> carefully. Continue <CTP1>.")
+    assert.equal(literal.text, "Read \\n carefully. Continue ${name}.")
     assert.equal(literal.restore(literal.text), string)
-    assert.throws(() => literal.restore(literal.text.replace("<CTP0>", "")), /marker-mismatch/u)
+    assert.throws(() => literal.restore(literal.text.replace("\\n", "")), /structure-invalid/u)
     const code = ["/**", " * Read `code", " * fragment` carefully.", " */"].join(newline)
-    const protectedCode = prepareTranslation({ ...unit, text: code, end: code.length }, [])
-    assert.equal(protectedCode.text, "Read <CTP0> carefully.")
-    assert.equal(protectedCode.restore("阅读 <CTP0>。"), code.replace("Read ", "阅读 ").replace(" carefully.", "。"))
+    const protectedCode = prepareTranslation({ ...unit, text: code, end: code.length }, [], 32)
+    assert.equal(protectedCode.text, code.slice(code.indexOf("Read"), code.lastIndexOf(" carefully.") + " carefully.".length))
+    assert.equal(protectedCode.restore(protectedCode.text.replace("Read ", "阅读 ").replace(" carefully.", "。")), code.replace("Read ", "阅读 ").replace(" carefully.", "。"))
   }
 })
 
 test("Markdown continuation prefixes fold with prose while paragraph and list boundaries stay structural", () => {
   for (const newline of ["\n", "\r\n"]) {
     const quoted = inputOf(parseMarkdown(["> Read first.", ">   Continue reading."].join(newline))).units[0]
-    const prepared = prepareTranslation(quoted, [])
+    const prepared = prepareTranslation(quoted, [], 32)
     assert.equal(prepared.text, "Read first. Continue reading.")
     assert.ok(validTranslation(quoted, prepared.restore("先阅读。 继续阅读。")))
     for (const source of ["- Read first." + newline + "- Continue reading.", "Read first." + newline + newline + "Continue reading."]) {
       const unit = { id: "selection", start: 0, end: source.length, text: source, format: "markdown" as const }
-      const selection = prepareTranslation(unit, [])
+      const selection = prepareTranslation(unit, [], 32)
       const translated = selection.restore(selection.text.replace("Read first.", "先阅读。"))
       assert.ok(validTranslation(unit, translated), translated)
       assert.equal(validTranslation(unit, translated.replaceAll(newline, " ")), false)
@@ -95,7 +96,7 @@ test("folded prose and scalars preserve nested Markdown containers without guess
     const parsed = await embeddedMarkdown(source)
     const translations = new Map<string, string>()
     for (const unit of inputOf(parsed).units) {
-      const prepared = prepareTranslation(unit, [])
+      const prepared = prepareTranslation(unit, [], 32)
       assert.equal(prepared.restore(prepared.text), unit.text)
       const translated = prepared.restore(prepared.text.replace("Read first.", "先阅读。"))
       assert.ok(validTranslation(unit, translated), translated)

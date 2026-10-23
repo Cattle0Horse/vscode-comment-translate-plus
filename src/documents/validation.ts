@@ -6,6 +6,15 @@ import { yamlShape } from "./yaml.ts"
 import { fragmentContents, labelReference } from "./protection.ts"
 import { unembedTranslation } from "./embedding.ts"
 
+function translatedString(unit: TextUnit, text: string): string | undefined {
+  if (unit.format !== "yaml") {
+    const value: unknown = JSON.parse(text)
+    return typeof value === "string" ? value : undefined
+  }
+  const document = parseDocument(text)
+  return !document.errors.length && isScalar(document.contents) && typeof document.contents.value === "string" ? document.contents.value : undefined
+}
+
 /** Explain rejected output without changing the validation decision or repairing its content. */
 export function translationDifference(unit: TextUnit, translated: string): TranslationDifference {
   if (unit.embedding) {
@@ -14,6 +23,15 @@ export function translationDifference(unit: TextUnit, translated: string): Trans
     } catch {
       return { modelReason: "The response changed code-block container prefixes or line boundaries.", reason: "模型修改了代码块的容器前缀或行边界。" }
     }
+  }
+  if (unit.content !== undefined) {
+    try {
+      const value = translatedString(unit, translated)
+      if (value !== undefined) return translationDifference({ ...unit, text: unit.content, content: undefined, protected: undefined, format: "text" }, value)
+    } catch {
+      // Report malformed serialization without guessing a decoded body.
+    }
+    return { reason: "模型返回的字符串语法无效。", modelReason: "The response is not a valid source-language string literal." }
   }
   if (!translated.trim()) return { modelReason: "The response for this item was empty.", reason: "模型返回了空译文。" }
   if (translated.length > 200000)
@@ -112,8 +130,7 @@ export function translationIsUnchanged(unit: TextUnit, translated: string): bool
   if (unit.embedding) return translationIsUnchanged(unit.embedding.unit, unembedTranslation(unit, translated))
   if (unit.kind === "string") return false
   if (unit.content !== undefined) {
-    const value = parseDocument(translated).contents
-    return isScalar(value) && value.value === unit.content
+    return translatedString(unit, translated) === unit.content
   }
   return translated.replace(/\r\n/g, "\n").trim() === unit.text.replace(/\r\n/g, "\n").trim()
 }
@@ -122,12 +139,13 @@ export function validTranslation(unit: TextUnit, translated: string): boolean {
   try {
     if (!translated.trim() || translated.length > 200000) return false
     if (unit.embedding) return validTranslation(unit.embedding.unit, unembedTranslation(unit, translated))
+    if (unit.content !== undefined) {
+      const value = translatedString(unit, translated)
+      return value !== undefined && validTranslation({ ...unit, text: unit.content, content: undefined, protected: undefined, format: "text" }, value)
+    }
     if (unit.kind === "comment" && unit.text.startsWith("/*") && JSON.stringify(unit.text.match(/\/\*|\*\//g)) !== JSON.stringify(translated.match(/\/\*|\*\//g))) return false
     if (unit.format === "text") return JSON.stringify(fragmentContents(unit)) === JSON.stringify(fragmentContents({ ...unit, text: translated }))
-    if (unit.format === "yaml") {
-      const after = parseDocument(translated)
-      return unit.content !== undefined && !after.errors.length && isScalar(after.contents) && typeof after.contents.value === "string"
-    }
+    if (unit.format === "yaml") return false
     const shape = (text: string) => {
       let input = standalone(text)
       if (unit.display) input = "| " + input + " |\n| --- |"

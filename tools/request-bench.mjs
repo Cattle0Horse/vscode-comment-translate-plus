@@ -1,5 +1,6 @@
 import assert from "node:assert/strict"
 import { hashText } from "./verify.mjs"
+import manifest from "../package.json" with { type: "json" }
 
 const { parseMarkdown } = await import("../artifacts/core/documents/markdown.mjs")
 const { prepareInput } = await import("../artifacts/core/translation/prepare.mjs")
@@ -24,6 +25,7 @@ const settings = {
   languageNames: defaultLanguageNames,
   preserveTerms: [],
   skipSameLanguage: false,
+  minimumMarkerCharacters: manifest.contributes.configuration.properties["commentTranslatePlus.minimumMarkerCharacters"].default,
   maxItemsPerRequest: 20,
   maxRequestCharacters: 12000,
   maxContextCharacters: 2000,
@@ -42,10 +44,10 @@ export default {
         const prepared = prepareInput(settings, input)
         assert.equal(prepared.units.length, 200)
         for (const unit of prepared.units) {
-          const original = prepareTranslation(unit, settings.preserveTerms)
-          const context = referenceText([{ source: unit, hasMarkers: original.hasReferenceMarkers }])
-          const text = (context.includes("<CTP") ? prepareTranslation(unit, settings.preserveTerms, context) : original).text
-          const { payload } = modelRequest({ settings, context, items: [{ id: unit.id, text, format: unit.format }] })
+          const original = prepareTranslation(unit, settings.preserveTerms, settings.minimumMarkerCharacters)
+          const context = referenceText([{ source: unit, hasMarkers: original.hasMarkers }])
+          const item = context.includes("<CTP") ? prepareTranslation(unit, settings.preserveTerms, settings.minimumMarkerCharacters, context) : original
+          const { payload } = modelRequest({ settings, context, items: [{ id: unit.id, text: item.text, hasMarkers: item.hasMarkers, format: unit.format }] })
           assert.ok(payload.messages.reduce((sum, message) => sum + message.content.length, 0) <= settings.maxRequestCharacters)
         }
       }

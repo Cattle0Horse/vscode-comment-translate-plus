@@ -49,6 +49,7 @@ test("a later batch recompiles its measured request when a consumer abandons one
     server.closeAllConnections()
   })
   const settings: ServiceSettings = {
+    minimumMarkerCharacters: 32,
     provider: "openai",
     apiUrl: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
     model: "mock",
