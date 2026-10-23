@@ -691,7 +691,16 @@
         },
         "commentTranslatePlus.profiles": {
           "type": "array",
-          "default": [],
+          "default": [
+            {
+              "id": "google",
+              "provider": "google"
+            },
+            {
+              "id": "bing",
+              "provider": "bing"
+            }
+          ],
           "scope": "window",
           "description": "翻译配置。apiKey 直接保存在 settings.json 中，允许省略或空字符串；空密钥不发送认证头",
           "items": {
