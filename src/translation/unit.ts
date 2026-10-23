@@ -56,20 +56,8 @@ export class TranslationUnit {
   accept(text: string, canReview: (review: ModelRetry) => boolean): void {
     const empty = !text.trim()
     const restored = empty ? text : this.prepared!.restore(text)
-    const failure = validateTranslation(this.source, restored)
-    if (failure) {
-      const { instruction, ...difference } = failure
-      throw new ModelRetry(
-        {
-          reason: difference.modelReason,
-          instruction
-        },
-        {
-          code: empty ? "translation-item-invalid" : "translation-structure-invalid",
-          difference: { ...difference, expected: difference.expected ?? this.source.text, actual: difference.actual ?? restored }
-        }
-      )
-    }
+    const failure = validateTranslation(this.source, restored, empty ? "translation-item-invalid" : "translation-structure-invalid")
+    if (failure) throw failure
     const unchanged = translationIsUnchanged(this.source, restored)
     this.reviewLanguage(text, unchanged, canReview)
     this.translation = unchanged ? this.source.text : restored

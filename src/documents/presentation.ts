@@ -76,7 +76,10 @@ export function translatedMarkdown(document: ParsedDocument, translations: Reado
   const replacements = units.flatMap((unit) => {
     const text = translations.get(unit.id)
     if (text === undefined) return []
-    if (unit.embedding && validateTranslation(unit, text) !== undefined) throw Error("translation-structure-invalid")
+    if (unit.embedding) {
+      const failure = validateTranslation(unit, text)
+      if (failure) throw failure
+    }
     return [{ start: unit.start, end: unit.end, text }]
   })
   const translated = assembleText(document.source, replacements)

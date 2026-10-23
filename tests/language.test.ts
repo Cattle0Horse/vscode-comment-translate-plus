@@ -1,3 +1,4 @@
+import { ModelRetry } from "../src/model/diagnostics.ts"
 import { emptyPreserveTerms, parsePreserveTerms, prepareTranslation } from "../src/documents/terms.ts"
 import assert from "node:assert/strict"
 import { test } from "node:test"
@@ -54,7 +55,7 @@ test("URLs and code identifiers stay protected inside prose, and technical handl
   assert.equal(prepared.restore("阅读 ${目标语言} 和 ${来源.标识}。"), "阅读 ${目标语言} 和 ${来源.标识}。")
   const reordered = prepared.restore("先阅读 ${source.id}，再阅读 ${targetLang}。")
   assert.equal(reordered, "先阅读 ${source.id}，再阅读 ${targetLang}。")
-  assert.equal(validateTranslation({ id: "template", start: 0, end: template.length, text: template, format: "text", kind: "string" }, reordered) === undefined, true)
+  assert.equal(validateTranslation({ id: "template", start: 0, end: template.length, text: template, format: "text", kind: "string" }, reordered), undefined)
   const input: TranslationInput = { units: [{ id: "technical", start: 0, end: 3, text: "GET", format: "text", kind: "string" }] }
   const output = await requestTranslation(fixture.service, { ...fixture.settings, skipSameLanguage: false }, input, new AbortController().signal, fixture.gate)
   assert.equal(validateTranslations(input, output).get("technical"), "GET")
@@ -91,7 +92,7 @@ test("default short names only preserve complete bodies and clearing the default
     assert.equal(prepared.needsTranslation, true)
     assert.equal(prepared.text, source)
     const translated = prepared.restore(prepared.text.replace("API", "接口").replace("json", "数据格式"))
-    assert.equal(validateTranslation(unit, translated) === undefined, true, "Former built-in short names still constrain validation.")
+    assert.equal(validateTranslation(unit, translated), undefined, "Former built-in short names still constrain validation.")
     assert.equal(translated, source.replace("API", "接口").replace("json", "数据格式"))
     assert.throws(() => prepared.restore(prepared.text.replace("HTTP/2", "")), /translation-structure-invalid/)
   }
@@ -166,6 +167,6 @@ test("partial failure reports a missing link target, keeps 18 successful or skip
   assert.equal(outcome.httpRequests, fixture.seen.length)
   assert.ok(events.filter((event) => event.kind === "request").every((event) => event.modelRequest === undefined && event.modelResponse === undefined))
   const oversized = "X".repeat(200001)
-  assert.equal(validateTranslation(input.units[1], oversized) === undefined, false)
-  assert.ok((validateTranslation(input.units[1], oversized)!.actual?.length ?? 0) < 100, "Oversized output was expanded into its failure explanation.")
+  assert.ok(validateTranslation(input.units[1], oversized) instanceof ModelRetry)
+  assert.ok((validateTranslation(input.units[1], oversized)!.difference!.actual?.length ?? 0) < 100, "Oversized output was expanded into its failure explanation.")
 })

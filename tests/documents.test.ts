@@ -1,3 +1,4 @@
+import { ModelRetry } from "../src/model/diagnostics.ts"
 import { emptyPreserveTerms, prepareTranslation } from "../src/documents/terms.ts"
 import assert from "node:assert/strict"
 import { readFile } from "node:fs/promises"
@@ -33,9 +34,9 @@ test("embedded translations reject missing container prefixes, line-boundary dam
   const unit = parsed.groups[0].units[0]
   const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
   const translated = prepared.restore(prepared.text.replace("Read", "阅读"))
-  assert.equal(validateTranslation(unit, unit.text.replace("Read", "阅读").replace("\n> ", "\n")) === undefined, false)
-  assert.equal(validateTranslation(unit, translated.replace("example.com", "changed.example")) === undefined, false)
-  assert.ok(validateTranslation(unit, prepared.restore(prepared.text.replace("`sourceId`", ""))) === undefined)
+  assert.ok(validateTranslation(unit, unit.text.replace("Read", "阅读").replace("\n> ", "\n")) instanceof ModelRetry)
+  assert.ok(validateTranslation(unit, translated.replace("example.com", "changed.example")) instanceof ModelRetry)
+  assert.equal(validateTranslation(unit, prepared.restore(prepared.text.replace("`sourceId`", ""))), undefined)
   assert.throws(() => prepared.restore(prepared.text + "\nNew paragraph."), /structure-invalid/u)
 
   const code = "```js\n// Read the guide.\n```"
@@ -361,7 +362,7 @@ test("nested tables keep their own header delimiter, quote prefixes and containe
     assert.equal(units.length, 8, "A CRLF table was parsed as a paragraph instead of independent cells.")
     assert.equal(referenceText(units), table + "\n\n" + table.replace("One", "Two"))
     for (const unit of units) assert.equal(source.slice(unit.start, unit.end), unit.text)
-    assert.equal(validateTranslation(units[0], "Label | extra") === undefined, false, "Cell structure validation accepted another column.")
+    assert.ok(validateTranslation(units[0], "Label | extra") instanceof ModelRetry, "Cell structure validation accepted another column.")
     const parsed = parseMarkdown(source)
     assert.equal(translatedMarkdown(parsed, new Map(units.map((unit) => [unit.id, unit.text === "One" ? "第一项" : unit.text]))), source.replace("One", "第一项"))
     const yaml = ["metadata:", "  first: One", "  second: Two"].join(newline)
@@ -445,7 +446,7 @@ test("IDs allow response reordering while only originally multiline units allow 
   assert.equal(result.get(batch.units[0].id), "1. 第一项包含 `code`。")
   assert.throws(() => prepareTranslation(batch.units[0], emptyPreserveTerms, 32).restore("第一项包含\n   `code`。"), /translation-structure-invalid/)
   const multiline = { ...batch.units[0], text: batch.units[0].text.replace("with ", "with\n   ") }
-  assert.ok(validateTranslation(multiline, "1. 第一项包含\n   `code`。") === undefined)
+  assert.equal(validateTranslation(multiline, "1. 第一项包含\n   `code`。"), undefined)
 })
 
 for (const defect of ["missing", "duplicate", "unknown", "link", "merged", "invalid-type"]) {
@@ -469,14 +470,14 @@ test("inline code content and delimiters may change while surrounding Markdown s
   assert.equal(prepared.text, source)
   assert.equal(prepared.hasMarkers, false)
   const restored = prepared.restore("当设置 `supersedes` 时，必须提供 `members`。")
-  assert.equal(validateTranslation(unit, restored) === undefined, true)
+  assert.equal(validateTranslation(unit, restored), undefined)
   assert.equal(translatedMarkdown(document, new Map([[unit.id, restored]])), restored)
-  assert.equal(validateTranslation(unit, restored.replace("supersedes", "supersides")) === undefined, true)
-  assert.equal(validateTranslation(unit, restored.replace("`supersedes`", "`members`")) === undefined, true)
+  assert.equal(validateTranslation(unit, restored.replace("supersedes", "supersides")), undefined)
+  assert.equal(validateTranslation(unit, restored.replace("`supersedes`", "`members`")), undefined)
   const formatted = parseMarkdown("**Use `members`.** Then set `supersedes`.").groups[0].units[0]
-  assert.equal(validateTranslation(formatted, "**使用 `supersedes`。** 然后设置 `members`。") === undefined, true)
-  assert.equal(validateTranslation(formatted, "设置 `supersedes`，然后 **使用 `members`。**") === undefined, true)
-  assert.ok(validateTranslation(unit, prepared.restore("`members``members`")) === undefined)
+  assert.equal(validateTranslation(formatted, "**使用 `supersedes`。** 然后设置 `members`。"), undefined)
+  assert.equal(validateTranslation(formatted, "设置 `supersedes`，然后 **使用 `members`。**"), undefined)
+  assert.equal(validateTranslation(unit, prepared.restore("`members``members`")), undefined)
   assert.throws(() => prepared.restore(prepared.text + "<CTP999>"), /marker-mismatch/)
 })
 
@@ -496,21 +497,21 @@ test("paired formatting restores original delimiter boundaries around Chinese pu
     .replace("Monitoring checklist", "监控清单")
   const restored = prepared.restore(response)
   assert.ok(restored.startsWith("**B — 行业/竞争分析。** 确认范围"), "The original safe closing boundary was lost.")
-  assert.equal(validateTranslation(unit, restored) === undefined, true)
+  assert.equal(validateTranslation(unit, restored), undefined)
   assert.equal(translatedMarkdown(document, new Map([[unit.id, restored]])), restored)
   const crossed = response.replace("**比较维度**", "*比较维度**")
-  assert.equal(validateTranslation(unit, crossed) === undefined, false)
+  assert.ok(validateTranslation(unit, crossed) instanceof ModelRetry)
   assert.ok(prepared.text.includes("Confirm scope"), "Natural language was hidden along with the delimiters.")
 })
 
 test("assembled Markdown rejects table-column injection and list nesting loss", () => {
   const table = parseMarkdown("| Header | Other |\n| --- | --- |\n| Read text. | Keep text. |")
   const cell = table.groups.flatMap((group) => group.units).find((unit) => unit.text === "Read text.")!
-  assert.equal(validateTranslation(cell, "译文 | 新列") === undefined, false)
+  assert.ok(validateTranslation(cell, "译文 | 新列") instanceof ModelRetry)
   assert.throws(() => translatedMarkdown(table, new Map([[cell.id, "译文 | 新列"]])), /structure-invalid/)
   const nested = parseMarkdown("- Parent item.\n  - Child item.")
   const child = nested.groups.flatMap((group) => group.units).find((unit) => unit.text.includes("Child"))!
-  assert.equal(validateTranslation(child, "- 子项。") === undefined, true)
+  assert.equal(validateTranslation(child, "- 子项。"), undefined)
   assert.throws(() => translatedMarkdown(nested, new Map([[child.id, "- 子项。"]])), /structure-invalid/)
   assert.equal(translatedMarkdown(nested, new Map([[child.id, "  - 子项。"]])), "- Parent item.\n  - 子项。")
 })
@@ -518,23 +519,23 @@ test("assembled Markdown rejects table-column injection and list nesting loss", 
 test("extra Markdown output reports structure changes instead of claiming intact code was modified", () => {
   const unit = inputOf(parseMarkdown("Call `write_file` with `artifact_ids`.")).units[0]
   const output = "## 来源项目\n\n调用 `write_file`，并提供 `artifact_ids`。"
-  assert.equal(validateTranslation(unit, output) === undefined, false)
+  assert.ok(validateTranslation(unit, output) instanceof ModelRetry)
   const added = validateTranslation(unit, output)!
-  assert.ok(added.reason.includes("新增") && !added.reason.includes("代码"), "The new heading was mistaken for damage to intact code.")
-  assert.equal(added.actual, "##")
+  assert.ok(added.difference!.reason.includes("新增") && !added.difference!.reason.includes("代码"), "The new heading was mistaken for damage to intact code.")
+  assert.equal(added.difference!.actual, "##")
   const changed = validateTranslation(unit, output.replace("artifact_ids", "artifact_id"))!
-  assert.equal(changed.actual, "##")
+  assert.equal(changed.difference!.actual, "##")
 })
 
 test("inline-code changes do not disable link-target validation", () => {
   for (const format of ["markdown", "text"] as const) {
     const unit = { id: "probe", start: 0, end: 11, text: "Use `read`.", format }
-    for (const output of ["使用 `write`。", "使用 read。", "直接阅读。", "使用 `read` 和 `run_command`。"]) assert.ok(validateTranslation(unit, output) === undefined, output)
+    for (const output of ["使用 `write`。", "使用 read。", "直接阅读。", "使用 `read` 和 `run_command`。"]) assert.equal(validateTranslation(unit, output), undefined, output)
     const output = "使用 `write`。然后使用 [audio](https://example.com/audio)。"
-    assert.equal(validateTranslation(unit, output) === undefined, false)
+    assert.ok(validateTranslation(unit, output) instanceof ModelRetry)
     const difference = validateTranslation(unit, output)!
-    assert.ok(difference.reason.includes("新增"))
-    assert.equal(difference.actual, "https://example.com/audio")
+    assert.ok(difference.feedback.reason.includes("link target"))
+    assert.equal(difference.difference!.actual, "https://example.com/audio")
   }
 })
 
@@ -778,10 +779,10 @@ test("editor table rows preserve exact pipes and unchanged neighbours when a sub
   assert.equal(views.length, 1)
   assert.equal(views[0].text, "| Read text.  | Keep `code` unchanged. |")
   assert.equal(views[0].translation, "| 阅读文本。  | Keep `code` unchanged. |")
-  assert.equal(validateTranslation(cell, "阅读文本。 | 新列") === undefined, false)
+  assert.ok(validateTranslation(cell, "阅读文本。 | 新列") instanceof ModelRetry)
   const escaped = parseMarkdown("| Read \\| text. | Other |\n| --- | --- |").groups[0].units[0]
-  assert.equal(validateTranslation(escaped, "阅读 \\| 文本。") === undefined, true)
-  assert.equal(validateTranslation(escaped, "阅读 \\* 文本。") === undefined, false)
+  assert.equal(validateTranslation(escaped, "阅读 \\| 文本。"), undefined)
+  assert.ok(validateTranslation(escaped, "阅读 \\* 文本。") instanceof ModelRetry)
 })
 
 test("Python triple quote boundary tokens stay local without masking internal escapes", () => {
@@ -851,7 +852,7 @@ test("Python concatenated literals preserve interpolation and ordered syntax thr
     assert.equal(prepared.restore(prepared.text), text)
     const translated = prepared.restore(prepared.text.replace("Skill", "技能").replace("Continue reading.", "继续阅读。"))
     assert.equal(translated, text.replace("Skill", "技能").replace("Continue reading.", "继续阅读。"))
-    assert.ok(validateTranslation(unit, translated) === undefined)
+    assert.equal(validateTranslation(unit, translated), undefined)
     assert.throws(() => prepared.restore(prepared.text.replace("{name}", "")), /structure-invalid/u)
     assert.throws(
       () =>
@@ -887,7 +888,7 @@ test("list prefixes and indentation stay local for ordered, unordered, task and 
     assert.equal(prepared.text, "Read the original document.", "A local prefix was sent as model content: " + JSON.stringify(unit.text))
     const restored = prepared.restore("阅读原始文档。")
     assert.equal(restored, unit.text.replace("Read the original document.", "阅读原始文档。"))
-    assert.equal(validateTranslation(unit, restored) === undefined, true)
+    assert.equal(validateTranslation(unit, restored), undefined)
   }
   const source = "  - Read `sourceId`."
   const unit = parseMarkdown(source).groups[0].units[0]
@@ -900,44 +901,44 @@ test("list prefixes and indentation stay local for ordered, unordered, task and 
 test("block-comment rejection reports the delimiter mismatch that actually failed", () => {
   const unit = { id: "comment", start: 0, end: 16, text: "/* Read this. */", format: "text" as const, kind: "comment" as const }
   for (const output of ["/* 阅读。", "*/ 阅读。 /*", "/* 阅读。 */ /* */"]) {
-    const failure = validateTranslation(unit, output)
+    const failure = validateTranslation(unit, output)!
     assert.ok(failure)
-    assert.match(failure.modelReason, /block-comment delimiters/)
-    assert.ok(failure.instruction.includes("/*") && failure.instruction.includes("*/") && failure.instruction.includes("order"))
-    assert.equal(failure.expected, "/* */")
-    assert.equal(failure.actual, (output.match(/\/\*|\*\//g) ?? []).join(" "))
+    assert.match(failure.feedback.reason, /block-comment delimiters/)
+    assert.ok(failure.feedback.instruction.includes("/*") && failure.feedback.instruction.includes("*/") && failure.feedback.instruction.includes("order"))
+    assert.equal(failure.difference!.expected, "/* */")
+    assert.equal(failure.difference!.actual, (output.match(/\/\*|\*\//g) ?? []).join(" "))
   }
   assert.equal(validateTranslation(unit, "/* 阅读。 */"), undefined)
 })
 
 test("string syntax and protected-fragment order reject with their own corrections", () => {
   const scalar = inputOf(parseYaml('message: "Read this."')).units[1]
-  const invalid = validateTranslation(scalar, "[broken")
+  const invalid = validateTranslation(scalar, "[broken")!
   assert.ok(invalid)
-  assert.match(invalid.instruction, /YAML string scalar/)
+  assert.match(invalid.feedback.instruction, /YAML string scalar/)
   assert.equal(validateTranslation(scalar, '"阅读。"'), undefined)
   const text = "Read [one](https://one.example) then [two](https://two.example)."
   const unit = { id: "text", start: 0, end: text.length, text, format: "text" as const }
-  const reordered = validateTranslation(unit, "阅读 [二](https://two.example)，然后 [一](https://one.example)。")
+  const reordered = validateTranslation(unit, "阅读 [二](https://two.example)，然后 [一](https://one.example)。")!
   assert.ok(reordered)
-  assert.match(reordered.instruction, /original order/)
+  assert.match(reordered.feedback.instruction, /original order/)
 })
 
 test("HTML additions report markup errors while inline-code mentions remain allowed", () => {
   for (const output of ["第一章打开<head>和<body>。", "<section>第一章</section>"]) {
     const unit = inputOf(parseMarkdown("The first chapter opens document/head/body.")).units[0]
-    const failure = validateTranslation(unit, output)
+    const failure = validateTranslation(unit, output)!
     assert.ok(failure)
-    assert.match(failure.reason, /HTML/)
-    assert.match(failure.modelReason, /HTML/)
-    assert.match(failure.instruction, /Remove HTML/)
-    assert.match(failure.instruction, /plain text without angle brackets/)
+    assert.match(failure.difference!.reason, /HTML/)
+    assert.match(failure.feedback.reason, /HTML/)
+    assert.match(failure.feedback.instruction, /Remove HTML/)
+    assert.match(failure.feedback.instruction, /plain text without angle brackets/)
   }
   const unit = inputOf(parseMarkdown("The first chapter opens document/head/body.")).units[0]
   assert.equal(validateTranslation(unit, "第一章打开 document/head/body。"), undefined)
   assert.equal(validateTranslation(unit, "第一章打开 `<head>` 和 `<body>`。"), undefined)
   const owned = inputOf(parseMarkdown("Read <span>this</span>.")).units[0]
-  assert.ok(validateTranslation(owned, "阅读此内容。"))
+  assert.ok(validateTranslation(owned, "阅读此内容。") instanceof ModelRetry)
 })
 
 test("recognizable added and missing markup gets corrections for the actual syntax", () => {
@@ -952,8 +953,8 @@ test("recognizable added and missing markup gets corrections for the actual synt
     [inputOf(parseMarkdown("Read <span>the original document</span>.")).units[0], "阅读原始文档。", /source HTML tags/],
     [inputOf(parseMarkdown("Read [Title].")).units[0], "阅读内容。", /source reference-link labels/]
   ] as const) {
-    const failure = validateTranslation(unit, output)
+    const failure = validateTranslation(unit, output)!
     assert.ok(failure, output)
-    assert.match(failure.instruction, correction)
+    assert.match(failure.feedback.instruction, correction)
   }
 })

@@ -8,6 +8,45 @@ import { TranslationStore } from "../src/translation/store.ts"
 import { prepareInput } from "../src/translation/prepare.ts"
 import { parseYaml } from "../src/documents/yaml.ts"
 
+test("native fragment count failures carry observed counts into recovery and cache only the repaired output", async (t) => {
+  const text = "Read {name} then {name}."
+  const unit = {
+    id: "native-count",
+    start: 0,
+    end: text.length,
+    text,
+    format: "text" as const,
+    kind: "string" as const,
+    protected: [...text.matchAll(/\{name\}/gu)].map((match) => ({ start: match.index, end: match.index + match[0].length }))
+  }
+  for (const actual of [1, 3]) {
+    const events: TranslationEvent[] = []
+    const fixed = "阅读 {name}，然后阅读 {name}。"
+    const fixture = await chatFixture(t, (_body, _items, call) => (call === 1 ? "阅读 " + "{name}".repeat(actual) + "。" : fixed))
+    const store = new TranslationStore()
+    t.after(() => store.clear())
+    const run = () =>
+      store.translate(
+        "native-count",
+        { units: [unit] },
+        (input, signal, completed) =>
+          requestTranslation(fixture.service, fixture.settings, input, signal, fixture.gate, completed, { details: false, emit: (event) => events.push(event) }),
+        new AbortController().signal
+      )
+    assert.equal((await run()).get(unit.id), fixed)
+    const failure = events.flatMap((event) => (event.kind === "request" ? event.failures : []))[0]
+    assert.equal(failure.code, "translation-structure-invalid")
+    assert.equal(failure.difference.expected, "2 次：{name}")
+    assert.equal(failure.difference.actual, actual + " 次")
+    const feedback = modelFeedback(fixture.seen[1].body)
+    assert.ok(feedback.includes(failure.difference.modelReason!))
+    assert.match(feedback, new RegExp(actual + " times; expected 2"))
+    assert.ok(!feedback.includes("{name}"), "A native source fragment leaked into model feedback.")
+    assert.equal((await run()).get(unit.id), fixed)
+    assert.equal(fixture.seen.length, 2, "The validated recovery was not cached.")
+  }
+})
+
 test("all source items are sent as one line and restore their original breaks while context keeps its format", async (t) => {
   for (const newline of ["\n", "\r\n", "\r"]) {
     const source = "Read first." + newline + "  Continue reading."

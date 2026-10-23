@@ -1,3 +1,4 @@
+import { ModelRetry } from "../src/model/diagnostics.ts"
 import { emptyPreserveTerms, prepareTranslation } from "../src/documents/terms.ts"
 import assert from "node:assert/strict"
 import { test } from "node:test"
@@ -23,14 +24,14 @@ test("natural-language line boundaries collapse to exactly one space without cha
       assert.equal(prepared.restore(prepared.text), unit.text)
       const translated = prepared.restore("仔细  阅读。 继续阅读。")
       assert.equal(translated, unit.content === undefined ? "仔细  阅读。 继续阅读。" : JSON.stringify("仔细  阅读。 继续阅读。"))
-      assert.ok(validateTranslation(unit, translated) === undefined)
+      assert.equal(validateTranslation(unit, translated), undefined)
       assert.throws(() => prepared.restore("仔细阅读。\n继续阅读。"), /structure-invalid/u)
     }
   }
   const markdown = inputOf(parseMarkdown("Read  carefully.  \n  Continue reading.")).units[0]
   const prepared = prepareTranslation(markdown, emptyPreserveTerms, 32)
   assert.equal(prepared.text, "Read  carefully. Continue reading.")
-  assert.ok(validateTranslation(markdown, prepared.restore("仔细  阅读。 继续阅读。")) === undefined)
+  assert.equal(validateTranslation(markdown, prepared.restore("仔细  阅读。 继续阅读。")), undefined)
 })
 
 test("documentation prefixes collapse with their line boundary while escapes and interpolation stay protected", () => {
@@ -42,8 +43,8 @@ test("documentation prefixes collapse with their line boundary while escapes and
     assert.equal(prepared.restore(prepared.text), text)
     const translated = prepared.restore("仔细阅读 `sourceId`。 继续阅读。")
     assert.equal(translated, ["/**", " * 仔细阅读 `sourceId`。 继续阅读。", " */"].join(newline))
-    assert.ok(validateTranslation(unit, translated) === undefined)
-    assert.ok(validateTranslation(unit, prepared.restore("仔细阅读。 继续阅读。")) === undefined)
+    assert.equal(validateTranslation(unit, translated), undefined)
+    assert.equal(validateTranslation(unit, prepared.restore("仔细阅读。 继续阅读。")), undefined)
     const string = '"""Read \\n carefully.' + newline + '  Continue ${name}."""'
     const literal = prepareTranslation(
       {
@@ -77,13 +78,13 @@ test("Markdown continuation prefixes fold with prose while paragraph and list bo
     const quoted = inputOf(parseMarkdown(["> Read first.", ">   Continue reading."].join(newline))).units[0]
     const prepared = prepareTranslation(quoted, emptyPreserveTerms, 32)
     assert.equal(prepared.text, "Read first. Continue reading.")
-    assert.ok(validateTranslation(quoted, prepared.restore("先阅读。 继续阅读。")) === undefined)
+    assert.equal(validateTranslation(quoted, prepared.restore("先阅读。 继续阅读。")), undefined)
     for (const source of ["- Read first." + newline + "- Continue reading.", "Read first." + newline + newline + "Continue reading."]) {
       const unit = { id: "selection", start: 0, end: source.length, text: source, format: "markdown" as const }
       const selection = prepareTranslation(unit, emptyPreserveTerms, 32)
       const translated = selection.restore(selection.text.replace("Read first.", "先阅读。"))
-      assert.ok(validateTranslation(unit, translated) === undefined, translated)
-      assert.equal(validateTranslation(unit, translated.replaceAll(newline, " ")) === undefined, false)
+      assert.equal(validateTranslation(unit, translated), undefined, translated)
+      assert.ok(validateTranslation(unit, translated.replaceAll(newline, " ")) instanceof ModelRetry)
     }
   }
 })
@@ -99,7 +100,7 @@ test("folded prose and scalars preserve nested Markdown containers without guess
       const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
       assert.equal(prepared.restore(prepared.text), unit.text)
       const translated = prepared.restore(prepared.text.replace("Read first.", "先阅读。"))
-      assert.ok(validateTranslation(unit, translated) === undefined, translated)
+      assert.equal(validateTranslation(unit, translated), undefined, translated)
       translations.set(unit.id, translated)
     }
     const translated = translatedMarkdown(parsed, translations)

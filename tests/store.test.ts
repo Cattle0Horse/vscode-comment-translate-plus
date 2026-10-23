@@ -1,3 +1,4 @@
+import { ModelRetry } from "../src/model/diagnostics.ts"
 import { emptyPreserveTerms, prepareTranslation, parsePreserveTerms } from "../src/documents/terms.ts"
 import assert from "node:assert/strict"
 import { createServer } from "node:http"
@@ -72,7 +73,7 @@ test("fenced Markdown and YAML reuse scalar and prose translation while preservi
         const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
         assert.equal(prepared.restore(prepared.text), unit.text, "No-change translations must retain original YAML syntax and every container prefix.")
         const translated = prepared.restore(prepared.text.replaceAll("Read", "阅读"))
-        assert.ok(validateTranslation(unit, translated) === undefined)
+        assert.equal(validateTranslation(unit, translated), undefined)
         translations.set(unit.id, translated)
       }
       const translated = translatedMarkdown(parsed, translations)
@@ -573,8 +574,8 @@ test("unit cache keeps table cell validation distinct from plain paragraphs even
   const paragraph = { ...inputOf(parseMarkdown("Read text.")).units[0], reference: [] }
   const cell = { ...inputOf(parseMarkdown("| Read text. | Other |\n| --- | --- |")).units[0], reference: [] }
   assert.equal(paragraph.text, cell.text)
-  assert.equal(validateTranslation(paragraph, "译文 | extra") === undefined, true)
-  assert.equal(validateTranslation(cell, "译文 | extra") === undefined, false)
+  assert.equal(validateTranslation(paragraph, "译文 | extra"), undefined)
+  assert.ok(validateTranslation(cell, "译文 | extra") instanceof ModelRetry)
   let calls = 0
   const action = async (input: TranslationInput) => {
     calls++

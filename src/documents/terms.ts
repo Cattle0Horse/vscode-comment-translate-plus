@@ -3,7 +3,7 @@ import { embedTranslation } from "./embedding.ts"
 import type { TextUnit } from "../model/document.ts"
 import type { PreserveTerms } from "../model/translation.ts"
 import { ModelRetry } from "../model/diagnostics.ts"
-import { validateTranslation, protectedContentFailure } from "./validation.ts"
+import { validateTranslation } from "./validation.ts"
 import { protectedFragments } from "./protection.ts"
 
 const markerFeedback = "Keep every <CTP...> marker unchanged and exactly once in its own item."
@@ -63,7 +63,7 @@ export function prepareTranslation(
   while ([unit.text, original, context].some((value) => value.includes(prefix))) prefix = "<CTP" + ++namespace + "_"
   const markers = new Map<string, { value: string; inlineCode?: boolean }>()
   let remaining = ""
-  const nativeLiterals = new Map<string, string | undefined>()
+  const nativeLiterals = new Set<string>()
   const orderedTokens: string[] | undefined = unit.language === "python" && unit.kind === "string" ? [] : undefined
   let text = ""
   let position = 0
@@ -81,7 +81,7 @@ export function prepareTranslation(
     // indivisible fragments when the body saves at least three quarters of its size.
     if (range.side || range.kind === undefined || range.kind === "LineBoundary" || value.length < minimumMarkerCharacters || marker.length * 4 > value.length) {
       if (!range.side && range.kind !== "InlineCode") {
-        nativeLiterals.set(value, range.kind)
+        nativeLiterals.add(value)
         orderedTokens?.push(value)
       }
       return value
@@ -198,16 +198,35 @@ export function prepareTranslation(
             }
           }
           const restoredCandidate = original.slice(0, start) + candidate.replace(pattern, (marker) => markers.get(marker)!.value) + original.slice(end)
-          if (validateTranslation(unit, restoredCandidate) === undefined) translated = candidate
+          if (!validateTranslation(unit, restoredCandidate)) translated = candidate
         }
       }
       // TextMate ranges have no translated offsets. Verify their exact content and
       // multiplicity before parsing the surrounding translated document.
       const occurrences = (value: string, content: string) => content.split(value).length - 1
-      for (const [value, kind] of nativeLiterals) {
-        if (occurrences(value, translated) !== occurrences(value, text)) {
-          const { instruction, ...difference } = protectedContentFailure({ kind, expected: value, actual: "原生内容缺失、重复或改写" })
-          throw new ModelRetry({ reason: difference.modelReason, instruction }, { code: "translation-structure-invalid", difference })
+      for (const value of nativeLiterals) {
+        const expected = occurrences(value, text)
+        const actual = occurrences(value, translated)
+        if (actual !== expected) {
+          // Prefer the document check's concrete error when this fragment is parseable
+          // syntax. TextMate-only ranges still need the occurrence check below.
+          const restored = original.slice(0, start) + translated.replace(pattern, (marker) => markers.get(marker)!.value) + original.slice(end)
+          const failure = validateTranslation(unit, unit.content === undefined ? restored : JSON.stringify(restored))
+          if (failure) throw failure
+          throw new ModelRetry(
+            {
+              reason: `A native source fragment occurs ${actual} times; expected ${expected}.`,
+              instruction: "Keep every native protected source fragment unchanged and preserve its occurrence count."
+            },
+            {
+              code: "translation-structure-invalid",
+              difference: {
+                reason: "原生保护内容的出现次数不匹配，可能缺失、重复或改写。",
+                expected: expected + " 次：" + value,
+                actual: actual + " 次"
+              }
+            }
+          )
         }
       }
       if (orderedTokens) {

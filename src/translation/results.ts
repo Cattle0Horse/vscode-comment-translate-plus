@@ -8,7 +8,9 @@ export function validateTranslations(batch: TranslationInput, parsed: unknown): 
   for (const item of parsed as unknown[]) {
     if (!item || typeof item !== "object" || !("id" in item) || typeof item.id !== "string" || !("text" in item) || typeof item.text !== "string") throw Error("translation-item-invalid")
     const unit = expected.get(item.id)
-    if (!unit || translations.has(item.id) || validateTranslation(unit, item.text) !== undefined) throw Error("translation-structure-invalid")
+    if (!unit || translations.has(item.id)) throw Error("translation-structure-invalid")
+    const failure = validateTranslation(unit, item.text)
+    if (failure) throw failure
     translations.set(item.id, item.text)
   }
   return translations

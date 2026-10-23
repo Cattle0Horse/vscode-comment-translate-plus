@@ -18,7 +18,7 @@ test("response boundaries preserve native CRLF syntax inside each item and retai
   const unit = inputOf(parseMarkdown("Keep `sourceId` unchanged.")).units[0]
   const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
   const restored = prepared.restore("\r\n" + prepared.text + "\r\n")
-  assert.ok(validateTranslation(unit, restored) === undefined, "Boundary CRLF shifted a native code span during validation.")
+  assert.equal(validateTranslation(unit, restored), undefined, "Boundary CRLF shifted a native code span during validation.")
 })
 
 test("copy-only fragments cross the length threshold without masking ordinary names or style boundaries", () => {
@@ -31,7 +31,7 @@ test("copy-only fragments cross the length threshold without masking ordinary na
     assert.ok(prepared.text.includes("**sourceId**"))
     assert.ok(prepared.text.includes(size >= 32 ? "[guide](<CTP0>)" : "[guide](" + url + ")"))
     const restored = prepared.restore(prepared.text.replace("Read", "阅读").replace("sourceId", "来源标识").replace("guide", "指南"))
-    assert.ok(validateTranslation(unit, restored) === undefined)
+    assert.equal(validateTranslation(unit, restored), undefined)
     assert.ok(restored.includes(url))
     if (size >= 32) {
       assert.ok("<CTP0>".length * 4 <= url.length)
@@ -114,7 +114,7 @@ test("decoded JSON content translates labels without exposing serialization esca
   const fixture = await chatFixture(t, () => output)
   const results = await requestTranslation(fixture.service, fixture.settings, { units: [unit] }, new AbortController().signal, fixture.gate)
   assert.equal(fixture.seen.length, 1)
-  assert.ok(validateTranslation(unit, results[0].text) === undefined)
+  assert.equal(validateTranslation(unit, results[0].text), undefined)
   assert.ok(JSON.parse(results[0].text).includes("<运行时上下文快照>"))
   assert.ok(JSON.parse(results[0].text).includes("Asia/Riyadh"))
 })

@@ -76,7 +76,7 @@ test("logged summary and list outputs recover a single style-boundary line break
         )
       const result = await run()
       const translation = result.get(unit.id)!
-      assert.ok(validateTranslation(unit, translation) === undefined)
+      assert.equal(validateTranslation(unit, translation), undefined)
       assert.ok(translation.includes("**摘要") || translation.includes("5. **编写"))
       assert.ok(!translation.includes("\n"))
       assert.deepEqual(await run(), result)
@@ -92,10 +92,10 @@ test("style-boundary recovery preserves prose whitespace and rejects paragraph b
   const output = "**阅读  仔细 *原始* 文档** 并保留 `sourceId`."
   const wrapped = output.replace("**阅读", "** \r\n 阅读").replace("文档**", "文档 \r\n **")
   const restored = prepared.restore(wrapped)
-  assert.ok(validateTranslation(unit, restored) === undefined)
+  assert.equal(validateTranslation(unit, restored), undefined)
   assert.ok(restored.includes("阅读  仔细 *原始* 文档"))
   assert.throws(() => prepared.restore(output.replace("文档**", "文档\n\n**")), /structure-invalid/)
-  assert.ok(validateTranslation(unit, prepared.restore(wrapped.replace("`sourceId`", ""))) === undefined)
+  assert.equal(validateTranslation(unit, prepared.restore(wrapped.replace("`sourceId`", ""))), undefined)
   assert.throws(() => prepared.restore(wrapped + "<CTP999>"), /marker-mismatch/)
 })
 
@@ -109,11 +109,11 @@ test("a source-owned inline code marker may echo its exact backtick wrapper with
   assert.equal(fixture.seen.length, 1)
   const prepared = prepareTranslation(input.units[0], emptyPreserveTerms, 32)
   assert.throws(() => prepared.restore(output + " <CTP0>"), /marker-mismatch/)
-  assert.equal(validateTranslation(input.units[0], prepared.restore(output + " `extra`")) === undefined, true)
+  assert.equal(validateTranslation(input.units[0], prepared.restore(output + " `extra`")), undefined)
   const path = inputOf(parseMarkdown("Read /memory/search/result.md.")).units[0]
   assert.equal(
-    validateTranslation(path, prepareTranslation(path, emptyPreserveTerms, 32).restore("阅读 `/memory/search/result.md`。")) === undefined,
-    true,
+    validateTranslation(path, prepareTranslation(path, emptyPreserveTerms, 32).restore("阅读 `/memory/search/result.md`。")),
+    undefined,
     "A new inline-code wrapper around a plain path was rejected."
   )
 })

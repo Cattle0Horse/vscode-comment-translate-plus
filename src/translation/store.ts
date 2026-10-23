@@ -126,7 +126,9 @@ export class TranslationStore {
         created.controller.signal.throwIfAborted()
         const task = byId.get(item.id)
         if (task?.interest.signal.aborted) return
-        if (!task || validateTranslation(task.unit, item.text) !== undefined) throw Error("translation-structure-invalid")
+        if (!task) throw Error("translation-structure-invalid")
+        const failure = validateTranslation(task.unit, item.text)
+        if (failure) throw failure
         if (task.value !== undefined) return
         if (task.cacheable) this.remember(task.key, item.text)
         for (const notify of task.consumers.values()) notify(item.text)
