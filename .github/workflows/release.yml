@@ -1,0 +1,38 @@
+name: Release VSIX
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Check tag version
+        run: >-
+          node -e "const { version } = require('./package.json'); if (process.env.GITHUB_REF_NAME !== 'v' + version) throw new Error('Tag must match package.json version: v' + version)"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm package
+      - uses: actions/upload-artifact@v7
+        with:
+          name: comment-translate-plus-${{ github.ref_name }}
+          path: artifacts/comment-translate-plus.vsix
+          if-no-files-found: error
+      - name: Generate changelog and publish GitHub Release
+        shell: bash
+        run: pnpm exec changelogithub --to "$GITHUB_REF_NAME" --assets artifacts/comment-translate-plus.vsix
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
