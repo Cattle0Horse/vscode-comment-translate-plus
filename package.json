@@ -4,7 +4,7 @@
   "description": "注释、Markdown 与指令文件沉浸式翻译，独立悬停、Markdown 翻译预览和可切换翻译服务",
   "version": "0.0.0",
   "publisher": "cattle-horse",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "private": true,
   "packageManager": "pnpm@12.14.0",
   "type": "module",
