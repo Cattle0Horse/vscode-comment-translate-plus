@@ -62,7 +62,7 @@ export function appendPreserveTerm(text: string, source: string, term: string): 
   if (!term.trim()) throw Error("保留词必须是非空字符串。")
   const values = parseTermFile(text, source)
   const rules = parsePreserveTerms(values)
-  if (rules.literals.has(term)) return text
+  if (rules.literals.has(term.toLowerCase())) return text
   const bom = text.startsWith("\uFEFF") ? "\uFEFF" : ""
   const result = bom + applyEdits(text.slice(bom.length), modify(text.slice(bom.length), [values.length], term, { isArrayInsertion: true }))
   parsePreserveTerms(parseTermFile(result, source))

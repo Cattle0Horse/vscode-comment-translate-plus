@@ -538,7 +538,7 @@ test("custom preserved terms match complete prose bodies and never mask occurren
   assert.equal(prepared.needsTranslation, true)
   assert.throws(() => prepared.restore(prepared.text + prepared.text), /structure-invalid/)
   assert.throws(() => prepared.restore("No placeholders survived."), /structure-invalid/)
-  for (const source of ["Feature", "**Feature**", "  - Feature", "> Feature"]) {
+  for (const source of ["Feature", "feature", "**FEATURE**", "  - fEaTuRe", "> Feature"]) {
     const unit = parseMarkdown(source)
       .groups.flatMap((group) => group.units)
       .at(-1)!
@@ -546,7 +546,7 @@ test("custom preserved terms match complete prose bodies and never mask occurren
     assert.equal(body.needsTranslation, false, source)
     assert.equal(body.restore(body.text), unit.text)
   }
-  for (const source of ["Feature.", "feature", "Feature Widget", "Use Feature.", "FeatureWidget"]) {
+  for (const source of ["Feature.", "Feature Widget", "Use Feature.", "FeatureWidget"]) {
     const unit = parseMarkdown(source).groups[0].units[0]
     assert.equal(prepareTranslation(unit, parsePreserveTerms(["Feature", "Widget"]), 32).needsTranslation, true, source)
     assert.equal(prepareTranslation(unit, parsePreserveTerms(["Feature", "Widget"]), 32).text, prepareTranslation(unit, emptyPreserveTerms, 32).text)

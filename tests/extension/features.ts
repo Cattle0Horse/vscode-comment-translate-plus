@@ -661,7 +661,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     assert(emptyRejected && !exists, "An invalid term created a file before validation.")
     assert(await writePreserveTerm(profile.document.uri, 'New "term"'), "A missing target file was not created.")
     assert(await writePreserveTerm(profile.document.uri, "SecondTerm"), "Appending to the newly created target failed.")
-    assert(!(await writePreserveTerm(profile.document.uri, "SecondTerm")), "A new target accepted a duplicate term.")
+    assert(!(await writePreserveTerm(profile.document.uri, "secondterm")), "A new target accepted a duplicate term with different casing.")
     const created = new TextDecoder().decode(await vscode.workspace.fs.readFile(newFile))
     assert(JSON.stringify(parseTermFile(created, newFile.toString())) === JSON.stringify(['New "term"', "SecondTerm"]), "Creating or reusing the target lost literal values.")
     const createdDocument = await vscode.workspace.openTextDocument(newFile)
@@ -709,7 +709,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   checks.push("adding literals reuses the configured JSONC target without changing translation sources or active rules, preserves comments and rejects unsaved edits")
   await vscode.workspace.fs.writeFile(termsFile, new TextEncoder().encode(JSON.stringify(["Widget", "project.lock"])))
   await config.update("preserveTerms", ["./custom-terms.json"], vscode.ConfigurationTarget.Global)
-  const termsSource = "Read Feature, API and Widget project.lock. Keep `API` unchanged.\n\nWidget\n\nproject.lock\n\nAPI"
+  const termsSource = "Read Feature, API and Widget project.lock. Keep `API` unchanged.\n\nwIdGeT\n\nPROJECT.LOCK\n\nAPI"
   const terms = await open("terms.md", "markdown", termsSource)
   const beforeTerms = (await requests()).length
   await start(terms.document, 4)

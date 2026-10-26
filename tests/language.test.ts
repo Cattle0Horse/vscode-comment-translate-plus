@@ -96,7 +96,12 @@ test("default short names only preserve complete bodies and clearing the default
     assert.equal(translated, source.replace("API", "接口").replace("json", "数据格式"))
     assert.throws(() => prepared.restore(prepared.text.replace("HTTP/2", "")), /translation-structure-invalid/)
   }
-  for (const text of ["API!", "API JSON", "api", "JSONify", "myuv.lock", "uv.locker", "wecom"]) {
+  for (const text of ["api", "aPi", "JSON", "JsOn"]) {
+    const prepared = prepareTranslation({ id: "word", start: 0, end: text.length, text, format: "text" }, defaultPreserveTerms, 32)
+    assert.equal(prepared.needsTranslation, false, text)
+    assert.equal(prepared.restore(prepared.text), text)
+  }
+  for (const text of ["API!", "API JSON", "JSONify", "myuv.lock", "uv.locker", "wecom"]) {
     const prepared = prepareTranslation({ id: "word", start: 0, end: text.length, text, format: "text" }, defaultPreserveTerms, 32)
     assert.equal(prepared.text, text)
     assert.equal(prepared.needsTranslation, true, text)

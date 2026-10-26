@@ -45,10 +45,15 @@ test("JSON stays strict while JSONC accepts comments and trailing commas; compil
   const source = "file:///terms.jsonc"
   const rules = parsePreserveTerms(parseTermFile('\uFEFF[\n// Shared names\n"Widget", "Widget", {"pattern":"(HTTP|HTTPS)", "flags":"i"},\n]', source))
   const prepared = (text: string) => prepareTranslation({ id: "term", text, start: 0, end: text.length, format: "text" }, rules, 32)
-  for (const text of ["Widget", "HtTp", "HTTPS", "HTTP"]) assert.equal(prepared(text).needsTranslation, false)
-  for (const text of ["widget", "Use Widget.", "HTTP HTTPS"]) assert.equal(prepared(text).needsTranslation, true)
+  for (const text of ["Widget", "widget", "WIDGET", "wIdGeT", "HtTp", "HTTPS", "HTTP"]) {
+    assert.equal(prepared(text).needsTranslation, false)
+    assert.equal(prepared(text).restore(prepared(text).text), text)
+  }
+  for (const text of ["Use Widget.", "HTTP HTTPS", "Widget!", "Wid get"]) assert.equal(prepared(text).needsTranslation, true)
   assert.equal(rules.literals.size, 1)
-  assert.equal(parsePreserveTerms(["Widget", { pattern: "HTTP", flags: "i" }]).identity, parsePreserveTerms([{ pattern: "HTTP", flags: "i" }, "Widget", "Widget"]).identity)
+  assert.equal(parsePreserveTerms(["Widget", { pattern: "HTTP", flags: "i" }]).identity, parsePreserveTerms([{ pattern: "HTTP", flags: "i" }, "widget", "WIDGET"]).identity)
+  const caseSensitive = parsePreserveTerms([{ pattern: "Widget" }])
+  assert.equal(prepareTranslation({ id: "regex", text: "widget", start: 0, end: 6, format: "text" }, caseSensitive, 32).needsTranslation, true)
   for (const text of ['["Widget",]', '[/* comment */ "Widget"]']) {
     assert.throws(() => parseTermFile(text, "file:///terms.json"))
     assert.deepEqual(parseTermFile(text, source), ["Widget"])
@@ -70,7 +75,8 @@ test("adding a literal preserves JSONC comments and regex rules, escapes content
     for (const comment of text.match(/\/\/[^\r\n]*|\/\*.*?\*\//gu) ?? []) assert.ok(result.includes(comment))
     assert.equal(result.startsWith("\uFEFF"), text.startsWith("\uFEFF"))
   }
-  assert.deepEqual(parseTermFile(appendPreserveTerm('["Widget"]', "file:///terms.json", "widget"), "file:///terms.json"), ["Widget", "widget"])
+  assert.equal(appendPreserveTerm('["Widget"]', "file:///terms.json", "widget"), '["Widget"]')
+  assert.deepEqual(parseTermFile(appendPreserveTerm('["Widget"]', "file:///terms.json", "Widget!"), "file:///terms.json"), ["Widget", "Widget!"])
 })
 
 test("adding a literal refuses malformed files and invalid existing rules instead of replacing their contents", () => {

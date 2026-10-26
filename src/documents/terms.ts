@@ -17,7 +17,7 @@ export function parsePreserveTerms(value: unknown): PreserveTerms {
     const label = "preserveTerms 第 " + (index + 1) + " 项"
     if (typeof term === "string") {
       if (!term.trim()) throw Error(label + "必须是非空字符串。")
-      literals.add(term)
+      literals.add(term.toLowerCase())
       return
     }
     if (!term || typeof term !== "object" || Array.isArray(term)) throw Error(label + "必须是非空字符串或 { pattern, flags } 正则对象。")
@@ -124,7 +124,10 @@ export function prepareTranslation(
     source,
     hasMarkers: markers.size > 0,
     needsTranslation:
-      !preserveTerms.literals.has(source) && !preserveTerms.expressions.some((term) => term.test(source)) && !!remaining.trim() && (!protectedRanges.length || /\p{L}/u.test(remaining)),
+      !preserveTerms.literals.has(source.toLowerCase()) &&
+      !preserveTerms.expressions.some((term) => term.test(source)) &&
+      !!remaining.trim() &&
+      (!protectedRanges.length || /\p{L}/u.test(remaining)),
     restore: (translated) => {
       // Only a source-owned Markdown prefix may be echoed; restore its exact original numbering and syntax locally.
       if (echoedPrefix) translated = translated.replace(echoedPrefix, "")

@@ -40,6 +40,16 @@ const origins = new Map()
 const rejected = []
 const sort = (values) => [...new Set(values)].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
 
+// Preserve the first spelling (manual additions, then canonical names, then sources).
+function uniqueRules(values) {
+  const rules = new Map()
+  for (const term of values) {
+    const key = JSON.stringify(typeof term === "string" ? term.toLowerCase() : term)
+    if (!rules.has(key)) rules.set(key, term)
+  }
+  return [...rules.values()]
+}
+
 function add(category, term, source) {
   if (typeof term !== "string" || !term.trim() || /[\r\n]/u.test(term) || term.includes("\0")) throw Error(`Invalid entry in ${source}`)
   if (!categories[category]) categories[category] = []
@@ -88,17 +98,14 @@ const allowlist =
 const selected = []
 const selectedProvenance = []
 const absent = []
-for (const canonical of sort(allowlist)) {
+for (const canonical of sort(uniqueRules(allowlist))) {
   const spellings = all.filter((term) => term.toLowerCase() === canonical.toLowerCase())
   if (!spellings.length) {
     absent.push(canonical)
     continue
   }
-  // Canonical forms are explicit editorial choices; source spelling is also retained.
-  for (const term of sort([canonical, ...spellings])) {
-    selected.push(term)
-    selectedProvenance.push({ term, sourceSpellings: spellings, sources: sort(spellings.flatMap((word) => [...origins.get(word)])) })
-  }
+  selected.push(canonical)
+  selectedProvenance.push({ term: canonical, sourceSpellings: spellings, sources: sort(spellings.flatMap((word) => [...origins.get(word)])) })
 }
 const counts = {}
 for (const [category, terms] of Object.entries(categories)) {
@@ -110,10 +117,9 @@ await json("candidates/all.json", all)
 await json("candidates/selected.json", sort(selected))
 const additions = JSON.parse(await readFile(resolve(root, "additions.json"), "utf8"))
 if (!Array.isArray(additions)) throw Error("additions.json must be an array")
-const full = [...new Map([...additions, ...sort(selected), ...all].map((term) => [JSON.stringify(term), term])).values()]
-const curated = [
-  ...new Map([...additions, ...sort(allowlist.filter((term) => selected.includes(term)))].filter((term) => !ordinaryWords.has(term)).map((term) => [JSON.stringify(term), term])).values()
-]
+const full = uniqueRules([...additions, ...sort(selected), ...all])
+const excluded = new Set([...ordinaryWords].map((term) => term.toLowerCase()))
+const curated = uniqueRules([...additions, ...sort(selected)].filter((term) => typeof term !== "string" || !excluded.has(term.toLowerCase())))
 await json("../resources/preserve-terms.json", curated)
 await json("../resources/preserve-terms.full.json", full)
 await json("provenance.json", { candidates: all.map((term) => ({ term, sources: sort(origins.get(term)) })), selected: selectedProvenance })
@@ -130,7 +136,8 @@ await json("review.json", {
 const manifest = {
   collectedOn: "2026-10-23",
   format: "preserveTerms 使用的 JSON 数组，支持字符串字面值与显式正则对象",
-  normalization: "精确大小写去重；保留上游拼写；不生成忽略大小写正则；不取 Devicon tags/图标变体或 Linguist 文件扩展名",
+  normalization:
+    "输出词库的字符串按 toLowerCase() 忽略大小写去重，依次保留人工补充、规范名称、上游的首个拼写；候选与溯源保留原始拼写；正则原样保留；不取 Devicon tags/图标变体或 Linguist 文件扩展名",
   repositories,
   outputs: { curated: "resources/preserve-terms.json", full: "resources/preserve-terms.full.json" },
   counts: { ...counts, allUnique: all.length, selected: sort(selected).length, curated: curated.length, full: full.length, rejected: rejected.length },
