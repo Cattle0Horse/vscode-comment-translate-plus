@@ -2,9 +2,9 @@ import { isScalar, parseDocument } from "yaml"
 import { ModelRetry, type ModelFeedback } from "../model/diagnostics.ts"
 import type { TextUnit } from "../model/document.ts"
 import type { MarkdownNode } from "./tree.ts"
-import { children, markdownTree, standalone } from "./tree.ts"
+import { children, markdownTree, markdownLinkLabels, standalone } from "./tree.ts"
 import { yamlShape } from "./yaml.ts"
-import { fragmentContents, labelReference } from "./protection.ts"
+import { fragmentContents, labelReference, unresolvedReference } from "./protection.ts"
 import { unembedTranslation } from "./embedding.ts"
 import { translationBody } from "./body.ts"
 
@@ -192,8 +192,8 @@ function validateProtectedFragments(expected: ReturnType<typeof fragmentContents
   }
 }
 
-function markdownShape(node: MarkdownNode, source: string, embedded = false): unknown {
-  if (labelReference(node, source)) return [node.name, source.slice(node.from, node.to)]
+function markdownShape(node: MarkdownNode, source: string, embedded = false, linkLabels?: readonly string[]): unknown {
+  if (labelReference(node, source, linkLabels)) return [node.name, source.slice(node.from, node.to)]
   if (embedded && node.name === "FencedCode")
     return [
       node.name,
@@ -205,13 +205,17 @@ function markdownShape(node: MarkdownNode, source: string, embedded = false): un
   const content: MarkdownNode[] = []
 
   function append(child: MarkdownNode): void {
+    if (unresolvedReference(child, source, linkLabels)) {
+      for (const nested of children(child)) if (nested.name !== "LinkMark") append(nested)
+      return
+    }
     // Emphasis is model-owned; compare its contents without losing nested links or other syntax.
     if (["StrongEmphasis", "Emphasis"].includes(child.name)) for (const nested of children(child)) append(nested)
     else if (!["HardBreak", "QuoteMark", "InlineCode", "EmphasisMark"].includes(child.name)) content.push(child)
   }
 
   for (const child of children(node)) append(child)
-  const shapes = content.map((child) => markdownShape(child, source, embedded))
+  const shapes = content.map((child) => markdownShape(child, source, embedded, linkLabels))
   const inline = content.length > 1 && content.every((child) => ["Strikethrough", "Link", "Image"].includes(child.name))
   return [node.name, inline ? shapes.map((shape) => JSON.stringify(shape)).sort() : shapes]
 }
@@ -330,7 +334,8 @@ export function validateTranslation(unit: TextUnit, translated: string, code = "
     }
     const before = markdownTree(source).topNode
     const after = markdownTree(output).topNode
-    if (JSON.stringify(markdownShape(before, source)) === JSON.stringify(markdownShape(after, output))) return
+    const labels = unit.linkLabels ?? markdownLinkLabels(source, before)
+    if (JSON.stringify(markdownShape(before, source, false, labels)) === JSON.stringify(markdownShape(after, output, false, labels))) return
     return (
       validateProtectedFragments(fragmentContents({ ...unit, text: source }, before), fragmentContents({ ...unit, text: output }, after), source, output) ??
       new ModelRetry(
@@ -353,7 +358,7 @@ export function validateTranslation(unit: TextUnit, translated: string, code = "
   }
 }
 
-export function markdownDocumentShape(source: string, embedded = false): unknown {
+export function markdownDocumentShape(source: string, embedded = false, linkLabels?: readonly string[]): unknown {
   let frontmatter: unknown
   const opening = source.match(/^\uFEFF?---[\t ]*\r?\n/)
   if (opening) {
@@ -366,7 +371,8 @@ export function markdownDocumentShape(source: string, embedded = false): unknown
     frontmatter = yaml.errors.length ? raw : yamlShape(yaml.contents)
     source = source.slice(end.index + end[0].length)
   }
-  return [frontmatter, markdownShape(markdownTree(source).topNode, source, embedded)]
+  const tree = markdownTree(source).topNode
+  return [frontmatter, markdownShape(tree, source, embedded, linkLabels ?? markdownLinkLabels(source, tree))]
 }
 
 export function assertMarkdownStructure(source: string, translated: string): void {

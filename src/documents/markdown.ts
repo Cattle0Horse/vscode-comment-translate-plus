@@ -1,7 +1,7 @@
 import { parseDocument } from "yaml"
 import type { TextUnit, TextGroup, ParsedDocument, EmbeddedCode, ReferenceBlock } from "../model/document.ts"
 import type { MarkdownNode } from "./tree.ts"
-import { markdownTree, children, makeUnit } from "./tree.ts"
+import { markdownTree, markdownLinkLabels, children, makeUnit } from "./tree.ts"
 import { yamlUnits } from "./yaml.ts"
 import { codeBlock, embeddedUnit, embeddedOffset } from "./embedding.ts"
 
@@ -28,7 +28,7 @@ function startWithPrefix(source: string, start: number): number {
   return /^[\t >]*(?:(?:[-+*]|\d+[.)])[\t ]+(?:\[[ xX]\][\t ]+)?)?$/.test(prefix) ? line : start
 }
 
-export function parseMarkdown(source: string): ParsedDocument {
+export function parseMarkdown(source: string, linkLabels?: readonly string[]): ParsedDocument {
   const groups: TextGroup[] = []
   const errors: string[] = []
   const codeBlocks: EmbeddedCode[] = []
@@ -49,6 +49,7 @@ export function parseMarkdown(source: string): ParsedDocument {
   }
   const body = source.slice(bodyStart)
   const parsed = markdownTree(body)
+  linkLabels ??= markdownLinkLabels(body, parsed.topNode)
   const headings: { level: number; node: MarkdownNode }[] = []
   const blocks = children(parsed.topNode)
   const titleNode = blocks.find((node) => /^(?:ATX|Setext)Heading1$/.test(node.name))
@@ -146,6 +147,7 @@ export function parseMarkdown(source: string): ParsedDocument {
         const listParent = parentItems.at(-1) ?? (node.parent?.name === "ListItem" ? node.parent.parent : undefined)
         units.push({
           ...unit,
+          linkLabels,
           reference: references,
           scope:
             node.name === "TableCell"
@@ -168,7 +170,7 @@ export function parseMarkdown(source: string): ParsedDocument {
     visit(block)
     if (units.length) groups.push({ start, end, units })
   }
-  return { source, groups, errors, codeBlocks }
+  return { source, groups, errors, codeBlocks, linkLabels }
 }
 
 /** Parse every fence through the same language parser, keeping exact source ownership. */
@@ -191,5 +193,5 @@ export async function parseMarkdownWithCode(
       if (units.length) groups.push({ start: embeddedOffset(block, group.start), end: embeddedOffset(block, group.end, true), units })
     }
   }
-  return { source, groups: groups.sort((a, b) => a.start - b.start), errors, codeBlocks: blocks }
+  return { ...parsed, groups: groups.sort((a, b) => a.start - b.start), errors, codeBlocks: blocks }
 }

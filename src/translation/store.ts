@@ -34,6 +34,7 @@ function unitContentKey(unit: TextUnit): readonly unknown[] {
     unit.content,
     unit.yamlKey === true,
     unit.protected,
+    unit.linkLabels,
     unit.display !== undefined,
     unit.embedding ? [unitContentKey(unit.embedding.unit), unit.embedding.prefixes] : undefined
   ]

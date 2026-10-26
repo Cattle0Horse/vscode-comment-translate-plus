@@ -71,14 +71,70 @@ test("empty explicit link destinations keep their labels translatable without pl
 
 test("label-derived reference targets stay intact rather than translating their lookup keys", () => {
   for (const reference of ["[Title]", "[Title][]", "![Title]", "![Title][]"]) {
-    const source = "Read " + reference + "."
+    const source = "Read " + reference + ".\n\n[title]: https://example.com/guide"
     const unit = parseMarkdown(source).groups[0].units[0]
     const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
-    assert.equal(prepared.text, source)
+    assert.equal(prepared.text, unit.text)
     assert.equal(prepared.restore("阅读 " + reference + "。"), "阅读 " + reference + "。")
     assert.equal(validateTranslation(unit, "阅读 " + reference + "。"), undefined)
-    assert.ok(validateTranslation(unit, source.replace("Title", "标题")) instanceof ModelRetry)
+    assert.ok(validateTranslation(unit, unit.text.replace("Title", "标题")) instanceof ModelRetry)
+    assert.throws(() => prepared.restore(unit.text.replace("Title", "标题")), /structure-invalid/u)
+    assert.throws(() => translatedMarkdown(parseMarkdown(source), new Map([[unit.id, unit.text.replace("Title", "标题")]])), /structure-invalid/u)
   }
+})
+
+test("undefined bracket prose translates through HTTP, assembles and reuses its cached result", async (t) => {
+  const source = "competitive landscape (subject / type [direct·indirect·substitute] / positioning / segment / differentiator / model) when in scope"
+  const output = "竞争格局（对象 / 类型 [直接型·间接型·替代型] / 定位 / 细分市场 / 差异化 / 模式），仅在范围内分析"
+  const fixture = await chatFixture(t, () => output)
+  const parsed = parseMarkdown(source)
+  const input = { units: parsed.groups.flatMap((group) => group.units) }
+  const store = new TranslationStore()
+  t.after(() => store.clear())
+  const translate = () =>
+    store.translate("bracket-prose", input, (request, signal) => requestTranslation(fixture.service, fixture.settings, request, signal, fixture.gate), new AbortController().signal)
+  const result = await translate()
+  assert.equal(result.get(input.units[0].id), output)
+  assert.equal(translatedMarkdown(parsed, result), output)
+  assert.deepEqual([...(await translate())], [...result])
+  assert.equal(fixture.seen.length, 1, "Ordinary bracket prose caused retries or was not cached.")
+})
+
+test("undefined shortcut candidates remain prose while nested syntax and actual links stay protected", () => {
+  for (const format of ["markdown", "text"] as const) {
+    for (const source of ["Read [Title].", "Read ![Title].", "Read [**Title**].", "Read [Title](URL) and [words]."]) {
+      const unit = { id: "brackets", text: source, start: 0, end: source.length, format }
+      const output = source.replaceAll("Read", "阅读").replaceAll("Title", "标题").replaceAll("words", "文字")
+      assert.equal(prepareTranslation(unit, emptyPreserveTerms, 32).restore(output), output)
+      assert.equal(validateTranslation(unit, output), undefined)
+      if (source.includes("URL")) assert.ok(validateTranslation(unit, output.replace("URL", "OTHER")) instanceof ModelRetry)
+    }
+    const text = "Read [~~removed~~ and [Title](URL)]."
+    const unit = { id: "nested", text, start: 0, end: text.length, format }
+    const output = "阅读 [~~已删除~~和[标题](URL)]。"
+    assert.equal(validateTranslation(unit, output), undefined)
+    assert.ok(validateTranslation(unit, output.replace("URL", "OTHER")) instanceof ModelRetry)
+    if (format === "markdown") assert.ok(validateTranslation(unit, output.replaceAll("~~", "")) instanceof ModelRetry)
+  }
+})
+
+test("adding a definition invalidates cached bracket prose even without model context", async (t) => {
+  const fixture = await chatFixture(t, (_body, _items, call) => (call === 1 ? "阅读 [标题]。" : "阅读 [Title]。"))
+  const store = new TranslationStore()
+  t.after(() => store.clear())
+  for (const definition of ["", "\n\n[title]: https://example.com"]) {
+    const parsed = parseMarkdown("Read [Title]." + definition)
+    const input = { units: parsed.groups.flatMap((group) => group.units).map((unit) => ({ ...unit, reference: [] })) }
+    const result = await store.translate(
+      "definition-change",
+      input,
+      (request, signal) => requestTranslation(fixture.service, fixture.settings, request, signal, fixture.gate),
+      new AbortController().signal
+    )
+    assert.equal(result.get(input.units[0].id), definition ? "阅读 [Title]。" : "阅读 [标题]。")
+    assert.equal(translatedMarkdown(parsed, result), (definition ? "阅读 [Title]。" : "阅读 [标题]。") + definition)
+  }
+  assert.equal(fixture.seen.length, 2)
 })
 
 test("logged writing link uses two protected values and retries only damaged native structure before caching", async (t) => {

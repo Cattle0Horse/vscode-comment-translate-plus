@@ -23,6 +23,25 @@ export function children(node: MarkdownNode): MarkdownNode[] {
   return values
 }
 
+export function normalizeLinkLabel(label: string): string {
+  return label.trim().replace(/\s+/gu, " ").toUpperCase()
+}
+
+/** Definitions can live outside a translated paragraph or selection. */
+export function markdownLinkLabels(source: string, tree = markdownTree(source).topNode): readonly string[] {
+  const labels = new Set<string>()
+
+  function visit(node: MarkdownNode): void {
+    if (node.name === "LinkReference") {
+      const label = children(node).find((child) => child.name === "LinkLabel")
+      if (label) labels.add(normalizeLinkLabel(source.slice(label.from + 1, label.to - 1)))
+    } else for (const child of children(node)) visit(child)
+  }
+
+  visit(tree)
+  return [...labels].sort()
+}
+
 export function standalone(text: string): string {
   const indent = text.match(/^[\t ]*/)?.[0] ?? ""
   return text

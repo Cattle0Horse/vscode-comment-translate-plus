@@ -105,7 +105,9 @@ export function translatedMarkdown(document: ParsedDocument, translations: Reado
   }
   // Only the assembler can permit fence-body changes: every edit above owns a validated unit.
   const embedded = units.some((unit) => unit.embedding)
-  if (JSON.stringify(markdownDocumentShape(document.source, embedded)) !== JSON.stringify(markdownDocumentShape(translated, embedded))) throw Error("translation-structure-invalid")
+  const linkLabels = document.linkLabels
+  if (JSON.stringify(markdownDocumentShape(document.source, embedded, linkLabels)) !== JSON.stringify(markdownDocumentShape(translated, embedded, linkLabels)))
+    throw Error("translation-structure-invalid")
   return translated
 }
 

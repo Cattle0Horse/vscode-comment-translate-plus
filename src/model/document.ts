@@ -12,6 +12,8 @@ export interface TextUnit {
   readonly reference?: readonly ReferenceBlock[]
   readonly scope?: string
   readonly language?: string
+  /** Normalized Markdown definition keys, including definitions outside this unit. */
+  readonly linkLabels?: readonly string[]
   readonly embedding?: { readonly unit: TextUnit; readonly prefixes: readonly string[] }
 }
 
@@ -26,6 +28,7 @@ export interface ParsedDocument {
   readonly groups: readonly TextGroup[]
   readonly errors: readonly string[]
   readonly codeBlocks?: readonly EmbeddedCode[]
+  readonly linkLabels?: readonly string[]
 }
 
 export interface EmbeddedCode {

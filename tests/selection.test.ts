@@ -15,6 +15,37 @@ const policy = [
   "  unlinked numeric or research-batch markers are not report citations."
 ]
 
+test("selected shortcut links use definitions outside the selected range", () => {
+  for (const newline of ["\n", "\r\n"]) {
+    const text = "Read [TITLE   guide] and [plain words]."
+    const source = [
+      "---",
+      "notes: |",
+      "  [plain words]: https://example.com/yaml",
+      "---",
+      "# Guide",
+      "",
+      text,
+      "",
+      "```md",
+      "[plain words]: https://example.com/code",
+      "```",
+      "",
+      "[title guide]: https://example.com"
+    ].join(newline)
+    const start = source.indexOf(text)
+    const selected = prepareSelection(source, start, start + text.length, "markdown", "markdown")
+    const unit = selected.units[0]
+    const output = "阅读 [TITLE   guide] 和 [普通文字]。"
+    const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
+    assert.equal(prepared.restore(output), output)
+    assert.equal(selected.restore(new Map([[unit.id, output]])), output)
+    assert.ok(validateTranslation(unit, output.replace("TITLE   guide", "标题指南")))
+    assert.throws(() => prepared.restore(output.replace("TITLE   guide", "标题指南")), /structure-invalid/u)
+    assert.throws(() => selected.restore(new Map([[unit.id, output.replace("TITLE   guide", "标题指南")]])), /structure-invalid/u)
+  }
+})
+
 test("multiline Markdown selections translate list bodies separately and retain source-owned block separators", () => {
   for (const newline of ["\r\n", "\n"]) {
     const text = policy.join(newline)
