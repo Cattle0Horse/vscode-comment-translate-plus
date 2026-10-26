@@ -3,7 +3,7 @@ import { embedTranslation } from "./embedding.ts"
 import type { TextUnit } from "../model/document.ts"
 import type { PreserveTerms } from "../model/translation.ts"
 import { ModelRetry } from "../model/diagnostics.ts"
-import { validateTranslation } from "./validation.ts"
+import { validateTranslation, validateTranslationText } from "./validation.ts"
 import { protectedFragments } from "./protection.ts"
 
 const markerFeedback = "Keep every <CTP...> marker unchanged and exactly once in its own item."
@@ -118,7 +118,21 @@ export function prepareTranslation(
     remaining += character
     afterBreak = false
   }
-  const pattern = new RegExp(prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "[0-9]+>", "g")
+  const escapePattern = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  const pattern = new RegExp(escapePattern(prefix) + "[0-9]+>", "g")
+  const expandedMarkers = new Map<string, string[]>()
+  for (const [marker, { value }] of markers) expandedMarkers.set(value, [...(expandedMarkers.get(value) ?? []), marker])
+  // Match complete values in one pass, preferring a containing fragment to its
+  // substring. Never interpret restored source data as another expansion.
+  const expandedPattern = markers.size
+    ? new RegExp(
+        [...expandedMarkers.keys()]
+          .sort((a, b) => b.length - a.length)
+          .map(escapePattern)
+          .join("|"),
+        "g"
+      )
+    : undefined
   return {
     text,
     source,
@@ -129,6 +143,8 @@ export function prepareTranslation(
       !!remaining.trim() &&
       (!protectedRanges.length || /\p{L}/u.test(remaining)),
     restore: (translated) => {
+      const bounds = validateTranslationText(translated, translated.trim() ? "translation-structure-invalid" : "translation-item-invalid")
+      if (bounds) throw bounds
       // Only a source-owned Markdown prefix may be echoed; restore its exact original numbering and syntax locally.
       if (echoedPrefix) translated = translated.replace(echoedPrefix, "")
       // A key's field separator stays local; values and source-owned punctuation remain text.
@@ -141,40 +157,17 @@ export function prepareTranslation(
       const matches = translated.match(pattern) ?? []
       const counts = new Map<string, number>()
       for (const marker of matches) {
-        const value = markers.get(marker)
-        if (!value)
-          throw new ModelRetry(
-            { reason: `Unknown marker ${marker}.`, instruction: markerFeedback },
-            {
-              code: "translation-marker-mismatch",
-              difference: { reason: "模型产生了无法识别的保护标记。", actual: marker }
-            }
-          )
         counts.set(marker, (counts.get(marker) ?? 0) + 1)
       }
-      for (const [marker, { value }] of markers) {
-        const count = counts.get(marker) ?? 0
-        if (count !== 1)
-          throw new ModelRetry(
-            { reason: `Marker ${marker} occurred ${count} times; expected exactly once.`, instruction: markerFeedback },
-            {
-              code: "translation-marker-mismatch",
-              difference: {
-                reason: "模型未保留保护标记 " + marker + "。",
-                expected: value,
-                actual: count ? "对应标记重复 " + count + " 次" : "对应标记缺失或被改写"
-              }
-            }
-          )
-      }
-      if (translated.replace(pattern, "").includes(prefix))
-        throw new ModelRetry(
-          { reason: `A malformed marker with prefix ${prefix} remains.`, instruction: markerFeedback },
-          {
-            code: "translation-marker-mismatch",
-            difference: { reason: "模型产生了无法识别的保护标记。" }
-          }
-        )
+      if (expandedPattern)
+        translated = translated.replace(expandedPattern, (value) => {
+          const candidates = expandedMarkers.get(value)!
+          // Existing markers reserve their occurrence even when they follow an
+          // expanded copy. Extra copies still fail the exactly-once check.
+          const marker = candidates.find((candidate) => !counts.has(candidate)) ?? candidates[0]
+          counts.set(marker, (counts.get(marker) ?? 0) + 1)
+          return marker
+        })
       // Native emphasis delimiters need no IDs. Repair only their immediate inner
       // whitespace when the complete restored document still has the source shape.
       const styles = protectedRanges.filter((range) => range.side)
@@ -200,9 +193,62 @@ export function prepareTranslation(
               candidate = candidate.slice(0, from - space.length) + candidate.slice(from)
             }
           }
-          const restoredCandidate = original.slice(0, start) + candidate.replace(pattern, (marker) => markers.get(marker)!.value) + original.slice(end)
+          const restoredCandidate = original.slice(0, start) + candidate.replace(pattern, (marker) => markers.get(marker)?.value ?? marker) + original.slice(end)
           if (!validateTranslation(unit, restoredCandidate)) translated = candidate
         }
+      }
+      // Check response-level contamination before diagnosing damaged source syntax.
+      // Exact native multiline fragments remain source-owned; restored marker values
+      // have not been inserted yet and cannot create false internal line breaks.
+      let prose = translated
+      for (const range of protectedRanges) {
+        if (range.fold) continue
+        const value = source.slice(range.start, range.end)
+        if (/[\r\n]/u.test(value)) prose = prose.replaceAll(value, "")
+      }
+      if (/[\r\n]/u.test(prose.trim()))
+        throw new ModelRetry(
+          {
+            reason: "The response introduced an internal line break.",
+            instruction: "Return each source item's translation on one line. Exclude the reference/context, preceding or following blocks, and explanations."
+          },
+          {
+            code: "translation-structure-invalid",
+            difference: { reason: "待译正文已转换为单行，模型新增了内部换行，可能混入参考译文或独立说明。", expected: "单行正文，跨行文本以单个空格连接", actual: "包含内部换行" }
+          }
+        )
+      for (const marker of matches) {
+        if (!markers.has(marker))
+          throw new ModelRetry(
+            { reason: `Unknown marker ${marker}.`, instruction: markerFeedback },
+            {
+              code: "translation-marker-mismatch",
+              difference: { reason: "模型产生了无法识别的保护标记。", actual: marker }
+            }
+          )
+      }
+      if (translated.replace(pattern, "").includes(prefix))
+        throw new ModelRetry(
+          { reason: `A malformed marker with prefix ${prefix} remains.`, instruction: markerFeedback },
+          {
+            code: "translation-marker-mismatch",
+            difference: { reason: "模型产生了无法识别的保护标记。" }
+          }
+        )
+      for (const [marker, { value }] of markers) {
+        const count = counts.get(marker) ?? 0
+        if (count !== 1)
+          throw new ModelRetry(
+            { reason: `Marker ${marker} occurred ${count} times; expected exactly once.`, instruction: markerFeedback },
+            {
+              code: "translation-marker-mismatch",
+              difference: {
+                reason: "模型未保留保护标记 " + marker + "。",
+                expected: value,
+                actual: count ? "对应标记重复 " + count + " 次" : "对应标记缺失或被改写"
+              }
+            }
+          )
       }
       // TextMate ranges have no translated offsets. Verify their exact content and
       // multiplicity before parsing the surrounding translated document.
@@ -244,23 +290,6 @@ export function prepareTranslation(
           cursor = found + token.length
         }
       }
-      let prose = translated
-      for (const range of protectedRanges) {
-        if (range.fold) continue
-        const value = source.slice(range.start, range.end)
-        if (/[\r\n]/u.test(value)) prose = prose.replaceAll(value, "")
-      }
-      if (/[\r\n]/u.test(prose.trim()))
-        throw new ModelRetry(
-          {
-            reason: "The response introduced an internal line break.",
-            instruction: "Return each source item's translation on one line. Exclude the reference/context, preceding or following blocks, and explanations."
-          },
-          {
-            code: "translation-structure-invalid",
-            difference: { reason: "待译正文已转换为单行，模型新增了内部换行，可能混入参考译文或独立说明。", expected: "单行正文，跨行文本以单个空格连接", actual: "包含内部换行" }
-          }
-        )
       if (translated === text) return unit.text
       const restored = original.slice(0, start) + translated.replace(pattern, (marker) => markers.get(marker)!.value) + original.slice(end)
       if (unit.content === undefined) return restored

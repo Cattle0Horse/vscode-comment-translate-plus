@@ -25,9 +25,18 @@ function validateProtectedFragments(expected: ReturnType<typeof fragmentContents
     unmatched.splice(index, 1)
     return false
   })
-  // Source damage takes precedence; for additions report link targets, then code blocks.
+  // Source damage takes precedence over additions. Within each group, report
+  // protected data before punctuation, independently of source traversal order.
+  const candidates = missing.length ? missing : unmatched
   const fragment =
-    missing[0] ?? unmatched.find(([kind]) => kind === "URL" || kind === "Autolink") ?? unmatched.find(([kind]) => ["FencedCode", "CodeBlock", "CodeMark"].includes(kind)) ?? unmatched[0]
+    candidates.find(([kind]) => kind === "URL" || kind === "Autolink") ??
+    candidates.find(([kind]) => ["LinkLabel", "Link", "Image"].includes(kind)) ??
+    candidates.find(([kind]) => ["FencedCode", "CodeBlock", "CodeMark"].includes(kind)) ??
+    candidates.find(([kind]) => kind === "HTMLTag" || kind === "HTMLBlock") ??
+    candidates.find(([kind]) => kind === "Escape") ??
+    candidates.find(([kind]) => ["HeaderMark", "ListMark", "TaskMarker", "QuoteMark"].includes(kind)) ??
+    candidates.find(([kind]) => kind === "LinkMark") ??
+    candidates[0]
   if (!fragment) return
   const [kind, value] = fragment
   const added = !missing.length
@@ -215,8 +224,8 @@ export function translationIsUnchanged(unit: TextUnit, translated: string): bool
   return translated.replace(/\r\n/g, "\n").trim() === unit.text.replace(/\r\n/g, "\n").trim()
 }
 
-/** Success has no failure; each rejected constraint returns its complete model feedback. */
-export function validateTranslation(unit: TextUnit, translated: string, code = "translation-structure-invalid"): ModelRetry | undefined {
+/** Bound raw responses before restoration and restored text before document parsing. */
+export function validateTranslationText(translated: string, code = "translation-structure-invalid"): ModelRetry | undefined {
   if (!translated.trim())
     return new ModelRetry(
       { reason: "The response for this item was empty.", instruction: "Provide a non-empty translation for this item." },
@@ -230,6 +239,12 @@ export function validateTranslation(unit: TextUnit, translated: string, code = "
       },
       { code, difference: { reason: "模型返回的单项译文超过长度上限。", expected: "不超过 200000 个 UTF-16 字符", actual: translated.length + " 个字符" } }
     )
+}
+
+/** Success has no failure; each rejected constraint returns its complete model feedback. */
+export function validateTranslation(unit: TextUnit, translated: string, code = "translation-structure-invalid"): ModelRetry | undefined {
+  const bounds = validateTranslationText(translated, code)
+  if (bounds) return bounds
   if (unit.embedding) {
     let logical: string
     try {

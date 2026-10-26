@@ -32,7 +32,7 @@ test("task diagnostics distinguish changed, unchanged and language-skipped resul
 
 test("repeated diagnostic leakage exhausts attempts without publishing or caching a result", async (t) => {
   let damaged = true
-  const fixture = await chatFixture(t, (_body, items, call) => (damaged ? (call === 1 ? "" : "Item 1: translation-item-invalid\n诊断被错误翻译。") : items[0].replace("Repair", "修复")))
+  const fixture = await chatFixture(t, (_body, items, call) => (damaged ? (call === 1 ? "" : "Item 1: translation-item-invalid 诊断被错误翻译。") : items[0].replace("Repair", "修复")))
   const input = inputOf(parseMarkdown("Repair the current rule."))
   const store = new TranslationStore()
   t.after(() => store.clear())

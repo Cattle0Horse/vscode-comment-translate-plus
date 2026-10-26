@@ -1102,7 +1102,10 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   checks.push("partial failure logs once with the exact source line and missing link delimiter; diagnostics stays quiet and retry requests only the unresolved unit")
 
   for (const mode of ["once", "always"]) {
-    const contaminationSource = "- Read the original document. Reference contamination case. " + mode + ". Keep `sourceId`.\n- 这是已有的中文说明，调用 `run_command`。"
+    const contaminationSource =
+      "- Read the original document. Reference contamination case. " +
+      mode +
+      ". Follow [Guide](./guide.md). Keep `sourceId_abcdefghijklmnopqrstuvwxyz_123456789`.\n- 这是已有的中文说明，调用 `run_command`。"
     const contamination = await open("reference-contamination-" + mode + ".md", "markdown", contaminationSource)
     const target = (await owner.documents.parse(contamination.document)).groups.flatMap((group) => group.units)[0]
     const fingerprint = await requestFingerprint(prepareTranslation(target, emptyPreserveTerms, 32).text)

@@ -316,13 +316,13 @@ const mock = createServer(async (request, response) => {
         .map((text) => (damageLink && text.includes("code-only-no-request") ? dropLastProtection(text) : text))
         .map((text, index) =>
           pieces[index].includes("Reference contamination case.") && (referenceContamination === "always" || (referenceContamination === "once" && !record.retryFeedbackIncluded))
-            ? text + "\n\n处理最终音频时调用 `run_command`。"
+            ? "<context>\n## 参考内容\n\n处理最终音频时调用 `run_command`。\n</context>"
             : text
         )
       if (broken) translations.pop()
       if (hold) await new Promise((resolve) => heldResponses.add(resolve))
       if (slow) await delay(150)
-      let content = leakDiagnostics ? (users.length === 1 ? "" : 'Item 1: translation-item-invalid\nreason: "模型将错误诊断翻译为正文。"') : translations.join("\n" + separator + "\n")
+      let content = leakDiagnostics ? (users.length === 1 ? "" : 'Item 1: translation-item-invalid reason: "模型将错误诊断翻译为正文。"') : translations.join("\n" + separator + "\n")
       if (body.model === "log-recovery-fixture") {
         if (text === "Sources")
           content =

@@ -645,7 +645,7 @@ test("unchanged results stay completed and cached while representation noise is 
 })
 
 test("translated retry diagnostics are rejected per unit and never cached as source translations", async (t) => {
-  const diagnosticTranslation = 'Item 1: translation-item-invalid\nreason: "The model returned invalid content."'
+  const diagnosticTranslation = 'Item 1: translation-item-invalid reason: "The model returned invalid content."'
   const fixture = await chatFixture(t, (_body, _items, call) => {
     if (call === 1) return "\n%%\n"
     if (call === 2) return "正确的相邻译文。\n%%\n" + diagnosticTranslation
