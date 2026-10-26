@@ -1268,13 +1268,65 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   checks.push("selection and documentation hover never translate the extension's own output document")
 
   await updateObserved("activeProfile", "unchanged")
+  const unchangedHoverSource = "Read the original document.\r\nContinue reading.\r\n\r\nKeep `sourceId` unchanged."
+  const unchangedHover = await open("unchanged-hover.md", "markdown", unchangedHoverSource)
+  const unchangedHoverAt = new vscode.Position(0, 5)
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const before = (await requests()).length
+    const hover = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", unchangedHover.document.uri, unchangedHoverAt)
+    assert(!values(hover).includes("[注释翻译+]"), "Whitespace-only output appeared in independent hover.")
+    assert(!attempt || (await requests()).length === before, "Repeated unchanged hover escaped the cache.")
+  }
+  unchangedHover.editor.selection = new vscode.Selection(unchangedHover.document.positionAt(0), unchangedHover.document.positionAt(unchangedHoverSource.length))
+  const unchangedSelection = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", unchangedHover.document.uri, unchangedHoverAt)
+  assert(!values(unchangedSelection).includes("[注释翻译+]"), "Whitespace-only selected output exposed a translation or replacement action.")
+  assert(!owner.browse.inspect(unchangedHover.document.uri), "Independent unchanged hover enabled browse mode.")
+  assert(unchangedHover.document.getText() === unchangedHoverSource && !unchangedHover.document.isDirty, "Unchanged hover modified source.")
+  checks.push("independent and selected hover suppress whitespace-only translations and replacement actions while reusing successful results")
+
+  const unchangedDocumentation = await open("unchanged-documentation.txt", "plaintext", "documentation target")
+  let unchangedDocumentationText = "Read the original document.\n\nKeep `sourceId` unchanged."
+  const unchangedDocumentationProvider = vscode.languages.registerHoverProvider(
+    { language: "plaintext", pattern: "**/unchanged-documentation.txt" },
+    { provideHover: () => new vscode.Hover(new vscode.MarkdownString(unchangedDocumentationText)) }
+  )
+  const unchangedDiagnostics = vscode.languages.createDiagnosticCollection("unchanged-hover")
+  const unchangedDiagnostic = new vscode.Diagnostic(new vscode.Range(0, 0, 0, 13), "Read the original document.")
+  unchangedDiagnostic.source = "whitespace-diagnostic"
+  unchangedDiagnostics.set(unchangedDocumentation.document.uri, [unchangedDiagnostic])
+  await config.update("hover.documentation", true, vscode.ConfigurationTarget.Global)
+  try {
+    const before = (await requests()).length
+    const hovers = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", unchangedDocumentation.document.uri, new vscode.Position(0, 5))
+    assert(hovers.length === 1 && values(hovers) === unchangedDocumentationText, "Whitespace-only documentation or diagnostics added a duplicate hover.")
+    const after = (await requests()).length
+    assert(after > before, "Documentation unchanged regression did not exercise the translation service.")
+    await vscode.commands.executeCommand("vscode.executeHoverProvider", unchangedDocumentation.document.uri, new vscode.Position(0, 5))
+    assert((await requests()).length === after, "Unchanged documentation or diagnostic results escaped the cache.")
+    unchangedDocumentationText = '---\nlabel: "Read the original document."\n---'
+    const stringHovers = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", unchangedDocumentation.document.uri, new vscode.Position(0, 5))
+    assert(stringHovers.length === 2 && values(stringHovers).includes("originaldocument"), "Documentation hover hid a meaningful decoded-string whitespace change.")
+  } finally {
+    unchangedDiagnostics.dispose()
+    unchangedDocumentationProvider.dispose()
+    await config.update("hover.documentation", false, vscode.ConfigurationTarget.Global)
+  }
+  checks.push("language-service documentation and diagnostic hover retain original content without whitespace-only duplicates and reuse cache")
+
+  const stringSelectionSource = '---\nlabel: "Read the original document."\n---'
+  const stringSelection = await open("whitespace-string-selection.md", "markdown", stringSelectionSource)
+  stringSelection.editor.selection = new vscode.Selection(stringSelection.document.positionAt(0), stringSelection.document.positionAt(stringSelectionSource.length))
+  const stringSelectionHover = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", stringSelection.document.uri, new vscode.Position(1, 10))
+  assert(values(stringSelectionHover).includes("[注释翻译+]") && values(stringSelectionHover).includes("originaldocument"), "Selected hover hid meaningful decoded-string whitespace.")
+  checks.push("documentation and selected hover preserve meaningful string whitespace changes after per-unit comparison")
+
   const unchangedSource = '---\nlabel: "AcmeSDK"\n---\n\nRead the original document.\n\nKeep `sourceId` unchanged.'
   const unchanged = await open("unchanged.md", "markdown", unchangedSource)
   await start(unchanged.document, 4)
   const completed = owner.browse.inspect(unchanged.document.uri)!
   assert(
     completed.units.every((unit) => unit.translation === unit.text) && !completed.loading.length && !completed.errors.length && !completed.failedUnits.length,
-    "Unchanged model results were lost, left pending or marked as errors."
+    "Unchanged model results were lost, left pending or marked as errors. " + JSON.stringify(completed)
   )
   const unchangedRequests = (await requests()).length
   const unchangedLenses = await vscode.commands.executeCommand<vscode.CodeLens[]>("vscode.executeCodeLensProvider", unchanged.document.uri, 1000)

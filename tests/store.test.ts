@@ -613,7 +613,7 @@ test("overlapping in-flight unit sets share existing work and cancellation retai
 test("unchanged results stay completed and cached while representation noise is suppressed without hiding content changes", async (t) => {
   let returned = ""
   const fixture = await chatFixture(t, () => returned)
-  const cases: { format: "markdown" | "yaml" | "text"; kind?: "string"; content?: string; original: string; returned: string; unchanged: boolean }[] = [
+  const cases: { format: "markdown" | "yaml" | "text"; kind?: "string" | "comment"; content?: string; original: string; returned: string; unchanged: boolean }[] = [
     { format: "markdown", original: "AcmeSDK product name.", returned: "AcmeSDK product name.", unchanged: true },
     { format: "markdown", original: "AcmeSDK product name.", returned: "\r\nAcmeSDK product name.\r\n", unchanged: true },
     { format: "yaml", original: '"AcmeSDK"', content: "AcmeSDK", returned: "AcmeSDK", unchanged: true },
@@ -623,7 +623,15 @@ test("unchanged results stay completed and cached while representation noise is 
     { format: "yaml", original: '"AcmeSDK "', content: "AcmeSDK ", returned: "AcmeSDK", unchanged: false },
     { format: "markdown", original: "AcmeSDK product name.", returned: "acmesdk product name.", unchanged: false },
     { format: "markdown", original: "AcmeSDK product name.", returned: "AcmeSDK product name!", unchanged: false },
-    { format: "markdown", original: "AcmeSDK product name.", returned: "AcmeSDK  product name.", unchanged: false }
+    { format: "markdown", original: "AcmeSDK product name.", returned: "AcmeSDK  product name.", unchanged: true },
+    { format: "markdown", original: "AcmeSDK product name.", returned: "AcmeSDKproductname.", unchanged: true },
+    { format: "markdown", original: "AcmeSDK\tproduct\u00a0name.", returned: "AcmeSDK product name.", unchanged: true },
+    { format: "markdown", original: "Read the guide.\r\nContinue reading.", returned: "Readtheguide. Continuereading.", unchanged: true },
+    { format: "text", kind: "comment", original: "/**\n * Read the guide.\n * Continue reading.\n */", returned: "Readtheguide. Continuereading.", unchanged: true },
+    { format: "markdown", original: "Read `a b` carefully.", returned: "Read `ab` carefully.", unchanged: false },
+    { format: "markdown", original: "Read [the guide](https://example.com).", returned: "Read [theguide](https://example.com).", unchanged: true },
+    { format: "text", kind: "string", original: '"AcmeSDK product"', returned: '"AcmeSDKproduct"', unchanged: false },
+    { format: "yaml", original: '"AcmeSDK product"', content: "AcmeSDK product", returned: "AcmeSDKproduct", unchanged: false }
   ]
   for (const [index, item] of cases.entries()) {
     returned = item.returned

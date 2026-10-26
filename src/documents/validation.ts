@@ -6,6 +6,7 @@ import { children, markdownTree, standalone } from "./tree.ts"
 import { yamlShape } from "./yaml.ts"
 import { fragmentContents, labelReference } from "./protection.ts"
 import { unembedTranslation } from "./embedding.ts"
+import { translationBody } from "./body.ts"
 
 function translatedString(unit: TextUnit, text: string): string | undefined {
   if (unit.format !== "yaml") {
@@ -215,7 +216,22 @@ function markdownShape(node: MarkdownNode, source: string, embedded = false): un
   return [node.name, inline ? shapes.map((shape) => JSON.stringify(shape)).sort() : shapes]
 }
 
-/** Compare validated results; YAML representation and prose boundary whitespace are not translations. */
+function comparisonProse(unit: TextUnit): string {
+  const { source, ranges } = translationBody(unit)
+  let result = ""
+  let cursor = 0
+  for (const range of ranges) {
+    result += source.slice(cursor, range.start).replace(/\s/gu, "")
+    if (!range.fold) {
+      const fragment = source.slice(range.start, range.end)
+      result += range.side ? fragment.replace(/\s/gu, "") : fragment
+    }
+    cursor = range.end
+  }
+  return result + source.slice(cursor).replace(/\s/gu, "")
+}
+
+/** Compare validated results; ignore prose whitespace while keeping literal fragments and decoded strings exact. */
 export function translationIsUnchanged(unit: TextUnit, translated: string): boolean {
   if (translated === unit.text) return true
   if (unit.embedding) return translationIsUnchanged(unit.embedding.unit, unembedTranslation(unit, translated))
@@ -223,7 +239,7 @@ export function translationIsUnchanged(unit: TextUnit, translated: string): bool
   if (unit.content !== undefined) {
     return translatedString(unit, translated) === unit.content
   }
-  return translated.replace(/\r\n/g, "\n").trim() === unit.text.replace(/\r\n/g, "\n").trim()
+  return comparisonProse(unit) === comparisonProse({ ...unit, text: translated, protected: undefined })
 }
 
 /** Bound raw responses before restoration and restored text before document parsing. */

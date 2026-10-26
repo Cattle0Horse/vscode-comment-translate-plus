@@ -308,9 +308,9 @@ const mock = createServer(async (request, response) => {
                 : body.model === "language-choice-fixture" && text.includes("Review scenario:")
                   ? text
                   : body.model === "unchanged-fixture"
-                    ? ["label", "AcmeSDK"].includes(text)
-                      ? text
-                      : "\r\n" + text + "\r\n"
+                    ? ["label", "AcmeSDK"].includes(text.trim())
+                      ? text.trim()
+                      : "\r\n" + text.replaceAll("original document", "originaldocument").replaceAll(" ", "\t  ") + "\r\n"
                     : translatedText(damageCode && text.includes("Keep ") ? text + "\n\nExtra paragraph." : text)
         )
         .map((text) => (damageLink && text.includes("code-only-no-request") ? dropLastProtection(text) : text))
