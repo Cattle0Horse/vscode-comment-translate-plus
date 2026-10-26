@@ -98,7 +98,7 @@ export function modelRequest(request: TranslationRequest): {
           .join("\n\n") +
         "\n\n" +
         (request.items.length > 1 ? `Current request: ${request.items.length} item(s); separator: ${separator} on its own line.\n\n` : "") +
-        renderPrompt("Translate the following text into ${targetLang}:\n\n${content}", request, separator)
+        renderPrompt("Based on the error response, re-translate the following text into ${targetLang}:\n\n${content}", request, separator)
     })
   }
   return {
@@ -130,7 +130,7 @@ export function splitTranslations(content: string, separator: string, count: num
   if (boundaries.length !== count - 1)
     throw new ModelRetry(
       {
-        reason: `The response contains ${boundaries.length} item boundary line(s); expected ${count - 1} for ${count} items.`,
+        reason: "The response item boundaries do not match the source items.",
         instruction: "Return exactly one translation per source item, in the original order."
       },
       {

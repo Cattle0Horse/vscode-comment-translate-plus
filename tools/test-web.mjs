@@ -216,7 +216,7 @@ const mock = createServer(async (request, response) => {
       const user = users[0]?.content ?? ""
       const custom = user.match(/\[\[custom-source\]\]\n([\s\S]*)\n\[\[\/custom-source\]\]/)
       const current = users.at(-1)?.content ?? ""
-      const instruction = /(?:^|\r?\n)Translate (?:the following text into|to) ([^\r\n]+):\r?\n\r?\n/.exec(current)
+      const instruction = /(?:^|\r?\n)(?:Based on the error response, re-translate|Translate) (?:the following text into|to) ([^\r\n]+):\r?\n\r?\n/.exec(current)
       const text = instruction ? current.slice(instruction.index + instruction[0].length) : custom ? custom[1] : current
       const feedback = users.length === 2 && instruction ? current.slice(0, instruction.index) : ""
       const feedbackLines = feedback.split("\n")

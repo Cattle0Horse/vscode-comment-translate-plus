@@ -30,7 +30,7 @@ test("Sources recovery appends correction instructions after the unchanged templ
     assert.deepEqual(fixture.seen[1].body.messages.at(-2), { role: "assistant", content: "用于理解的上下文：\n<context>\n## 编写搜索结果文档\n</context>" })
     const correction = fixture.seen[1].body.messages.at(-1)!
     assert.equal(correction.role, "user")
-    assert.ok(correction.content.endsWith("Translate the following text into Simplified Chinese:\n\nSources"), "Retry omitted the target language or current source heading.")
+    assert.ok(correction.content.endsWith("Simplified Chinese:\n\nSources"), "Retry omitted the target language or current source heading.")
     assert.ok(!correction.content.includes("Writing Search Results"), "Retry source included reference content.")
     assert.deepEqual(await run(), result)
     assert.equal(fixture.seen.length, 2, "The correct heading did not enter the shared cache.")

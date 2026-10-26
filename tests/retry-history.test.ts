@@ -14,7 +14,7 @@ test("marker recovery identifies the missing or repeated marker before resending
     const retry = fixture.seen[1]
     assert.equal(retry.items.length, 1)
     assert.match(modelFeedback(retry.body), new RegExp(`Marker <CTP0> occurred ${count} times; expected exactly once`))
-    assert.ok(retry.body.messages.at(-1)!.content.endsWith("Translate the following text into Simplified Chinese:\n\nKeep <CTP0> unchanged."))
+    assert.ok(retry.body.messages.at(-1)!.content.endsWith("Simplified Chinese:\n\nKeep <CTP0> unchanged."))
     assert.ok(!retry.body.messages.at(-1)!.content.includes("Read the original document."))
   }
 })
@@ -31,8 +31,8 @@ test("retry ends with the complete current source after a concrete marker error,
       retryFeedback: [{ index: 0, reason: "<CTP0> occurred 0 times; expected exactly once.", instruction: "Preserve each marker exactly once." }]
     }).payload.messages.at(-1)!
     assert.equal(retry.role, "user")
-    assert.ok(retry.content.indexOf("<CTP0> occurred 0 times") < retry.content.indexOf("Translate the following text into Simplified Chinese:"))
-    assert.ok(retry.content.endsWith("Translate the following text into Simplified Chinese:\n\n" + source))
+    assert.ok(retry.content.indexOf("<CTP0> occurred 0 times") < retry.content.indexOf("Simplified Chinese:"))
+    assert.ok(retry.content.endsWith("Simplified Chinese:\n\n" + source))
     assert.ok(!retry.content.includes("# Reference only"))
   }
 })
@@ -74,6 +74,48 @@ test("partial success carries only the aligned failed output while ambiguous shr
       } else assert.equal(history.length, 0, "An ambiguous response was guessed into a smaller request.")
     }
     if (partial) assert.equal(result.find((item) => item.id === input.units[0].id)!.text, "1. 正确邻项。")
+  }
+})
+
+test("ambiguous item counts recover through smaller batches without carrying obsolete counts into model feedback", async (t) => {
+  for (const count of [2, 4]) {
+    const events: TranslationEvent[] = []
+    const published: string[] = []
+    const fixture = await chatFixture(t, (_body, items) => (items.length > 1 ? "名称：ai-writer" : items[0].replace("Original", "译文")))
+    const input = listBatch(count)
+    const result = await requestTranslation(
+      fixture.service,
+      { ...fixture.settings, maxConcurrentRequests: 1 },
+      input,
+      new AbortController().signal,
+      fixture.gate,
+      (item) => published.push(item.text),
+      { details: false, emit: (event) => events.push(event) }
+    )
+    assert.equal(result.length, count)
+    assert.deepEqual(
+      published,
+      result.map((item) => item.text)
+    )
+    assert.ok(result.every((item) => item.text.includes("译文") && !item.text.includes("名称：ai-writer")))
+    assert.deepEqual(
+      fixture.seen.map((request) => request.items.length),
+      count === 2 ? [2, 1, 1] : [4, 2, 1, 1, 2, 1, 1]
+    )
+    const failures = events.flatMap((event) => (event.kind === "request" ? event.failures : []))
+    assert.equal(failures[0].code, "translation-items-mismatch")
+    assert.deepEqual(failures[0].difference.expected?.match(/\d+/gu), [String(count), String(count - 1)])
+    assert.deepEqual(failures[0].difference.actual?.match(/\d+/gu), ["0"])
+    for (const retry of fixture.seen.slice(1)) {
+      assert.ok(!retry.body.messages.some((message) => message.role === "assistant"), "An ambiguous output was guessed into a smaller request.")
+      const feedback = modelFeedback(retry.body)
+      const errors = feedback.split("\n").filter((line) => line.startsWith("Previous response errors:"))
+      assert.equal(errors.length, retry.items.length)
+      for (const error of errors) assert.doesNotMatch(error.replace(/Item \d+: /u, ""), /\d/u, "A previous batch count leaked into the model's error description.")
+      const currentCount = feedback.match(/Current request: (\d+) item\(s\)/u)?.[1]
+      assert.equal(currentCount, retry.items.length > 1 ? String(retry.items.length) : undefined)
+      if (retry.items.length === 1) assert.doesNotMatch(feedback, /Item \d|separator|boundary line/u)
+    }
   }
 })
 

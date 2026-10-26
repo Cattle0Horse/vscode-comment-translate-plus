@@ -224,9 +224,10 @@ class TranslationRun {
       requestSignal.throwIfAborted()
       if (outputItems.size !== units.length)
         throw new ModelRetry(
-          { reason: `The response returned ${outputItems.size} items; expected ${units.length}.`, instruction: "Return exactly one translation per source item, in the original order." },
+          { reason: "The response item count does not match the source items.", instruction: "Return exactly one translation per source item, in the original order." },
           {
-            code: "translation-items-mismatch"
+            code: "translation-items-mismatch",
+            difference: { reason: "返回条目数量不匹配。", expected: units.length + " 项", actual: outputItems.size + " 项" }
           }
         )
       reason = reasons.values().next().value
