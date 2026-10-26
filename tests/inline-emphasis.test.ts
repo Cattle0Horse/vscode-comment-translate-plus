@@ -90,3 +90,53 @@ test("optional emphasis cannot hide damaged links, block structure or other requ
     assert.throws(() => translatedMarkdown(document, new Map([[unit.id, output]])), /translation-structure-invalid/)
   }
 })
+
+test("a comparison exposed by omitted emphasis remains a blockquote error until valid recovery is cached", async (t) => {
+  const body = "**> 10,000 words**: Chaptered flow — outline then batch output, no outline confirmation."
+  const broken = "> 10,000字以上：分段输出流程——先生成大纲，再批量输出内容，无需确认大纲。"
+  for (const prefix of ["", "4. "]) {
+    for (const fixed of ["**> 10,000 字**：分段输出流程——先生成大纲，再批量输出内容，无需确认大纲。", "超过 10,000 字：分段输出流程——先生成大纲，再批量输出内容，无需确认大纲。"]) {
+      const document = parseMarkdown(prefix + body)
+      const input = inputOf(document)
+      const unit = input.units[0]
+      const invalid = prefix + broken
+      assert.equal(validateTranslation(unit, invalid)?.difference?.actual, ">")
+      assert.throws(() => translatedMarkdown(document, new Map([[unit.id, invalid]])), /translation-structure-invalid/)
+      const fixture = await chatFixture(t, (_body, _items, call) => (call === 1 ? broken : fixed))
+      const store = new TranslationStore()
+      t.after(() => store.clear())
+      const published: string[] = []
+      const run = () =>
+        store.translate(
+          "inline-comparison",
+          input,
+          (request, signal, completed) =>
+            requestTranslation(fixture.service, fixture.settings, request, signal, fixture.gate, (item) => {
+              published.push(item.text)
+              completed?.(item)
+            }),
+          new AbortController().signal
+        )
+      const result = await run()
+      assert.equal(result.get(unit.id), prefix + fixed)
+      assert.equal(translatedMarkdown(document, result), prefix + fixed)
+      assert.deepEqual(published, [prefix + fixed], "An invalid comparison was published before recovery.")
+      assert.deepEqual(await run(), result)
+      assert.equal(fixture.seen.length, 2, "The recovered comparison was retried or not cached.")
+      assert.equal(document.source, prefix + body)
+    }
+  }
+})
+
+test("comparisons in table cells and locally restored emphasis do not become blockquotes", () => {
+  for (const [source, output, expected] of [
+    ["**> 10,000 words**", "> 10,000 字", "**> 10,000 字**"],
+    ["| **> 10,000 words**: Chaptered flow. |\n| --- |", "> 10,000 字：分段输出流程。", "| > 10,000 字：分段输出流程。 |\n| --- |"]
+  ]) {
+    const document = parseMarkdown(source)
+    const unit = inputOf(document).units[0]
+    const restored = prepareTranslation(unit, emptyPreserveTerms, 32).restore(output)
+    assert.equal(validateTranslation(unit, restored), undefined)
+    assert.equal(translatedMarkdown(document, new Map([[unit.id, restored]])), expected)
+  }
+})

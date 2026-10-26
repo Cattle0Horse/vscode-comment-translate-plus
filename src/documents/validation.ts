@@ -106,7 +106,9 @@ function validateProtectedFragments(expected: ReturnType<typeof fragmentContents
       return retry(
         {
           reason: "Blockquote prefixes or nesting differ from this source item.",
-          instruction: added ? "Remove blockquote prefixes absent from this source item." : "Preserve source blockquote prefixes and nesting."
+          instruction: added
+            ? "Remove blockquote prefixes absent from this source item. A source comparison sign such as > is inline text; preserve its role and meaning without introducing a blockquote."
+            : "Preserve source blockquote prefixes and nesting."
         },
         { code: "translation-structure-invalid", difference: { reason: "引用前缀或嵌套与原文不一致。", ...details } }
       )
