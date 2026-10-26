@@ -5,7 +5,7 @@ import { GrammarExtractor } from "./grammars.ts"
 import { parseMarkdownWithCode } from "../documents/markdown.ts"
 import { parseYaml } from "../documents/yaml.ts"
 import type { ParsedDocument } from "../model/document.ts"
-import { sourceReferences } from "../documents/references.ts"
+import { prepareSelection } from "../documents/selection.ts"
 
 export class DocumentReader implements vscode.Disposable {
   readonly grammar: GrammarExtractor
@@ -79,14 +79,7 @@ export class DocumentReader implements vscode.Disposable {
   selection(document: vscode.TextDocument, range: vscode.Range) {
     const start = document.offsetAt(range.start)
     const end = document.offsetAt(range.end)
-    return {
-      id: "selection",
-      start,
-      end,
-      text: document.getText(range),
-      format: isMarkdownDocument(document) ? ("markdown" as const) : ("text" as const),
-      reference: sourceReferences(document.getText(), { start, end }, document.languageId)
-    }
+    return prepareSelection(document.getText(), start, end, isMarkdownDocument(document) ? "markdown" : "text", document.languageId)
   }
 
   invalidate(uri: vscode.Uri): Promise<ParsedDocument | undefined> | undefined {

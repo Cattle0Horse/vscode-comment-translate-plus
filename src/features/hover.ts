@@ -47,13 +47,15 @@ export class TranslationHover implements vscode.Disposable, vscode.HoverProvider
       let range: vscode.Range | undefined
       const offset = document.offsetAt(position)
       let unit: TextUnit | undefined
+      let selected: ReturnType<DocumentReader["selection"]> | undefined
       const editor = vscode.window.activeTextEditor
       const selection =
         editor?.document === document && config.get<boolean>("hover.selection", true)
           ? editor.selections.find((selection) => !selection.isEmpty && selection.contains(position))
           : undefined
       if (selection) {
-        unit = this.documents.selection(document, selection)
+        selected = this.documents.selection(document, selection)
+        unit = selected.target
       } else {
         unit = await this.documents.target(document, offset)
         if (unit?.kind && !config.get<boolean>("hover." + (unit.kind === "comment" ? "comments" : "strings"), unit.kind === "comment")) unit = undefined
@@ -72,7 +74,9 @@ export class TranslationHover implements vscode.Disposable, vscode.HoverProvider
         if (document.isClosed || document.version !== version) return
         const cached = this.inspect(document.uri)?.units.find((item) => item.id === unit.id)
         const batch: TranslationInput = { units: [unit] }
-        const translated = cached?.translation ?? (await this.translations.translate(document, batch, controller.signal)).get(unit.id)
+        const translated = selected
+          ? await this.translations.translateSelection(document, selected, controller.signal)
+          : (cached?.translation ?? (await this.translations.translate(document, batch, controller.signal)).get(unit.id))
         if (translated && translated !== unit.text) {
           const content = new vscode.MarkdownString()
           content.appendCodeblock(translationDisplayText(translated, unit.format, unit), unit.language ?? document.languageId)

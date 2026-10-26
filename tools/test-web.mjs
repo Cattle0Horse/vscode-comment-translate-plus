@@ -330,6 +330,10 @@ const mock = createServer(async (request, response) => {
               ? "用于理解的上下文：\n<context>\n## 编写搜索结果文档\n</context>"
               : "来源"
         else if (text.startsWith("**Summary MUST")) content = "** 摘要必须不超过 800 个字符。  \r\n** 必须用具体数据直接回答任务要求。"
+        else if (text === "Authoritative source of HIX's **official** Agent Skills.") content = "HIX 官方代理技能的权威来源。"
+        else if (text === "A root `SKILL.md` is **required**.") content = "根目录必须包含 `SKILL.md`。"
+        else if (text === "Authoritative source of HIX's *official* Agent Skills.") content = "HIX 官方代理技能的权威来源。"
+        else if (text === "A root `SKILL.md` is _required_.") content = "根目录必须包含 `SKILL.md`。"
         else if (text.startsWith("in the `Working language:`"))
           content = "您必须在使用输入时，始终遵循位于顶部 `Working language:` 行中指定的工作语言，用于所有输出、内容生成以及摘要的生成。"
       }

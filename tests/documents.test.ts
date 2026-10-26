@@ -481,7 +481,7 @@ test("inline code content and delimiters may change while surrounding Markdown s
   assert.throws(() => prepared.restore(prepared.text + "<CTP999>"), /marker-mismatch/)
 })
 
-test("paired formatting restores original delimiter boundaries around Chinese punctuation and rejects crossed pairs", () => {
+test("emphasis formatting preserves safe boundaries around Chinese punctuation without accepting unrequested strikethrough", () => {
   const source = "**B — Industry / Competitive.** Confirm scope across **Comparison dimensions**, write the **Industry report**, and produce a **Monitoring checklist**."
   const document = parseMarkdown(source)
   const unit = document.groups[0].units[0]
@@ -499,8 +499,8 @@ test("paired formatting restores original delimiter boundaries around Chinese pu
   assert.ok(restored.startsWith("**B — 行业/竞争分析。** 确认范围"), "The original safe closing boundary was lost.")
   assert.equal(validateTranslation(unit, restored), undefined)
   assert.equal(translatedMarkdown(document, new Map([[unit.id, restored]])), restored)
-  const crossed = response.replace("**比较维度**", "*比较维度**")
-  assert.ok(validateTranslation(unit, crossed) instanceof ModelRetry)
+  const strike = response.replace("**比较维度**", "~~比较维度~~")
+  assert.ok(validateTranslation(unit, strike) instanceof ModelRetry)
   assert.ok(prepared.text.includes("Confirm scope"), "Natural language was hidden along with the delimiters.")
 })
 
@@ -945,11 +945,11 @@ test("recognizable added and missing markup gets corrections for the actual synt
   const plain = inputOf(parseMarkdown("Read the original document.")).units[0]
   const list = inputOf(parseMarkdown("- Read the original document.")).units[0]
   for (const [unit, output, correction] of [
-    [plain, "阅读 ~~原始文档~~。", /Remove emphasis or strikethrough/],
+    [plain, "阅读 ~~原始文档~~。", /Remove strikethrough/],
     [plain, "> 阅读原始文档。", /Remove blockquote prefixes/],
     [plain, "- 阅读原始文档。", /Remove list items/],
     [list, "- [x] 阅读原始文档。", /Remove task-list checkboxes/],
-    [inputOf(parseMarkdown("Read **the original document**.")).units[0], "阅读原始文档。", /paired "\*\*" delimiters/],
+    [inputOf(parseMarkdown("Read ~~the original document~~.")).units[0], "阅读原始文档。", /paired "~~" delimiters/],
     [inputOf(parseMarkdown("Read <span>the original document</span>.")).units[0], "阅读原始文档。", /source HTML tags/],
     [inputOf(parseMarkdown("Read [Title].")).units[0], "阅读内容。", /source reference-link labels/]
   ] as const) {

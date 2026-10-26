@@ -10,10 +10,9 @@ import { parseYaml } from "../src/documents/yaml.ts"
 
 test("style recovery identifies the affected formatted source spans instead of bare delimiters", async (t) => {
   for (const scenario of [
-    { source: "A root `SKILL.md` is **required**.", broken: "根目录需要 `SKILL.md`。", fixed: "根目录**必须**包含 `SKILL.md`。", spans: ["**required**"] },
-    { source: "Keep **first** and **second**.", broken: "保留**第一项**和第二项。", fixed: "保留**第一项**和**第二项**。", spans: [], ambiguous: ["**first**", "**second**"] },
-    { source: "Keep **very *important*** text.", broken: "保留非常*重要*的文本。", fixed: "保留**非常*重要***的文本。", spans: ["**very *important***"] },
-    { source: "Remove ~~obsolete~~ text.", broken: "移除过时的文本。", fixed: "移除~~过时~~的文本。", spans: ["~~obsolete~~"] }
+    { source: "Remove ~~obsolete~~ text.", broken: "移除过时的文本。", fixed: "移除~~过时~~的文本。", spans: ["~~obsolete~~"] },
+    { source: "Keep ~~first~~ and ~~second~~.", broken: "保留~~第一项~~和第二项。", fixed: "保留~~第一项~~和~~第二项~~。", spans: [], ambiguous: ["~~first~~", "~~second~~"] },
+    { source: "Keep **very ~~important~~** text.", broken: "保留**非常重要**的文本。", fixed: "保留**非常~~重要~~**的文本。", spans: ["~~important~~"] }
   ]) {
     const events: TranslationEvent[] = []
     const fixture = await chatFixture(t, (_body, _items, call) => (call === 1 ? scenario.broken : scenario.fixed))
@@ -409,7 +408,7 @@ test("known structural errors send the matching correction and recover only the 
     },
     { source: "Read the original document.", broken: "## 阅读原始文档。", fixed: "阅读原始文档。", fragment: "##", correction: /Remove headings/ },
     { source: "Read the original document.", broken: "阅读 <span>原始文档</span>。", fixed: "阅读原始文档。", fragment: "<span>", correction: /Remove HTML/ },
-    { source: "Read the original document.", broken: "阅读 **原始文档**。", fixed: "阅读原始文档。", fragment: "**原始文档**", correction: /Remove emphasis/ },
+    { source: "Read the original document.", broken: "阅读 ~~原始文档~~。", fixed: "阅读原始文档。", fragment: "~~原始文档~~", correction: /Remove strikethrough/ },
     { source: "Read the original document.", broken: "阅读 <https://example.com>。", fixed: "阅读原始文档。", fragment: "<https://example.com>", correction: /Remove link targets/ },
     { source: "Read the original document.", broken: "阅读 \\*原始文档。", fixed: "阅读原始文档。", fragment: "\\*", correction: /Remove Markdown escape/ },
     { source: "Read <span>the original document</span>.", broken: "阅读 <div>原始文档</div>。", fixed: "阅读 <span>原始文档</span>。", fragment: "<span>", correction: /source HTML tags/ }

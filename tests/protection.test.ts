@@ -55,7 +55,7 @@ test("native link punctuation remains subject to structure and target validation
   const formatted = prepareTranslation(nested, emptyPreserveTerms, 32)
   const restored = formatted.restore(formatted.text.replace("Read", "阅读").replace("Title", "标题").replace("Guide", "指南"))
   assert.equal(validateTranslation(nested, restored), undefined)
-  assert.ok(validateTranslation(nested, restored.replace("[**标题**](URL)", "**[标题](URL)**")) instanceof ModelRetry)
+  assert.equal(validateTranslation(nested, restored.replace("[**标题**](URL)", "**[标题](URL)**")), undefined)
 })
 
 test("empty explicit link destinations keep their labels translatable without placeholders", () => {
@@ -440,6 +440,9 @@ test("complete prose wrappers stay local while internal punctuation and formatti
     "“Read the original document.”",
     "「Read the original document.」",
     "**Read the original document.**",
+    "__Read the original document.__",
+    "*Read the original document.*",
+    "_Read the original document._",
     "~~Read the original document.~~",
     "[Read the original document.][guide]",
     '[**Read the original document.**](https://example.com "Title")'

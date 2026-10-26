@@ -1671,6 +1671,58 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   checks.push("pending translate-and-replace discards edited, reconfigured, cancelled or hidden source snapshots")
   await config.update("hover.enabled", true, vscode.ConfigurationTarget.Global)
   await config.update("hover.documentation", false, vscode.ConfigurationTarget.Global)
+  const selectedList = "- Read the original\r\n  document. SelectionListOne\r\n- Keep `sourceId`\r\n  unchanged. SelectionListTwo"
+  const selectedListSource = "# Outside selection\r\n\r\n" + selectedList + "\r\n\r\nUnselected neighbour."
+  const selectedListTarget = await open("hover-selected-list.md", "markdown", selectedListSource)
+  const selectedListStart = selectedListSource.indexOf(selectedList)
+  const selectedListRange = new vscode.Selection(selectedListTarget.document.positionAt(selectedListStart), selectedListTarget.document.positionAt(selectedListStart + selectedList.length))
+  selectedListTarget.editor.selection = selectedListRange
+  const beforeSelectedList = (await requests()).length
+  const selectedListHover = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", selectedListTarget.document.uri, new vscode.Position(2, 5))
+  const expectedSelectedList = "- 阅读原始文档。 SelectionListOne\r\n- 保留 `sourceId` unchanged. SelectionListTwo"
+  assert(values(selectedListHover).includes(expectedSelectedList), "Multiline selected-list hover failed to reassemble both translations and source CRLF boundaries.")
+  assert(selectedListTarget.document.getText() === selectedListSource && !selectedListTarget.document.isDirty, "Selected-list hover edited the source.")
+  const selectedListRequests = (await requests()).slice(beforeSelectedList)
+  const selectedListFingerprints = await Promise.all(["Read the original document. SelectionListOne", "Keep `sourceId` unchanged. SelectionListTwo"].map(requestFingerprint))
+  const selectedListItems = selectedListRequests.flatMap((request) => request.itemFingerprints ?? (request.inputFingerprint ? [request.inputFingerprint] : []))
+  assert(
+    selectedListItems.length === 2 &&
+      selectedListFingerprints.every((fingerprint) => selectedListItems.includes(fingerprint)) &&
+      selectedListRequests.every((request) => !request.retryFeedbackIncluded),
+    "Selected-list translation sent a block boundary/prefix as prose, included a neighbour or required a retry."
+  )
+  const afterSelectedListHover = (await requests()).length
+  assert(await replaceCommand(), "Selected-list command replacement failed after hover.")
+  assert(
+    selectedListTarget.document.getText() === selectedListSource.replace(selectedList, expectedSelectedList) && (await requests()).length === afterSelectedListHover,
+    "Selected-list replacement changed unselected text or failed to reuse each hover item's cache."
+  )
+  await vscode.commands.executeCommand("undo")
+  await waitFor(() => selectedListTarget.document.getText() === selectedListSource, "selected-list replacement undo")
+  checks.push("multiline Markdown selection hover and replacement translate list bodies separately, retain CRLF/list structure, share item caches and undo one captured range")
+  const partialSelectedSource = "- Read the original document. PartialSelectedReady\r\n- Keep [code-only-no-request](./examples/development/code-only.md) unchanged."
+  const partialSelected = await open("hover-partial-selected-list.md", "markdown", partialSelectedSource)
+  partialSelected.editor.selection = new vscode.Selection(new vscode.Position(0, 0), partialSelected.document.positionAt(partialSelectedSource.length))
+  await fetch(origin + "/control", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ damageLink: true }) })
+  try {
+    const partialHover = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", partialSelected.document.uri, new vscode.Position(0, 5))
+    assert(
+      values(partialHover).includes(partialSelectedSource.replace("Read the original document.", "阅读原始文档。")),
+      "A failed selected-list item hid its accepted neighbour or replaced the damaged item instead of preserving source."
+    )
+    assert(partialSelected.document.getText() === partialSelectedSource && !partialSelected.document.isDirty, "Partial selected-list hover wrote the source.")
+  } finally {
+    await fetch(origin + "/control", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ damageLink: false }) })
+  }
+  const beforePartialSelectionRepair = (await requests()).length
+  const repairedSelectedHover = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", partialSelected.document.uri, new vscode.Position(0, 5))
+  assert(
+    values(repairedSelectedHover).includes(partialSelectedSource.replace("Read the original document.", "阅读原始文档。").replace("Keep ", "保留 ")),
+    "Repeating a partial selection hover failed to repair the unresolved item."
+  )
+  const partialSelectionRepairs = (await requests()).slice(beforePartialSelectionRepair)
+  assert(partialSelectionRepairs.length === 1 && partialSelectionRepairs[0].count === 1, "Repairing a partial selection submitted its already completed neighbour.")
+  checks.push("partial selected-list hover retains failed source, displays accepted neighbours and retries only unresolved items using the shared cache")
   const hoverReferenceSource = "Read the original document. SingleHoverTarget"
   const hoverReference = await open("hover-unit-reference.md", "markdown", hoverReferenceSource)
   const beforeSingleHover = (await requests()).length
@@ -2115,6 +2167,10 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   for (const [name, source, expected, attempts] of [
     ["heading", "## Sources", "## 来源", 2],
     ["inline", "Read `sourceId` unchanged. InlineCodeToleranceCase.", "阅读 sourceChanged，并标记 `body/html`。", 1],
+    ["bold", "Authoritative source of HIX's **official** Agent Skills.", "HIX 官方代理技能的权威来源。", 1],
+    ["bold-list", "- A root `SKILL.md` is **required**.", "- 根目录必须包含 `SKILL.md`。", 1],
+    ["italic", "Authoritative source of HIX's *official* Agent Skills.", "HIX 官方代理技能的权威来源。", 1],
+    ["italic-list", "- A root `SKILL.md` is _required_.", "- 根目录必须包含 `SKILL.md`。", 1],
     ["style", "**Summary MUST be ≤ 800 characters.** Must directly answer the task with specific data.", "**摘要必须不超过 800 个字符。** 必须用具体数据直接回答任务要求。", 1],
     [
       "code",
@@ -2145,7 +2201,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     assert((await sent()).length === attempts, "Reopening browse resubmitted the recovered unit: " + name)
     await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
   }
-  checks.push("appended correction instructions and logged style/code wrapper recovery share cached browse, hover and native preview results without source edits or excess attempts")
+  checks.push("appended corrections, omitted inline emphasis and style/code wrapper recovery share cached browse, hover and native preview results without source edits or excess attempts")
 
   await config.update(
     "profiles",
