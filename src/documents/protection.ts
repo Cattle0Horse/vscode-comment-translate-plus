@@ -2,26 +2,22 @@ import type { TextUnit, ProtectedFragment } from "../model/document.ts"
 import type { MarkdownNode } from "./tree.ts"
 import { children, markdownTree, markdownLinkLabels, normalizeLinkLabel, standalone } from "./tree.ts"
 
-/** Lezer emits candidate shortcut links even when no matching definition exists. */
-export function unresolvedReference(node: MarkdownNode, source: string, labels: readonly string[] = []): boolean {
-  if (node.name !== "Link" && node.name !== "Image") return false
+/** Shortcut candidates are prose without a definition; collapsed references always use their label as the target. */
+export function linkReferenceKind(node: MarkdownNode, source: string, labels: readonly string[] = []): "prose" | "label" | undefined {
+  if (node.name !== "Link" && node.name !== "Image") return
   const parts = children(node)
-  if (parts.some((child) => child.name === "URL" || child.name === "LinkLabel" || (child.name === "LinkMark" && source.slice(child.from, child.to) === "("))) return false
-  const first = parts[0]
-  const last = parts.at(-1)
-  return !!first && !!last && !labels.includes(normalizeLinkLabel(source.slice(first.to, last.from)))
-}
-
-/** Shortcut/collapsed references derive their lookup target from the visible label. */
-export function labelReference(node: MarkdownNode, source: string, labels?: readonly string[]): boolean {
-  return (
-    (node.name === "Link" || node.name === "Image") &&
-    !unresolvedReference(node, source, labels) &&
-    !children(node).some(
+  if (
+    parts.some(
       (child) =>
         child.name === "URL" || (child.name === "LinkMark" && source.slice(child.from, child.to) === "(") || (child.name === "LinkLabel" && source.slice(child.from, child.to) !== "[]")
     )
   )
+    return
+  if (parts.some((child) => child.name === "LinkLabel")) return "label"
+  const first = parts[0]
+  const last = parts.at(-1)
+  if (!first || !last) return "label"
+  return labels.includes(normalizeLinkLabel(source.slice(first.to, last.from))) ? "label" : "prose"
 }
 
 export function protectedFragments(unit: TextUnit, tree?: MarkdownNode): readonly ProtectedFragment[] {
@@ -56,13 +52,14 @@ export function protectedFragments(unit: TextUnit, tree?: MarkdownNode): readonl
   }
 
   function visit(node: MarkdownNode): void {
-    if (unresolvedReference(node, input, labels)) {
+    const reference = linkReferenceKind(node, input, labels)
+    if (reference === "prose") {
       for (const child of children(node)) if (child.name !== "LinkMark") visit(child)
       return
     }
     if (
       ["InlineCode", "URL", "LinkLabel", "Autolink", "HTMLTag", "Escape"].includes(node.name) ||
-      labelReference(node, input, labels) ||
+      reference === "label" ||
       (unit.format === "markdown" && (["HTMLBlock", "FencedCode", "CodeBlock", "TaskMarker"].includes(node.name) || node.name.endsWith("Mark")))
     ) {
       let start = original(node.from)

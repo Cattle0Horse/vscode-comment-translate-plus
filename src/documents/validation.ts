@@ -4,7 +4,7 @@ import type { TextUnit } from "../model/document.ts"
 import type { MarkdownNode } from "./tree.ts"
 import { children, markdownTree, markdownLinkLabels, standalone } from "./tree.ts"
 import { yamlShape } from "./yaml.ts"
-import { fragmentContents, labelReference, unresolvedReference } from "./protection.ts"
+import { fragmentContents, linkReferenceKind } from "./protection.ts"
 import { unembedTranslation } from "./embedding.ts"
 import { translationBody } from "./body.ts"
 
@@ -193,7 +193,7 @@ function validateProtectedFragments(expected: ReturnType<typeof fragmentContents
 }
 
 function markdownShape(node: MarkdownNode, source: string, embedded = false, linkLabels?: readonly string[]): unknown {
-  if (labelReference(node, source, linkLabels)) return [node.name, source.slice(node.from, node.to)]
+  if (linkReferenceKind(node, source, linkLabels) === "label") return [node.name, source.slice(node.from, node.to)]
   if (embedded && node.name === "FencedCode")
     return [
       node.name,
@@ -205,7 +205,7 @@ function markdownShape(node: MarkdownNode, source: string, embedded = false, lin
   const content: MarkdownNode[] = []
 
   function append(child: MarkdownNode): void {
-    if (unresolvedReference(child, source, linkLabels)) {
+    if (linkReferenceKind(child, source, linkLabels) === "prose") {
       for (const nested of children(child)) if (nested.name !== "LinkMark") append(nested)
       return
     }
