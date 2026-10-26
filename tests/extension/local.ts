@@ -58,7 +58,7 @@ async function inject(): Promise<void> {
     await vscode.workspace.fs.writeFile(vscode.Uri.joinPath(workspace, "hover-pending.md"), new TextEncoder().encode("Read the original document. HoverPendingProbe"))
     await vscode.workspace.fs.writeFile(
       vscode.Uri.joinPath(workspace, "protected-content.md"),
-      new TextEncoder().encode("`members` is required when `supersedes` is set. ProtectedContentProbe\n\n**B — Industry / Competitive.** Confirm scope across **Comparison dimensions**.")
+      new TextEncoder().encode("`pages` is required when `edition` is set. ProtectedContentProbe\n\n**C — Books / Journals.** Confirm scope across **Reading categories**.")
     )
     await vscode.workspace.fs.writeFile(
       vscode.Uri.joinPath(workspace, "preview-loading.md"),

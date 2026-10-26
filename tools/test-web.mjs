@@ -90,14 +90,14 @@ function dropLastProtection(text) {
 
 const translatedText = (text) =>
   text
-    .replaceAll("runtime_context_snapshot", "运行时上下文快照")
-    .replace("This is the complete application runtime context locked at run start.", "这是运行开始时锁定的完整应用运行时上下文。")
+    .replaceAll("example_catalog_snapshot", "示例目录快照")
+    .replace("This is a sample museum catalog prepared for the spring exhibition.", "这是为春季展览准备的示例博物馆目录。")
     .replace(/^Read task\/context fields\.$/u, "- 读取任务/上下文字段。")
     .replace(/^Read input\/output fields\.$/u, "1. 读取输入/输出字段。")
-    .replace(/(`members`) is required when (`supersedes`) is set\./, "当设置 $2 时，必须提供 $1。")
-    .replace("B — Industry / Competitive.", " \tB — 行业/竞争分析。\t ")
+    .replace(/(`pages`) is required when (`edition`) is set\./, "当设置 $2 时，必须提供 $1。")
+    .replace("C — Books / Journals.", " \tC — 图书/期刊。\t ")
     .replace("Confirm scope across", "确认范围，按")
-    .replace("Comparison dimensions", " 比较维度 ")
+    .replace("Reading categories", " 阅读分类 ")
     .replace(
       /You are a professional (<CTP(?:\d+_)?\d+>|\$\{[^{}\r\n]+\}) translator\. Translate each source item accurately and fluently\./,
       "您是专业的$1翻译员。请准确流畅地翻译每个源项。"
@@ -297,14 +297,14 @@ const mock = createServer(async (request, response) => {
         .map((text) =>
           body.model === "language-review-fixture" && text.includes("Review scenario:")
             ? record.retryFeedbackIncluded
-              ? "优先采用足够完成任务的最短步骤。风格或概念探索使用独立调用，并提供所需的原始参考，不要串联生成变体。"
+              ? "优先选择北门附近安静的阅览室。游客可以在服务台借阅纸质地图，并在离开前归还。"
               : text
             : body.model === "language-rewrite-fixture" && text.includes("Review scenario:")
               ? text.replace("Prefer", "Use")
               : body.model === "language-recovery-fixture" && text.includes("Review scenario:")
                 ? requests.filter((item) => item.model === body.model && item.inputFingerprint === record.inputFingerprint).length < 3
                   ? text.replace("Prefer", "Use")
-                  : "优先采用足够完成任务的最短步骤。风格或概念探索使用独立调用，并提供所需的原始参考，不要串联生成变体。"
+                  : "优先选择北门附近安静的阅览室。游客可以在服务台借阅纸质地图，并在离开前归还。"
                 : body.model === "language-choice-fixture" && text.includes("Review scenario:")
                   ? text
                   : body.model === "unchanged-fixture"
@@ -316,7 +316,7 @@ const mock = createServer(async (request, response) => {
         .map((text) => (damageLink && text.includes("code-only-no-request") ? dropLastProtection(text) : text))
         .map((text, index) =>
           pieces[index].includes("Reference contamination case.") && (referenceContamination === "always" || (referenceContamination === "once" && !record.retryFeedbackIncluded))
-            ? "<context>\n## 参考内容\n\n处理最终音频时调用 `run_command`。\n</context>"
+            ? "<context>\n## 参考内容\n\n查看示例陶器清单时调用 `sample_task`。\n</context>"
             : text
         )
       if (broken) translations.pop()
@@ -327,15 +327,14 @@ const mock = createServer(async (request, response) => {
         if (text === "Sources")
           content =
             requests.filter((item) => item.model === body.model && item.inputFingerprint === record.inputFingerprint).length === 1
-              ? "用于理解的上下文：\n<context>\n## 编写搜索结果文档\n</context>"
+              ? "用于理解的上下文：\n<context>\n## 博物馆游客指南\n</context>"
               : "来源"
-        else if (text.startsWith("**Summary MUST")) content = "** 摘要必须不超过 800 个字符。  \r\n** 必须用具体数据直接回答任务要求。"
-        else if (text === "Authoritative source of HIX's **official** Agent Skills.") content = "HIX 官方代理技能的权威来源。"
-        else if (text === "A root `SKILL.md` is **required**.") content = "根目录必须包含 `SKILL.md`。"
-        else if (text === "Authoritative source of HIX's *official* Agent Skills.") content = "HIX 官方代理技能的权威来源。"
-        else if (text === "A root `SKILL.md` is _required_.") content = "根目录必须包含 `SKILL.md`。"
-        else if (text.startsWith("in the `Working language:`"))
-          content = "您必须在使用输入时，始终遵循位于顶部 `Working language:` 行中指定的工作语言，用于所有输出、内容生成以及摘要的生成。"
+        else if (text.startsWith("**Reading room closes")) content = "** 阅览室于黄昏关闭。  \r\n** 请将借阅的地图归还服务台。"
+        else if (text === "The village library has **illustrated** travel guides.") content = "乡村图书馆提供带插图的旅行指南。"
+        else if (text === "A shelf label `catalog.txt` is **recommended**.") content = "建议提供书架标签 `catalog.txt`。"
+        else if (text === "The village library has *illustrated* travel guides.") content = "乡村图书馆提供带插图的旅行指南。"
+        else if (text === "A shelf label `catalog.txt` is _recommended_.") content = "建议提供书架标签 `catalog.txt`。"
+        else if (text.startsWith("The `Example reading room:`")) content = "`Example reading room:` 标签指向花园旁的北侧画廊。"
       }
       if (text === "Read `sourceId` unchanged. InlineCodeToleranceCase.") content = "阅读 sourceChanged，并标记 `body/html`。"
       if (body.model === "retry-history-fixture" && text.includes("JointRetryHistoryCase.") && !record.retryFeedbackIncluded) content = "第一项丢失了代码。\n%%\n"

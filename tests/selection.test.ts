@@ -5,14 +5,14 @@ import { emptyPreserveTerms, prepareTranslation } from "../src/documents/terms.t
 import { validateTranslation } from "../src/documents/validation.ts"
 
 const policy = [
-  "- Analytical delivery policy uses a lightweight task brief, evidence-aware handoffs,",
-  "  task-specific computation with reused metrics, and checks against the original",
-  "  request. Detailed report guidance lives in `coordinator/writing`; generic",
-  "  alignment and delivery checks live in `coordinator/base`. Research scheduling",
-  "  and search budgets remain governed by their existing rules.",
-  "- Markdown reports use standard footnotes with reusable source IDs and linked",
-  "  source metadata/locations. Brief conversational answers may use inline links;",
-  "  unlinked numeric or research-batch markers are not report citations."
+  "- The library opens a small reading room every Saturday morning,",
+  "  with illustrated guides and large maps arranged beside the windows.",
+  "  A visitor guide lives in `examples/reading`; a shelf map is available",
+  "  in `examples/shelves`. Readers can borrow a paper bookmark from the desk",
+  "  and return it before the room closes in the afternoon.",
+  "- The garden catalog lists flowers by their flowering season and color,",
+  "  with a short note on watering each variety. Printed copies are available",
+  "  at the front desk for visitors who prefer to read outside."
 ]
 
 test("selected shortcut links use definitions outside the selected range", () => {
@@ -59,14 +59,14 @@ test("multiline Markdown selections translate list bodies separately and retain 
       const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
       assert.doesNotMatch(prepared.text, /[\r\n]|^[-*+] /u)
       assert.throws(() => prepared.restore(prepared.text + "\nAn extra explanation."), /structure-invalid/u)
-      const output = unit === selected.units[0] ? "分析交付策略位于 `coordinator/writing` 和 `coordinator/base`。" : "Markdown 报告使用标准脚注。"
+      const output = unit === selected.units[0] ? "图书馆指南位于 `examples/reading` 和 `examples/shelves`。" : "花园目录按花期与颜色列出花卉。"
       const restored = prepared.restore(output)
       assert.equal(validateTranslation(unit, restored), undefined)
       translations.set(unit.id, restored)
     }
-    assert.equal(selected.restore(translations), "- 分析交付策略位于 `coordinator/writing` 和 `coordinator/base`。" + newline + "- Markdown 报告使用标准脚注。")
+    assert.equal(selected.restore(translations), "- 图书馆指南位于 `examples/reading` 和 `examples/shelves`。" + newline + "- 花园目录按花期与颜色列出花卉。")
     translations.delete(selected.units[1].id)
-    assert.equal(selected.restore(translations), "- 分析交付策略位于 `coordinator/writing` 和 `coordinator/base`。" + newline + policy.slice(5).join(newline))
+    assert.equal(selected.restore(translations), "- 图书馆指南位于 `examples/reading` 和 `examples/shelves`。" + newline + policy.slice(5).join(newline))
     const unchanged = new Map(selected.units.map((unit) => [unit.id, prepareTranslation(unit, emptyPreserveTerms, 32).restore(prepareTranslation(unit, emptyPreserveTerms, 32).text)]))
     assert.equal(selected.restore(unchanged), text)
   }

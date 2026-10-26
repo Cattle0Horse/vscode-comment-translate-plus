@@ -318,7 +318,7 @@ test("scrolling away keeps submitted units alive and returning reuses pending an
   }
 })
 
-test("forced retranslation supersedes an in-flight response", async () => {
+test("forced retranslation edition an in-flight response", async () => {
   const complete: ((value: readonly TranslationItem[]) => void)[] = []
   const session = sessionFor(
     () =>

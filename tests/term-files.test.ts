@@ -5,21 +5,21 @@ import { parsePreserveTerms, prepareTranslation } from "../src/documents/terms.t
 
 test("term sources distinguish Windows drives, UNC, Unix, URI and workspace-relative paths without losing filename characters", () => {
   for (const [input, expected] of [
-    ["C:\\Users\\ca\\词 表#1%.json", "file:///c:/Users/ca/%E8%AF%8D%20%E8%A1%A8%231%25.json"],
-    ["C:/Users/ca/../terms.jsonc", "file:///c:/Users/terms.jsonc"],
+    ["C:\\Users\\sample-user\\词 表#1%.json", "file:///c:/Users/sample-user/%E8%AF%8D%20%E8%A1%A8%231%25.json"],
+    ["C:/Users/sample-user/../terms.jsonc", "file:///c:/Users/terms.jsonc"],
     ["\\\\server\\share\\词 表.json", "file://server/share/%E8%AF%8D%20%E8%A1%A8.json"],
     ["//server/share/terms.json", "file://server/share/terms.json"],
-    ["/home/ca/词 表.json", "file:///home/ca/%E8%AF%8D%20%E8%A1%A8.json"],
-    ["file:///C:/Users/ca/terms.json", "file:///c:/Users/ca/terms.json"],
+    ["/home/sample-user/词 表.json", "file:///home/sample-user/%E8%AF%8D%20%E8%A1%A8.json"],
+    ["file:///C:/Users/sample-user/terms.json", "file:///c:/Users/sample-user/terms.json"],
     ["./.vscode/terms.json", "file:///c:/repo/.vscode/terms.json"],
     [".\\.vscode\\terms.json", "file:///c:/repo/.vscode/terms.json"],
     ["../shared/terms.json", "file:///c:/shared/terms.json"],
     ["https://example.com/terms.jsonc?v=2", "https://example.com/terms.jsonc?v=2"]
   ])
     assert.equal(termSource(input, "file:///c:/repo"), expected, input)
-  assert.equal(termSource("./terms.json", "vscode-remote://ssh-remote+host/home/ca/repo"), "vscode-remote://ssh-remote+host/home/ca/repo/terms.json")
-  assert.equal(termSource("~/terms.json", undefined, "C:\\Users\\ca"), "file:///c:/Users/ca/terms.json")
-  assert.equal(termSource("~\\terms.jsonc", undefined, "/home/ca"), "file:///home/ca/terms.jsonc")
+  assert.equal(termSource("./terms.json", "vscode-remote://ssh-remote+host/home/sample-user/repo"), "vscode-remote://ssh-remote+host/home/sample-user/repo/terms.json")
+  assert.equal(termSource("~/terms.json", undefined, "C:\\Users\\sample-user"), "file:///c:/Users/sample-user/terms.json")
+  assert.equal(termSource("~\\terms.jsonc", undefined, "/home/sample-user"), "file:///home/sample-user/terms.jsonc")
   assert.equal(termSource("terms.json", "file:///repo/space%20name"), "file:///repo/space%20name/terms.json")
 })
 

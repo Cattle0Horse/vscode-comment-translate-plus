@@ -358,7 +358,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   checks.push("installed Python grammar supports comment browse and leaves executable code unchanged")
 
   const jsonContent =
-    "<runtime_context_snapshot>\nThis is the complete application runtime context locked at run start.\n<user_timezone>\nAsia/Riyadh\n</user_timezone>\n</runtime_context_snapshot>"
+    "<example_catalog_snapshot>\nThis is a sample museum catalog prepared for the spring exhibition.\n<sample_location>\nEurope/London\n</sample_location>\n</example_catalog_snapshot>"
   const longData = "0123456789abcdef0123456789abcdef 2001:0db8:85a3:0000:0000:8a2e:0370:7334"
   for (const [file, content, markers] of [
     ["native-labels.json", jsonContent, false],
@@ -376,7 +376,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     const result = await owner.translations.translate(target.document, { units: [unit] }, new AbortController().signal)
     const translated = JSON.parse(result.get(unit.id)!) as string
     assert(
-      markers ? translated.includes(longData) && translated.includes("阅读原始文档") : translated.includes("<运行时上下文快照>"),
+      markers ? translated.includes(longData) && translated.includes("阅读原始文档") : translated.includes("<示例目录快照>"),
       "JSON labels or opaque data did not survive the real request chain."
     )
     const sent = (await requests()).slice(before)
@@ -933,18 +933,18 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   checks.push("offline target-language detection skips browse, hover and preview HTTP, preserves source and isolates its disable switch in cache")
 
   const filteredSource = [
-    "// 默认支持 多网站结构日志",
-    "// 页面速度监控 单位毫秒",
-    "// 请求监控状态码",
-    "// 请求监控方法",
+    "// 默认展示 图书分类说明",
+    "// 借阅时间统计 单位分钟",
+    "// 图书借阅状态码",
+    "// 图书借阅方式",
     'const endpoint = "https://example.com/a?x=1&y=two";',
     'const uuid = "12345678-1234-5678-9abc-123456789abc";',
-    'const identifier = "hostnameGroup";',
-    'const environment = "QIYE_WX_KEY_5XX";',
+    'const identifier = "sampleGroup";',
+    'const environment = "SAMPLE_NOTICE_KEY_5XX";',
     'const method = "GET";',
     'const status = "4xx";',
     'const label = "all";',
-    'const name = "ai-collection";',
+    'const name = "sample-library";',
     'const message = "Read the original document.";'
   ].join("\n")
   const filtered = await open("filtered-config.ts", "typescript", filteredSource)
@@ -952,7 +952,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   const beforeFiltered = (await requests()).length
   await start(filtered.document, 13)
   const sentItems = (await requests()).slice(beforeFiltered).flatMap((request) => request.itemFingerprints ?? [])
-  const expectedItems = await Promise.all(["hostnameGroup", "QIYE_WX_KEY_5XX", "all", "ai-collection", "Read the original document."].map(requestFingerprint))
+  const expectedItems = await Promise.all(["sampleGroup", "SAMPLE_NOTICE_KEY_5XX", "all", "sample-library", "Read the original document."].map(requestFingerprint))
   assert(JSON.stringify(sentItems.sort()) === JSON.stringify(expectedItems.sort()), "Chinese comments or technical string values reached HTTP, or an ambiguous label was discarded.")
   const filteredState = owner.browse.inspect(filtered.document.uri)!
   assert(
@@ -1105,7 +1105,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     const contaminationSource =
       "- Read the original document. Reference contamination case. " +
       mode +
-      ". Follow [Guide](./guide.md). Keep `sourceId_abcdefghijklmnopqrstuvwxyz_123456789`.\n- 这是已有的中文说明，调用 `run_command`。"
+      ". Follow [Guide](./guide.md). Keep `sourceId_abcdefghijklmnopqrstuvwxyz_123456789`.\n- 这是已有的中文说明，调用 `sample_task`。"
     const contamination = await open("reference-contamination-" + mode + ".md", "markdown", contaminationSource)
     const target = (await owner.documents.parse(contamination.document)).groups.flatMap((group) => group.units)[0]
     const fingerprint = await requestFingerprint(prepareTranslation(target, emptyPreserveTerms, 32).text)
@@ -1129,7 +1129,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
         "Contamination was accepted or the completed neighbour was discarded."
       )
       assert(
-        snapshot.units.every((unit) => unit.start !== target.start || !unit.translation.includes("run_command")),
+        snapshot.units.every((unit) => unit.start !== target.start || !unit.translation.includes("sample_task")),
         "Reference code appeared in the target's translation."
       )
       await waitFor(
@@ -1528,19 +1528,19 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     await config.update("hover.documentation", false, vscode.ConfigurationTarget.Global)
   }
   checks.push("language-service and diagnostic hover render translated Markdown, preserve original content and source/code without replacement controls")
-  const protectedSource = "`members` is required when `supersedes` is set. Literal {1} and <CTP0>.\n\n**B — Industry / Competitive.** Confirm scope across **Comparison dimensions**."
+  const protectedSource = "`pages` is required when `edition` is set. Literal {1} and <CTP0>.\n\n**C — Books / Journals.** Confirm scope across **Reading categories**."
   const protectedDocument = await open("protected-content.md", "markdown", protectedSource)
   await start(protectedDocument.document, 2)
   const protectedUnits = owner.browse.inspect(protectedDocument.document.uri)!.units
-  assert(protectedUnits[0].translation.startsWith("当设置 `supersedes` 时，必须提供 `members`。"), "Browse rejected reordered code or restored the wrong code identifier.")
+  assert(protectedUnits[0].translation.startsWith("当设置 `edition` 时，必须提供 `pages`。"), "Browse rejected reordered code or restored the wrong code identifier.")
   assert(protectedUnits[0].translation.includes("{1}") && protectedUnits[0].translation.includes("<CTP0>"), "Literal source markers were consumed as generated placeholders.")
-  assert(protectedUnits[1].translation.startsWith("**B — 行业/竞争分析。** 确认范围"), "Browse lost the safe paired formatting boundary around Chinese punctuation.")
+  assert(protectedUnits[1].translation.startsWith("**C — 图书/期刊。** 确认范围"), "Browse lost the safe paired formatting boundary around Chinese punctuation.")
   const protectedRequests = (await requests()).length
   const protectedHover = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", protectedDocument.document.uri, new vscode.Position(0, 10))
-  assert(values(protectedHover).includes("当设置 `supersedes` 时，必须提供 `members`。"), "Hover did not reuse the restored protected result.")
+  assert(values(protectedHover).includes("当设置 `edition` 时，必须提供 `pages`。"), "Hover did not reuse the restored protected result.")
   const protectedPreview = await vscode.workspace.openTextDocument(markdownPreviewUri(protectedDocument.document.uri))
   await waitFor(
-    () => protectedPreview.getText().includes("当设置 `supersedes` 时，必须提供 `members`。") && protectedPreview.getText().includes("**B — 行业/竞争分析。** 确认范围"),
+    () => protectedPreview.getText().includes("当设置 `edition` 时，必须提供 `pages`。") && protectedPreview.getText().includes("**C — 图书/期刊。** 确认范围"),
     "protected content preview"
   )
   assert(
@@ -2193,7 +2193,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   }
   checks.push("language-service Markdown documentation translates fenced code comments through the same parser and retains the original hover and source")
 
-  const reviewSource = "Prefer the shortest sufficient sequence. Style/concept exploration uses independent calls with any required original references, not chained variants."
+  const reviewSource = "Prefer the quiet reading room near the north entrance. Visitors can borrow a printed map at the counter and return it before leaving the building."
   for (const model of ["language-review-fixture", "language-choice-fixture", "language-recovery-fixture"]) {
     const scenarioSource = reviewSource + " Review scenario: " + model + "."
     const fingerprint = await requestFingerprint(scenarioSource)
@@ -2210,7 +2210,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     )
     const translated = owner.browse.inspect(target.document.uri)!.units[0].translation
     assert(
-      model === "language-choice-fixture" ? translated === scenarioSource : translated.includes("优先采用"),
+      model === "language-choice-fixture" ? translated === scenarioSource : translated.includes("优先选择"),
       "A soft language review forced a rewrite or lost the corrected translation."
     )
     assert(target.document.getText() === scenarioSource && !target.document.isDirty, "Language review modified source.")
@@ -2294,17 +2294,12 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   for (const [name, source, expected, attempts] of [
     ["heading", "## Sources", "## 来源", 2],
     ["inline", "Read `sourceId` unchanged. InlineCodeToleranceCase.", "阅读 sourceChanged，并标记 `body/html`。", 1],
-    ["bold", "Authoritative source of HIX's **official** Agent Skills.", "HIX 官方代理技能的权威来源。", 1],
-    ["bold-list", "- A root `SKILL.md` is **required**.", "- 根目录必须包含 `SKILL.md`。", 1],
-    ["italic", "Authoritative source of HIX's *official* Agent Skills.", "HIX 官方代理技能的权威来源。", 1],
-    ["italic-list", "- A root `SKILL.md` is _required_.", "- 根目录必须包含 `SKILL.md`。", 1],
-    ["style", "**Summary MUST be ≤ 800 characters.** Must directly answer the task with specific data.", "**摘要必须不超过 800 个字符。** 必须用具体数据直接回答任务要求。", 1],
-    [
-      "code",
-      "- in the `Working language:` line at the top of your input for all outputs, content generation, and summaries.",
-      "- 您必须在使用输入时，始终遵循位于顶部 `Working language:` 行中指定的工作语言，用于所有输出、内容生成以及摘要的生成。",
-      1
-    ]
+    ["bold", "The village library has **illustrated** travel guides.", "乡村图书馆提供带插图的旅行指南。", 1],
+    ["bold-list", "- A shelf label `catalog.txt` is **recommended**.", "- 建议提供书架标签 `catalog.txt`。", 1],
+    ["italic", "The village library has *illustrated* travel guides.", "乡村图书馆提供带插图的旅行指南。", 1],
+    ["italic-list", "- A shelf label `catalog.txt` is _recommended_.", "- 建议提供书架标签 `catalog.txt`。", 1],
+    ["style", "**Reading room closes at dusk.** Return borrowed maps to the desk.", "**阅览室于黄昏关闭。** 请将借阅的地图归还服务台。", 1],
+    ["code", "- The `Example reading room:` label points to the northern gallery beside the garden.", "- `Example reading room:` 标签指向花园旁的北侧画廊。", 1]
   ] as const) {
     const target = await open("log-recovery-" + name + ".md", "markdown", source)
     const unit = (await owner.documents.parse(target.document)).groups.flatMap((group) => group.units)[0]
@@ -2314,13 +2309,13 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     await start(target.document, 1)
     assert(
       owner.browse.inspect(target.document.uri)!.units[0].translation === expected,
-      "Logged output failed to recover: " + JSON.stringify({ name, expected, actual: owner.browse.inspect(target.document.uri)!.units[0].translation })
+      "Synthetic output failed to recover: " + JSON.stringify({ name, expected, actual: owner.browse.inspect(target.document.uri)!.units[0].translation })
     )
-    assert((await sent()).length === attempts, "Logged output consumed unnecessary retries: " + name)
+    assert((await sent()).length === attempts, "Synthetic output consumed unnecessary retries: " + name)
     const hover = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", target.document.uri, new vscode.Position(0, name === "heading" ? 4 : 8))
     assert(values(hover).includes(expected.replace(/^## |^- /u, "")), "Hover lost the recovered translation: " + name)
     const preview = await vscode.workspace.openTextDocument(markdownPreviewUri(target.document.uri))
-    await waitFor(() => preview.getText().includes(expected), "logged output preview: " + name)
+    await waitFor(() => preview.getText().includes(expected), "synthetic output preview: " + name)
     assert((await sent()).length === attempts, "Hover or preview did not reuse the recovered cache: " + name)
     assert(target.document.getText() === source && !target.document.isDirty, "Log recovery changed source: " + name)
     await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
@@ -2385,21 +2380,21 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   checks.push("LF/CRLF multiline prose sends one joining space without line placeholders and shares folded browse/native preview results while preserving source")
   for (const newline of ["\n", "\r\n"]) {
     const commands = [
-      "agent-browser set media dark",
-      "agent-browser --session <name> ...",
-      "agent-browser --json ...",
-      "agent-browser open <url>",
-      "agent-browser <command> --help",
-      "agent-browser is visible @e1"
+      "sample-reader set media dark",
+      "sample-reader --session <name> ...",
+      "sample-reader --json ...",
+      "sample-reader open <url>",
+      "sample-reader <command> --help",
+      "sample-reader is visible @e1"
     ].join(newline)
     const bare = await owner.documents.parseSource(commands, "shellscript")
     assert(bare.groups.length === 0, "Shell commands, options and placeholder fragments became translation units.")
     const code = [
       commands,
       "# Read the original document.",
-      'agent-browser find title "Read the original document." click',
+      'sample-reader find title "Read the original document." click',
       "echo 'Read the original document.'",
-      'agent-browser find role button click --name="Read the original document."'
+      'sample-reader find role button click --name="Read the original document."'
     ].join(newline)
     for (const fenced of [false, true]) {
       const source = fenced ? ["```" + (newline === "\n" ? "bash" : "sh"), code, "```"].join(newline) : code

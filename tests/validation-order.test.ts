@@ -78,11 +78,11 @@ test("specific protected data damage precedes incidental brackets and follows a 
     }
 })
 
-test("logged context-only output retries the source with line-break feedback and caches only the repaired item", async (t) => {
-  const source = "Cookies and state files are sensitive. Follow [Trust Boundaries](../SKILL.md#trust-boundaries)."
-  const reference = "# Command Reference\n\nThis is the retained general-purpose command surface.\n\n## Storage And State"
-  const wrong = "<context>\n# 命令参考\n\n这是保留的通用命令界面。\n\n## 存储与状态信息\n</context>"
-  const fixed = "Cookie 和状态文件属于敏感信息。请遵循[信任边界](../SKILL.md#trust-boundaries)。"
+test("synthetic context-only output retries the source with line-break feedback and caches only the repaired item", async (t) => {
+  const source = "Printed maps are available at the desk. See the [Visitor Guide](../guide.md#reading-room)."
+  const reference = "# Museum Catalog\n\nThis fictional collection includes maps and pottery.\n\n## Reading Room"
+  const wrong = "<context>\n# 博物馆目录\n\n这个虚构的馆藏包括地图与陶器。\n\n## 阅览室\n</context>"
+  const fixed = "服务台备有纸质地图。请参阅[游客指南](../guide.md#reading-room)。"
   const fixture = await chatFixture(t, (_body, _items, call) => (call === 1 ? "正确邻项。\n%%\n" + wrong : fixed))
   const parsed = inputOf(parseMarkdown("Read the neighbouring rule.\n\n" + source))
   const input = { units: [parsed.units[0], { ...parsed.units[1], reference: [{ kind: "Section", text: reference }] }] }

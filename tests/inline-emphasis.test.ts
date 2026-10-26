@@ -12,14 +12,12 @@ test("translations that omit inline emphasis complete on the first attempt and s
   const cases = [
     {
       source:
-        "Authoritative source of HIX's **official** Agent Skills. Each top-level directory is one self-contained Skill package; the General Agent loads these at runtime from S3 (after they are uploaded and synced), so this repository is where the official Skill content is authored, reviewed, and versioned.",
-      output:
-        "这是 HIX 官方代理技能的来源。每个顶级目录都构成一个独立的技能包；在运行时，General Agent 会从 S3 下载这些技能包（在它们被上传并同步之后）。因此，这个仓库就是存储官方技能内容、进行内容审核以及版本管理的地方。"
+        "The village library keeps its **illustrated** travel guides on the upper shelf. Each volume includes a map, a short history of the region, and suggested walking routes for visitors.",
+      output: "乡村图书馆将带插图的旅行指南放在上层书架。每卷都包含地图、当地简史以及供游客参考的步行路线。"
     },
     {
-      source:
-        "- A root `SKILL.md` is **required**: UTF-8 text, YAML frontmatter carrying a non-empty `name`, `description`, and the complete catalog `metadata` mapping, followed by the markdown guide body.",
-      output: "需要有一个根目录文件 `SKILL.md`：该文件必须为 UTF-8 格式文本，且包含非空的 `name`、`description` 以及完整的 `metadata` 映射信息，随后是 Markdown 格式的指南内容。"
+      source: "- A shelf label `catalog.txt` is **recommended**: include a short `title`, an `author`, and a `year` before listing the available books.",
+      output: "建议提供书架标签 `catalog.txt`：先填写简短的 `title`、`author` 和 `year`，再列出可借阅的图书。"
     },
     { source: "Read *carefully* now.", output: "现在仔细阅读。" },
     { source: "Read _carefully_ now.", output: "现在仔细阅读。" }
@@ -92,10 +90,10 @@ test("optional emphasis cannot hide damaged links, block structure or other requ
 })
 
 test("a comparison exposed by omitted emphasis remains a blockquote error until valid recovery is cached", async (t) => {
-  const body = "**> 10,000 words**: Chaptered flow — outline then batch output, no outline confirmation."
-  const broken = "> 10,000字以上：分段输出流程——先生成大纲，再批量输出内容，无需确认大纲。"
+  const body = "**> 2,400 pages**: Archive shelf — sort by year, then by shelf number."
+  const broken = "> 2,400页以上：档案书架——先按年份排序，再按书架编号排序。"
   for (const prefix of ["", "4. "]) {
-    for (const fixed of ["**> 10,000 字**：分段输出流程——先生成大纲，再批量输出内容，无需确认大纲。", "超过 10,000 字：分段输出流程——先生成大纲，再批量输出内容，无需确认大纲。"]) {
+    for (const fixed of ["**> 2,400 页**：档案书架——先按年份排序，再按书架编号排序。", "超过 2,400 页：档案书架——先按年份排序，再按书架编号排序。"]) {
       const document = parseMarkdown(prefix + body)
       const input = inputOf(document)
       const unit = input.units[0]
@@ -130,8 +128,8 @@ test("a comparison exposed by omitted emphasis remains a blockquote error until 
 
 test("comparisons in table cells and locally restored emphasis do not become blockquotes", () => {
   for (const [source, output, expected] of [
-    ["**> 10,000 words**", "> 10,000 字", "**> 10,000 字**"],
-    ["| **> 10,000 words**: Chaptered flow. |\n| --- |", "> 10,000 字：分段输出流程。", "| > 10,000 字：分段输出流程。 |\n| --- |"]
+    ["**> 2,400 pages**", "> 2,400 页", "**> 2,400 页**"],
+    ["| **> 2,400 pages**: Archive shelf. |\n| --- |", "> 2,400 页：档案书架。", "| > 2,400 页：档案书架。 |\n| --- |"]
   ]) {
     const document = parseMarkdown(source)
     const unit = inputOf(document).units[0]

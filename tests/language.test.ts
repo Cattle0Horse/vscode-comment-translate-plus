@@ -101,7 +101,7 @@ test("default short names only preserve complete bodies and clearing the default
     assert.equal(prepared.needsTranslation, false, text)
     assert.equal(prepared.restore(prepared.text), text)
   }
-  for (const text of ["API!", "API JSON", "JSONify", "myuv.lock", "uv.locker", "wecom"]) {
+  for (const text of ["API!", "API JSON", "JSONify", "myuv.lock", "uv.locker", "sampleword"]) {
     const prepared = prepareTranslation({ id: "word", start: 0, end: text.length, text, format: "text" }, defaultPreserveTerms, 32)
     assert.equal(prepared.text, text)
     assert.equal(prepared.needsTranslation, true, text)

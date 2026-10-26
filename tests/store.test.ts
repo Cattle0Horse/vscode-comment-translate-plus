@@ -149,7 +149,7 @@ test("custom preserved terms complete and cache only as whole units while mixed 
 })
 
 test("table and YAML references merge shared structure without duplicating ancestors or complete parent collections", () => {
-  const table = "| Signal | Mode |\n| --- | --- |\n| Event | Hotspot |\n| Market | Industry |"
+  const table = "| Signal | Mode |\n| --- | --- |\n| Event | Garden |\n| Market | Industry |"
   const cells = inputOf(parseMarkdown(table)).units
   assert.equal(referenceText(cells), table)
   for (const newline of ["\n", "\r\n"]) {
@@ -508,7 +508,7 @@ test("a superseded unit cannot invalidate newer cached or in-flight results when
 
 test("parser reference positions never enter the cache identity after moving an unchanged table", async () => {
   const store = new TranslationStore()
-  const table = "| Signal | Mode |\n| --- | --- |\n| Event | Hotspot |"
+  const table = "| Signal | Mode |\n| --- | --- |\n| Event | Garden |"
   let calls = 0
   const action: Parameters<TranslationStore["translate"]>[2] = async (input) => {
     calls++
@@ -663,7 +663,7 @@ test("translated retry diagnostics are rejected per unit and never cached as sou
   const input: TranslationInput = {
     units: [
       { id: "neighbour", text: "Read the neighbouring rule.", start: 0, end: 26, format: "text" },
-      { id: "target", text: "If a target agent lacks a prerequisite capability, perform that step directly.", start: 27, end: 103, format: "text" }
+      { id: "target", text: "If a reading room has no spare maps, collect a printed guide at the front desk.", start: 27, end: 103, format: "text" }
     ]
   }
   const events: TranslationEvent[] = []
@@ -760,42 +760,42 @@ test("invalid units exhaust a finite budget while verified neighbours survive fa
 
 test("Chinese script evidence handles short configuration comments without treating shared Han or mixed languages as Chinese", () => {
   const unit = (text: string) => ({ id: "language", text, start: 0, end: text.length, format: "text" as const })
-  for (const text of ["默认支持 多网站结构日志", "页面速度监控 单位毫秒", "请求监控状态码", "请求监控方法", "请求方法", "页面监控 HTTP/2"])
+  for (const text of ["默认展示 图书分类说明", "借阅时间统计 单位分钟", "图书借阅状态码", "图书借阅方式", "图书查询", "图书借阅 HTTP/2"])
     assert.equal(isTargetLanguage(unit(text), "zh-CN"), true, text)
   for (const text of [
-    "页面监控 API",
-    "页面监控 HTTP(S)",
+    "图书借阅 API",
+    "图书借阅 HTTP(S)",
     "你好",
     "使用方法",
     "設定項目",
     "将来計画",
     "与信管理",
-    "页面监控 dashboard",
-    "页面监控。設定項目",
-    "页面监控。これは日本語です。",
-    "页面监控 한국어"
+    "图书借阅 dashboard",
+    "图书借阅。設定項目",
+    "图书借阅。これは日本語です。",
+    "图书借阅 한국어"
   ])
     assert.equal(isTargetLanguage(unit(text), "zh-CN"), false, text)
-  assert.equal(isTargetLanguage(unit("请求监控方法"), "en"), false)
+  assert.equal(isTargetLanguage(unit("图书借阅方式"), "en"), false)
 })
 
 test("technical code values complete locally while ambiguous names remain translatable and cached results preserve the exact source", async (t) => {
   const fixture = await chatFixture(t, (_body, items) => items.map((item) => (item === "all" ? "全部" : item)).join("\n%%\n"))
   const values = [
-    "页面速度监控 单位毫秒",
-    "请求监控状态码",
-    "请求监控方法",
+    "借阅时间统计 单位分钟",
+    "图书借阅状态码",
+    "图书借阅方式",
     "12345678-1234-5678-9abc-123456789abc",
     "https://example.com/a?x=1&y=two",
-    "hostnameGroup",
-    "QIYE_WX_KEY_5XX",
+    "sampleGroup",
+    "SAMPLE_NOTICE_KEY_5XX",
     "GET",
     "POST",
     "4xx",
     "5xx",
     "all",
-    "wecom",
-    "ai-collection",
+    "sampleword",
+    "sample-library",
     "Read the original document."
   ]
   const input: TranslationInput = {

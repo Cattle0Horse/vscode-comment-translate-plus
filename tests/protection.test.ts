@@ -84,8 +84,8 @@ test("label-derived reference targets stay intact rather than translating their 
 })
 
 test("undefined bracket prose translates through HTTP, assembles and reuses its cached result", async (t) => {
-  const source = "competitive landscape (subject / type [direct·indirect·substitute] / positioning / segment / differentiator / model) when in scope"
-  const output = "竞争格局（对象 / 类型 [直接型·间接型·替代型] / 定位 / 细分市场 / 差异化 / 模式），仅在范围内分析"
+  const source = "The garden catalog groups flowers by color [amber·violet·ivory] and lists their flowering season beside each name."
+  const output = "花园目录按颜色 [琥珀色·紫罗兰色·象牙色] 将花卉分组，并在每个名称旁标明花期。"
   const fixture = await chatFixture(t, () => output)
   const parsed = parseMarkdown(source)
   const input = { units: parsed.groups.flatMap((group) => group.units) }
@@ -137,16 +137,15 @@ test("adding a definition invalidates cached bracket prose even without model co
   assert.equal(fixture.seen.length, 2)
 })
 
-test("logged writing link uses two protected values and retries only damaged native structure before caching", async (t) => {
-  const text =
-    "Create outlines, drafts, rewrites, and finished documents directly. Read supplied research and current source documents before using them; delegate missing research to `SearchAgent` when needed. Match the user's language, audience, tone, format, and length, and cite sources with [Title](URL)."
+test("synthetic catalog prose retries only damaged native link structure before caching", async (t) => {
+  const text = "The sample catalog lists travel guides and illustrated maps. Use `SampleReader` to browse the shelves, and open [Title](URL) for the description of a selected book."
   const expectedInput = text
-  const output = "直接创建提纲、草稿、重写稿和完整文档，先阅读研究和当前源文件，必要时委派给 `SearchAgent`，按用户需求写作并使用[标题](URL)标注来源。"
+  const output = "示例目录列出旅行指南与插图地图。使用 `SampleReader` 浏览书架，并打开[标题](URL)查看所选图书的说明。"
   const fixture = await chatFixture(t, (_body, items, call) => {
     assert.equal(items[0], expectedInput)
-    return (call === 1 ? [output.replace("[标题]", "[标题"), "为长文档规划章节结构。"] : [output]).join("\n%%\n")
+    return (call === 1 ? [output.replace("[标题]", "[标题"), "按书架编号排列图书。"] : [output]).join("\n%%\n")
   })
-  const source = text + "\n\nPlan sections for a long document."
+  const source = text + "\n\nArrange the books by shelf number."
   const parsed = parseMarkdown(source)
   const input = { units: parsed.groups.flatMap((group) => group.units) }
   const store = new TranslationStore()
@@ -154,8 +153,8 @@ test("logged writing link uses two protected values and retries only damaged nat
   const translate = () =>
     store.translate("writing-link", input, (request, signal) => requestTranslation(fixture.service, fixture.settings, request, signal, fixture.gate), new AbortController().signal)
   const first = await translate()
-  assert.equal(first.get(input.units[0].id), output.replace("<CTP0>", "`SearchAgent`").replace("<CTP1>", "URL"))
-  assert.equal(first.get(input.units[1].id), "为长文档规划章节结构。")
+  assert.equal(first.get(input.units[0].id), output.replace("<CTP0>", "`SampleReader`").replace("<CTP1>", "URL"))
+  assert.equal(first.get(input.units[1].id), "按书架编号排列图书。")
   assert.deepEqual(
     fixture.seen.map((request) => request.items.length),
     [2, 1]
@@ -464,14 +463,13 @@ test("Markdown prefixes stay local and one equivalent echoed prefix is tolerated
   }
 })
 
-test("logged multiline slide handoff translates and caches without asking the model to preserve line markers", async (t) => {
+test("synthetic multiline visitor notes translate and cache without model line markers", async (t) => {
   const source =
-    "- Analytical slide handoffs carry page purpose, supporting evidence, metric\r\n" +
-    "  definitions, baselines, and gaps through the existing task/context fields.\r\n" +
-    "  The prompt checks local content consistency and returns factual conflicts;\r\n" +
-    "  Coordinator owns whole-deck coverage and exported-file validation is separate."
-  const output =
-    "- 分析性幻灯片内容的传递涉及页面目的、支持性证据、指标定义、基准数据以及现有任务/上下文中的差距。提示信息会检查本地内容的一致性，并识别出事实上的冲突；协调员负责整个幻灯片的覆盖情况，而导出文件的验证则属于另一项独立任务。"
+    "- The museum guide describes the pottery room, the map gallery, and the\r\n" +
+    "  courtyard garden beside the eastern entrance. Visitors can collect a\r\n" +
+    "  printed floor plan at the desk and follow the numbered signs upstairs;\r\n" +
+    "  the reading room remains open until the last afternoon tour finishes."
+  const output = "- 博物馆指南介绍陶器展厅、地图画廊和东门旁的庭院花园。游客可在服务台领取楼层图，按编号标识上楼；阅览室会开放至最后一场下午导览结束。"
   const fixture = await chatFixture(t, () => output)
   const settings = { ...fixture.settings, maxTranslationAttempts: 1 }
   const store = new TranslationStore()
@@ -510,7 +508,7 @@ test("complete prose wrappers stay local while internal punctuation and formatti
     assert.equal(restored, source.replace("Read the original document.", "阅读原始文档。"))
     assert.equal(validateTranslation(unit, restored), undefined)
   }
-  for (const text of ['"First" and "second"', "don't", 'Read "this" document.', "Hotspot + industry + companies", "D — Integrated"]) {
+  for (const text of ['"First" and "second"', "don't", 'Read "this" document.', "Gardens + maps + booklets", "D — Illustrated"]) {
     assert.equal(prepareTranslation({ id: "plain", start: 0, end: text.length, text, format: "text" }, emptyPreserveTerms, 32).text, text)
   }
   const text = "Read **this** carefully."
@@ -630,8 +628,8 @@ test("custom preserved terms match complete prose bodies and never mask occurren
 
 test("only long copy-only fragments are masked across indentation and repeated text", () => {
   for (const source of [
-    'Use `supersedes` at [guide](https://example.com/a-very-long-private-resource) and <span data-id="private">this label</span>.',
-    "  - Use `supersedes` here.\r\n    Keep `members=[]` unchanged.",
+    'Use `edition` at [guide](https://example.com/a-very-long-private-resource) and <span data-id="private">this label</span>.',
+    "  - Use `edition` here.\r\n    Keep `pages=[]` unchanged.",
     "Read ``code `with` delimiters`` and `a\nb` after 😀.",
     "Read [Feature](Feature), then translate the plain Feature label."
   ]) {
@@ -646,7 +644,7 @@ test("only long copy-only fragments are masked across indentation and repeated t
 
 test("placeholder namespaces avoid literal source, preserved terms and reference markers and restore them literally", () => {
   const term = "<CTP1_0> $& ${targetLang}"
-  const source = "Keep <CTP0> and " + term + " beside `members_abcdefghijklmnopqrstuvwxyz_0123456789`."
+  const source = "Keep <CTP0> and " + term + " beside `pages_abcdefghijklmnopqrstuvwxyz_0123456789`."
   const unit = { id: "collision", start: 0, end: source.length, text: source, format: "markdown" as const }
   const context = "Literal <CTP2_0> in reference context."
   const prepared = prepareTranslation(unit, parsePreserveTerms([term]), 32, context)
