@@ -186,6 +186,11 @@
         "icon": "$(refresh)"
       },
       {
+        "command": "commentTranslatePlus.addPreserveTerm",
+        "title": "添加保留词",
+        "category": "Comment Translate Plus"
+      },
+      {
         "command": "commentTranslatePlus.refreshPreserveTerms",
         "title": "刷新保留词",
         "category": "Comment Translate Plus"
@@ -890,6 +895,12 @@
           "default": [],
           "scope": "window",
           "description": "允许自动开启注释浏览模式的工作区文件夹名称或 URI；空数组允许当前窗口全部工作区，不自动翻译工作区以外文件"
+        },
+        "commentTranslatePlus.preserveTermsWriteFile": {
+          "type": "string",
+          "default": "",
+          "scope": "resource",
+          "description": "添加保留词命令的固定写入文件：支持工作区相对路径、绝对路径、UNC、~/（桌面宿主）和文件系统 URI，需为可写 JSON/JSONC 文件；不存在时自动创建文件及父目录。留空时首次选择并保存路径；与 preserveTerms 来源列表独立，不自动加入翻译词表。"
         },
         "commentTranslatePlus.preserveTerms": {
           "type": "array",

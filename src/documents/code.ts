@@ -24,7 +24,14 @@ export async function extractCode(source: string, language: string, grammar: IGr
     state = result.ruleStack
     for (const token of result.tokens) {
       const fstring = language === "python" && token.scopes.includes("meta.fstring.python")
-      const scope = fstring ? "string.interpolated.python" : token.scopes.find((value) => value.startsWith("comment.") || value.startsWith("string."))
+      // Shell grammars label executable arguments as strings; quoted children remain translatable.
+      const scope = fstring
+        ? "string.interpolated.python"
+        : token.scopes.find(
+            (value) =>
+              value.startsWith("comment.") ||
+              (value.startsWith("string.") && !(language === "shellscript" && (value === "string.unquoted.shell" || value.startsWith("string.unquoted.argument"))))
+          )
       if (!scope) {
         if (language === "python")
           for (const character of current.slice(token.startIndex, token.endIndex)) {

@@ -149,6 +149,7 @@ export class Controls implements vscode.Disposable {
       )
     items.push(
       { label: "翻译并替换", command: "translateAndReplace" },
+      { label: "添加保留词", command: "addPreserveTerm" },
       { label: "源语言与目标语言", command: "setLanguages" },
       { label: "选择翻译配置", command: "selectProfile" },
       { label: "切换对照 / 占位模式", command: "toggleMode" },

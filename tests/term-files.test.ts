@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { termSource, parseTermFile } from "../src/documents/termFiles.ts"
+import { termSource, parseTermFile, appendPreserveTerm } from "../src/documents/termFiles.ts"
 import { parsePreserveTerms, prepareTranslation } from "../src/documents/terms.ts"
 
 test("term sources distinguish Windows drives, UNC, Unix, URI and workspace-relative paths without losing filename characters", () => {
@@ -54,4 +54,26 @@ test("JSON stays strict while JSONC accepts comments and trailing commas; compil
     assert.deepEqual(parseTermFile(text, source), ["Widget"])
   }
   for (const text of ["[] trailing", "[", '{"terms":[]}', "", "[1,,2]"]) assert.throws(() => parseTermFile(text, source))
+})
+
+test("adding a literal preserves JSONC comments and regex rules, escapes content and avoids duplicate writes", () => {
+  const term = ' Widget "quoted" \\ path\n第二行 '
+  for (const [source, text] of [
+    ["file:///terms.json", "[]"],
+    ["file:///terms.json", '\uFEFF["existing", {"pattern":"HTTP", "flags":"i"}]\r\n'],
+    ["file:///terms.jsonc", '\uFEFF[\r\n// Shared names\r\n"existing", /* keep */ {"pattern":"HTTP", "flags":"i"},\r\n]\r\n// end'],
+    ["file:///terms.jsonc", "[/* empty list */]"]
+  ]) {
+    const result = appendPreserveTerm(text, source, term)
+    assert.deepEqual(parseTermFile(result, source), [...parseTermFile(text, source), term])
+    assert.equal(appendPreserveTerm(result, source, term), result)
+    for (const comment of text.match(/\/\/[^\r\n]*|\/\*.*?\*\//gu) ?? []) assert.ok(result.includes(comment))
+    assert.equal(result.startsWith("\uFEFF"), text.startsWith("\uFEFF"))
+  }
+  assert.deepEqual(parseTermFile(appendPreserveTerm('["Widget"]', "file:///terms.json", "widget"), "file:///terms.json"), ["Widget", "widget"])
+})
+
+test("adding a literal refuses malformed files and invalid existing rules instead of replacing their contents", () => {
+  for (const text of ["", "[", '["name",]', "[/* comment */]", "{}", "[1]", '[{"pattern":"["}]']) assert.throws(() => appendPreserveTerm(text, "file:///terms.json", "Widget"))
+  for (const term of ["", " \n "]) assert.throws(() => appendPreserveTerm("[]", "file:///terms.jsonc", term))
 })

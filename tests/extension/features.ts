@@ -1,5 +1,7 @@
 import { emptyPreserveTerms, prepareTranslation } from "../../src/documents/terms.ts"
 import * as vscode from "vscode"
+import { writePreserveTerm } from "../../src/host/addPreserveTerm.ts"
+import { parseTermFile } from "../../src/documents/termFiles.ts"
 import { markdownPreviewUri } from "../../src/features/preview.ts"
 import { displayTranslations, previewLoadingMarker, translationDisplayText } from "../../src/documents/presentation.ts"
 import { defaultSystemPrompt } from "../../src/translation/providers/prompts.ts"
@@ -635,6 +637,76 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   assert(!restored.isDirty, "Restoring a preview made it dirty.")
   checks.push("native translated Markdown preview shares cache, refreshes edits, restores from its URI and delegates relative resources through a read-only filesystem")
   const termsFile = vscode.Uri.joinPath(workspace, "custom-terms.json")
+  const unconfiguredFile = vscode.Uri.joinPath(workspace, "unconfigured-terms.jsonc")
+  await vscode.workspace.fs.writeFile(unconfiguredFile, new TextEncoder().encode('[\n// User rules\n{"pattern":"HTTP", "flags":"i"},\n]\n'))
+  const configuredBeforeAdd = JSON.stringify(config.inspect("preserveTerms"))
+  const rulesBeforeAdd = (await owner.translations.settings(profile.document.uri)).preserveTerms.identity
+  for (const extension of ["json", "jsonc"]) {
+    const newPath = "./new-term-files/" + extension + "/terms." + extension
+    const newFile = vscode.Uri.joinPath(workspace, newPath)
+    await config.update("preserveTermsWriteFile", newPath, vscode.ConfigurationTarget.Global)
+    let emptyRejected = false
+    try {
+      await writePreserveTerm(profile.document.uri, " ")
+    } catch {
+      emptyRejected = true
+    }
+    let exists = true
+    try {
+      await vscode.workspace.fs.stat(newFile)
+    } catch (error) {
+      if (!(error instanceof vscode.FileSystemError) || error.code !== "FileNotFound") throw error
+      exists = false
+    }
+    assert(emptyRejected && !exists, "An invalid term created a file before validation.")
+    assert(await writePreserveTerm(profile.document.uri, 'New "term"'), "A missing target file was not created.")
+    assert(await writePreserveTerm(profile.document.uri, "SecondTerm"), "Appending to the newly created target failed.")
+    assert(!(await writePreserveTerm(profile.document.uri, "SecondTerm")), "A new target accepted a duplicate term.")
+    const created = new TextDecoder().decode(await vscode.workspace.fs.readFile(newFile))
+    assert(JSON.stringify(parseTermFile(created, newFile.toString())) === JSON.stringify(['New "term"', "SecondTerm"]), "Creating or reusing the target lost literal values.")
+    const createdDocument = await vscode.workspace.openTextDocument(newFile)
+    assert(!createdDocument.isDirty, "The automatically created term file was not saved.")
+  }
+  const directoryTarget = vscode.Uri.joinPath(workspace, "directory-target.json")
+  await vscode.workspace.fs.createDirectory(directoryTarget)
+  await config.update("preserveTermsWriteFile", directoryTarget.toString(), vscode.ConfigurationTarget.Global)
+  let directoryRejected = false
+  try {
+    await writePreserveTerm(profile.document.uri, "Must not replace a directory")
+  } catch {
+    directoryRejected = true
+  }
+  assert(directoryRejected && (await vscode.workspace.fs.stat(directoryTarget)).type === vscode.FileType.Directory, "An unreadable target was treated as a missing file.")
+  checks.push("missing JSON/JSONC targets and parent directories are created and saved before subsequent appends; invalid input and existing directories are not overwritten")
+  await config.update("preserveTermsWriteFile", "./unconfigured-terms.jsonc", vscode.ConfigurationTarget.Global)
+  assert(await writePreserveTerm(profile.document.uri, ' Widget "quoted" '), "Adding to an unconfigured file failed.")
+  const addedText = new TextDecoder().decode(await vscode.workspace.fs.readFile(unconfiguredFile))
+  assert(addedText.includes("// User rules"), "Adding a literal discarded user comments.")
+  assert(
+    JSON.stringify(parseTermFile(addedText, unconfiguredFile.toString())) === JSON.stringify([{ pattern: "HTTP", flags: "i" }, ' Widget "quoted" ']),
+    "Adding a literal damaged existing rules or literal spelling."
+  )
+  assert(!(await writePreserveTerm(profile.document.uri, ' Widget "quoted" ')), "Adding an existing literal changed the file.")
+  assert(await writePreserveTerm(profile.document.uri, "SecondTerm"), "A second addition did not reuse the configured target.")
+  const savedTerms = new TextDecoder().decode(await vscode.workspace.fs.readFile(unconfiguredFile))
+  assert(parseTermFile(savedTerms, unconfiguredFile.toString()).includes("SecondTerm"), "The second term was not saved to the configured file.")
+  assert(JSON.stringify(config.inspect("preserveTerms")) === configuredBeforeAdd, "Adding to a file silently changed configured sources.")
+  assert((await owner.translations.settings(profile.document.uri)).preserveTerms.identity === rulesBeforeAdd, "An unconfigured file affected active preservation rules.")
+  const dirtyTerms = await vscode.workspace.openTextDocument(unconfiguredFile)
+  const dirtyEdit = new vscode.WorkspaceEdit()
+  dirtyEdit.insert(unconfiguredFile, new vscode.Position(0, 0), "// unsaved\n")
+  assert(await vscode.workspace.applyEdit(dirtyEdit), "Could not prepare unsaved term edits.")
+  let dirtyRejected = false
+  try {
+    await writePreserveTerm(profile.document.uri, "Another")
+  } catch {
+    dirtyRejected = true
+  }
+  assert(dirtyRejected && dirtyTerms.isDirty && dirtyTerms.getText().startsWith("// unsaved"), "Adding a term overwrote or saved unrelated unsaved changes.")
+  assert(new TextDecoder().decode(await vscode.workspace.fs.readFile(unconfiguredFile)) === savedTerms, "A rejected addition changed the saved file.")
+  await dirtyTerms.save()
+  await config.update("preserveTermsWriteFile", undefined, vscode.ConfigurationTarget.Global)
+  checks.push("adding literals reuses the configured JSONC target without changing translation sources or active rules, preserves comments and rejects unsaved edits")
   await vscode.workspace.fs.writeFile(termsFile, new TextEncoder().encode(JSON.stringify(["Widget", "project.lock"])))
   await config.update("preserveTerms", ["./custom-terms.json"], vscode.ConfigurationTarget.Global)
   const termsSource = "Read Feature, API and Widget project.lock. Keep `API` unchanged.\n\nWidget\n\nproject.lock\n\nAPI"
@@ -2256,5 +2328,59 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
   }
   checks.push("LF/CRLF multiline prose sends one joining space without line placeholders and shares folded browse/native preview results while preserving source")
+  for (const newline of ["\n", "\r\n"]) {
+    const commands = [
+      "agent-browser set media dark",
+      "agent-browser --session <name> ...",
+      "agent-browser --json ...",
+      "agent-browser open <url>",
+      "agent-browser <command> --help",
+      "agent-browser is visible @e1"
+    ].join(newline)
+    const bare = await owner.documents.parseSource(commands, "shellscript")
+    assert(bare.groups.length === 0, "Shell commands, options and placeholder fragments became translation units.")
+    const code = [
+      commands,
+      "# Read the original document.",
+      'agent-browser find title "Read the original document." click',
+      "echo 'Read the original document.'",
+      'agent-browser find role button click --name="Read the original document."'
+    ].join(newline)
+    for (const fenced of [false, true]) {
+      const source = fenced ? ["```" + (newline === "\n" ? "bash" : "sh"), code, "```"].join(newline) : code
+      const target = await open("shell-arguments-" + (newline === "\n" ? "lf" : "crlf") + (fenced ? ".md" : ".sh"), fenced ? "markdown" : "shellscript", source)
+      const units = (await owner.documents.parse(target.document, true)).groups.flatMap((group) => group.units)
+      const prose = units.filter((unit) => prepareTranslation(unit, emptyPreserveTerms, 32).needsTranslation)
+      assert(
+        prose.length === 4 && prose.every((unit) => prepareTranslation(unit, emptyPreserveTerms, 32).text === "Read the original document."),
+        "Shell extraction lost comments or quoted prose, or included executable arguments."
+      )
+      assert(
+        units.every((unit) => source.slice(unit.start, unit.end) === unit.text) && !(await owner.documents.target(target.document, source.indexOf("media"))),
+        "Shell units lost source ownership or exposed a command argument as a cursor translation target."
+      )
+      await config.update("browse.strings", true, vscode.ConfigurationTarget.Global)
+      await start(target.document, units.length)
+      assert(
+        owner.browse
+          .inspect(target.document.uri)!
+          .units.filter((unit) => prose.some((item) => item.id === unit.id))
+          .every((unit) => unit.translation.includes("阅读原始文档。")),
+        "Shell comments or quoted strings did not translate through the normal reading chain."
+      )
+      if (fenced) {
+        const preview = await vscode.workspace.openTextDocument(markdownPreviewUri(target.document.uri))
+        await waitFor(() => preview.getText() === source.replaceAll("Read the original document.", "阅读原始文档。"), "Shell preview retains executable syntax")
+        owner.preview.close(preview.uri)
+      }
+      assert(target.document.getText() === source && !target.document.isDirty, "Shell reading or preview edited its source.")
+      await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+      await config.update("browse.strings", false, vscode.ConfigurationTarget.Global)
+    }
+  }
+  checks.push(
+    "real Shell grammar preserves commands, options and placeholders while translating comments and quoted strings in files and fenced previews under LF/CRLF without source edits"
+  )
+
   return checks
 }

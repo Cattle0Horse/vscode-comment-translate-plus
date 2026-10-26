@@ -1,5 +1,6 @@
-import { parse, printParseErrorCode } from "jsonc-parser"
+import { applyEdits, modify, parse, printParseErrorCode } from "jsonc-parser"
 import type { ParseError } from "jsonc-parser"
+import { parsePreserveTerms } from "./terms.ts"
 
 /** Paths are resolved without depending on the operating system running the caller. */
 export function termSource(source: string, workspace?: string, home?: string): string {
@@ -54,4 +55,16 @@ export function parseTermFile(text: string, source: string): unknown[] {
   } else value = JSON.parse(text)
   if (!Array.isArray(value)) throw Error("保留词文件内容必须是字符串或正则对象的数组。")
   return value
+}
+
+/** Add one literal without rewriting existing comments, rules or surrounding text. */
+export function appendPreserveTerm(text: string, source: string, term: string): string {
+  if (!term.trim()) throw Error("保留词必须是非空字符串。")
+  const values = parseTermFile(text, source)
+  const rules = parsePreserveTerms(values)
+  if (rules.literals.has(term)) return text
+  const bom = text.startsWith("\uFEFF") ? "\uFEFF" : ""
+  const result = bom + applyEdits(text.slice(bom.length), modify(text.slice(bom.length), [values.length], term, { isArrayInsertion: true }))
+  parsePreserveTerms(parseTermFile(result, source))
+  return result
 }
