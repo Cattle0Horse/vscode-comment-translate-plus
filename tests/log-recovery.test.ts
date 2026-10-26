@@ -2,6 +2,7 @@ import { emptyPreserveTerms, prepareTranslation } from "../src/documents/terms.t
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import type { TranslationEvent } from "../src/model/events.ts"
+import { ModelRetry } from "../src/model/diagnostics.ts"
 import { translatedMarkdown } from "../src/documents/presentation.ts"
 import { parseMarkdown } from "../src/documents/markdown.ts"
 import { validateTranslation } from "../src/documents/validation.ts"
@@ -29,7 +30,7 @@ test("Sources recovery appends correction instructions after the unchanged templ
     assert.deepEqual(fixture.seen[1].body.messages.at(-2), { role: "assistant", content: "用于理解的上下文：\n<context>\n## 编写搜索结果文档\n</context>" })
     const correction = fixture.seen[1].body.messages.at(-1)!
     assert.equal(correction.role, "user")
-    assert.ok(correction.content.endsWith("Translate the following text into Simplified Chinese:\n\nSources"), "Retry omitted the target language or current source heading.")
+    assert.ok(correction.content.endsWith("Simplified Chinese:\n\nSources"), "Retry omitted the target language or current source heading.")
     assert.ok(!correction.content.includes("Writing Search Results"), "Retry source included reference content.")
     assert.deepEqual(await run(), result)
     assert.equal(fixture.seen.length, 2, "The correct heading did not enter the shared cache.")
@@ -76,7 +77,7 @@ test("logged summary and list outputs recover a single style-boundary line break
         )
       const result = await run()
       const translation = result.get(unit.id)!
-      assert.ok(validateTranslation(unit, translation) === undefined)
+      assert.equal(validateTranslation(unit, translation), undefined)
       assert.ok(translation.includes("**摘要") || translation.includes("5. **编写"))
       assert.ok(!translation.includes("\n"))
       assert.deepEqual(await run(), result)
@@ -92,11 +93,15 @@ test("style-boundary recovery preserves prose whitespace and rejects paragraph b
   const output = "**阅读  仔细 *原始* 文档** 并保留 `sourceId`."
   const wrapped = output.replace("**阅读", "** \r\n 阅读").replace("文档**", "文档 \r\n **")
   const restored = prepared.restore(wrapped)
-  assert.ok(validateTranslation(unit, restored) === undefined)
+  assert.equal(validateTranslation(unit, restored), undefined)
   assert.ok(restored.includes("阅读  仔细 *原始* 文档"))
   assert.throws(() => prepared.restore(output.replace("文档**", "文档\n\n**")), /structure-invalid/)
-  assert.ok(validateTranslation(unit, prepared.restore(wrapped.replace("`sourceId`", ""))) === undefined)
-  assert.throws(() => prepared.restore(wrapped + "<CTP999>"), /marker-mismatch/)
+  assert.equal(validateTranslation(unit, prepared.restore(wrapped.replace("`sourceId`", ""))), undefined)
+  assert.throws(() => prepared.restore(output + "<CTP999>"), /marker-mismatch/)
+  assert.throws(
+    () => prepared.restore(wrapped + "<CTP999>"),
+    (error) => error instanceof ModelRetry && /internal line break/.test(error.feedback.reason)
+  )
 })
 
 test("a source-owned inline code marker may echo its exact backtick wrapper without changing code contents", async (t) => {
@@ -109,11 +114,11 @@ test("a source-owned inline code marker may echo its exact backtick wrapper with
   assert.equal(fixture.seen.length, 1)
   const prepared = prepareTranslation(input.units[0], emptyPreserveTerms, 32)
   assert.throws(() => prepared.restore(output + " <CTP0>"), /marker-mismatch/)
-  assert.equal(validateTranslation(input.units[0], prepared.restore(output + " `extra`")) === undefined, true)
+  assert.equal(validateTranslation(input.units[0], prepared.restore(output + " `extra`")), undefined)
   const path = inputOf(parseMarkdown("Read /memory/search/result.md.")).units[0]
   assert.equal(
-    validateTranslation(path, prepareTranslation(path, emptyPreserveTerms, 32).restore("阅读 `/memory/search/result.md`。")) === undefined,
-    true,
+    validateTranslation(path, prepareTranslation(path, emptyPreserveTerms, 32).restore("阅读 `/memory/search/result.md`。")),
+    undefined,
     "A new inline-code wrapper around a plain path was rejected."
   )
 })

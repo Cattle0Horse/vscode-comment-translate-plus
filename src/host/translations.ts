@@ -14,6 +14,7 @@ import type { TranslationItem } from "../model/translation.ts"
 import type { PreserveTerms } from "../model/translation.ts"
 import { describeError, TranslationFailure } from "../model/diagnostics.ts"
 import { TermFiles } from "./termFiles.ts"
+import type { prepareSelection } from "../documents/selection.ts"
 
 export class TranslationRuntime implements vscode.Disposable {
   readonly terms: TermFiles
@@ -91,6 +92,18 @@ export class TranslationRuntime implements vscode.Disposable {
       (event) => this.log.reused(event, vscode.workspace.asRelativePath(document.uri), settings.apiKey),
       interests
     )
+  }
+
+  async translateSelection(document: vscode.TextDocument, selection: ReturnType<typeof prepareSelection>, signal: AbortSignal): Promise<string> {
+    const translations = new Map<string, string>()
+    try {
+      await this.translate(document, selection, signal, false, (item) => translations.set(item.id, item.text))
+    } catch (error) {
+      // The request already reports failed items. Keep their source while displaying accepted neighbours.
+      if (!(error instanceof TranslationFailure) || !error.reported || !translations.size) throw error
+    }
+    signal.throwIfAborted()
+    return selection.restore(translations)
   }
 
   async translateUnits(

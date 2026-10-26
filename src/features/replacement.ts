@@ -55,7 +55,8 @@ export class SourceReplacementAction implements vscode.Disposable {
     this.replacements.set(uri, controller)
     try {
       const identity = await replacementIdentity(document.uri, this.translations)
-      const unit: TextUnit | undefined = selection.isEmpty ? await this.documents.target(document, document.offsetAt(selection.active)) : this.documents.selection(document, selection)
+      const selected = selection.isEmpty ? undefined : this.documents.selection(document, selection)
+      const unit: TextUnit | undefined = selected ? selected.target : await this.documents.target(document, document.offsetAt(selection.active))
       controller.signal.throwIfAborted()
       if (document.isClosed || document.version !== version) return false
       if (!unit?.text.trim()) {
@@ -67,7 +68,9 @@ export class SourceReplacementAction implements vscode.Disposable {
         try {
           if (token.isCancellationRequested) controller.abort("user-cancelled")
           const cached = selection.isEmpty ? this.inspect(document.uri)?.units.find((item) => item.id === unit.id) : undefined
-          const translated = cached?.translation ?? (await this.translations.translate(document, { units: [unit] }, controller.signal)).get(unit.id)
+          const translated = selected
+            ? await this.translations.translateSelection(document, selected, controller.signal)
+            : (cached?.translation ?? (await this.translations.translate(document, { units: [unit] }, controller.signal)).get(unit.id))
           controller.signal.throwIfAborted()
           if (translated === undefined) return false
           return this.replace({ uri, version, start: unit.start, end: unit.end, source: unit.text, text: translated, identity })

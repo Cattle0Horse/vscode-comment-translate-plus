@@ -28,7 +28,6 @@
   "QUIC",
   "JSON",
   "JSONC",
-  "json",
   "uv.lock",
   "YAML",
   "TOML",
@@ -77,12 +76,8 @@
   "TRACE",
   "PATCH",
   "OPENAI",
-  "openai",
   "claude",
-  "CLAUDE",
   "string",
   "Token",
-  "token",
-  "markdown",
-  "Markdown"
+  "markdown"
 ]

@@ -53,23 +53,22 @@ export class TranslationUnit {
     if (error instanceof ModelRetry) this.feedback = error
   }
 
-  accept(text: string, canReview: (review: ModelRetry) => boolean): void {
-    const empty = !text.trim()
-    const restored = empty ? text : this.prepared!.restore(text)
+  accept(text: string, canReview: (review: ModelRetry) => boolean, diagnosticCodes: readonly string[] = []): void {
+    const restored = this.prepared!.restore(text)
     const failure = validateTranslation(this.source, restored)
-    if (failure) {
-      const { instruction, ...difference } = failure
+    if (failure) throw failure
+    const leaked = diagnosticCodes.find((code) => text.includes(code) && !(this.source.content ?? this.source.text).includes(code))
+    if (leaked)
       throw new ModelRetry(
         {
-          reason: difference.modelReason,
-          instruction
+          reason: "The response included a retry diagnostic identifier absent from the source.",
+          instruction: `Exclude diagnostic text, including ${leaked}, and explanations from the translation.`
         },
         {
-          code: empty ? "translation-item-invalid" : "translation-structure-invalid",
-          difference: { ...difference, expected: difference.expected ?? this.source.text, actual: difference.actual ?? restored }
+          code: "translation-feedback-leaked",
+          difference: { reason: "模型将重试错误标识混入译文。", expected: "仅翻译当前原文，不翻译或引用重试诊断。", actual: leaked }
         }
       )
-    }
     const unchanged = translationIsUnchanged(this.source, restored)
     this.reviewLanguage(text, unchanged, canReview)
     this.translation = unchanged ? this.source.text : restored

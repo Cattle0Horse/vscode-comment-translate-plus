@@ -10,6 +10,7 @@ import type { ParsedDocument } from "../model/document.ts"
 import type { SourceEdit } from "../documents/edits.ts"
 import { requestPolicySchema } from "../translation/settings.ts"
 import { TranslationFailure } from "../model/diagnostics.ts"
+import { addPreserveTerm } from "./addPreserveTerm.ts"
 
 interface PendingEdit {
   readonly timer: ReturnType<typeof setTimeout>
@@ -61,6 +62,7 @@ export class Application implements vscode.Disposable {
       this.browse.tryAutomatic()
     }
     this.subscriptions = [
+      vscode.commands.registerCommand("commentTranslatePlus.addPreserveTerm", () => addPreserveTerm(home)),
       this.translations.terms.onDidChange(() => void this.reconfigure({ affectsConfiguration: (section) => section === "commentTranslatePlus.preserveTerms" })),
       vscode.commands.registerCommand("commentTranslatePlus.refreshPreserveTerms", async () => {
         try {

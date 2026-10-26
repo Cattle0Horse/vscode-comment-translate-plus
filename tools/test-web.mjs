@@ -216,7 +216,7 @@ const mock = createServer(async (request, response) => {
       const user = users[0]?.content ?? ""
       const custom = user.match(/\[\[custom-source\]\]\n([\s\S]*)\n\[\[\/custom-source\]\]/)
       const current = users.at(-1)?.content ?? ""
-      const instruction = /(?:^|\r?\n)Translate (?:the following text into|to) ([^\r\n]+):\r?\n\r?\n/.exec(current)
+      const instruction = /(?:^|\r?\n)(?:Based on the error response, re-translate|Translate) (?:the following text into|to) ([^\r\n]+):\r?\n\r?\n/.exec(current)
       const text = instruction ? current.slice(instruction.index + instruction[0].length) : custom ? custom[1] : current
       const feedback = users.length === 2 && instruction ? current.slice(0, instruction.index) : ""
       const feedbackLines = feedback.split("\n")
@@ -241,11 +241,13 @@ const mock = createServer(async (request, response) => {
         retryFeedbackEnglishSeparated:
           users.length === 2 &&
           feedback
-            .replace(/^Previous response errors:\n/u, "")
             .trim()
             .split("\n\n")
             .filter((block) => !block.startsWith("Current request:"))
-            .every((block) => block.split("\n").length === 2 && !/\p{Script=Han}/u.test(block)),
+            .every((block) => {
+              const lines = block.split("\n")
+              return lines.length === 2 && lines[0].startsWith("Previous response errors: ") && lines[1].startsWith("Correction: ")
+            }),
         previousOutputFingerprint: body.messages.some((message) => message.role === "assistant")
           ? createHash("sha256")
               .update(body.messages.find((message) => message.role === "assistant").content)
@@ -253,8 +255,20 @@ const mock = createServer(async (request, response) => {
           : undefined,
         numberedCorrections:
           users.length === 2 &&
-          feedbackLines.some((line, index) => line.startsWith("Item 1:") && line.includes("exactly once") && feedbackLines[index + 1]?.includes("marker")) &&
-          feedbackLines.some((line, index) => line.startsWith("Item 2:") && line.includes("empty") && feedbackLines[index + 1]?.includes("non-empty")),
+          feedbackLines.some(
+            (line, index) =>
+              line.startsWith("Previous response errors: Item 1:") &&
+              line.includes("exactly once") &&
+              feedbackLines[index + 1]?.startsWith("Correction: Item 1:") &&
+              feedbackLines[index + 1].includes("marker")
+          ) &&
+          feedbackLines.some(
+            (line, index) =>
+              line.startsWith("Previous response errors: Item 2:") &&
+              line.includes("empty") &&
+              feedbackLines[index + 1]?.startsWith("Correction: Item 2:") &&
+              feedbackLines[index + 1].includes("non-empty")
+          ),
         contextCharacters: context.length,
         contextFingerprint: createHash("sha256").update(context).digest("hex"),
         inputCharacters: body.messages.reduce((sum, message) => sum + message.content.length, 0),
@@ -294,21 +308,21 @@ const mock = createServer(async (request, response) => {
                 : body.model === "language-choice-fixture" && text.includes("Review scenario:")
                   ? text
                   : body.model === "unchanged-fixture"
-                    ? ["label", "AcmeSDK"].includes(text)
-                      ? text
-                      : "\r\n" + text + "\r\n"
+                    ? ["label", "AcmeSDK"].includes(text.trim())
+                      ? text.trim()
+                      : "\r\n" + text.replaceAll("original document", "originaldocument").replaceAll(" ", "\t  ") + "\r\n"
                     : translatedText(damageCode && text.includes("Keep ") ? text + "\n\nExtra paragraph." : text)
         )
         .map((text) => (damageLink && text.includes("code-only-no-request") ? dropLastProtection(text) : text))
         .map((text, index) =>
           pieces[index].includes("Reference contamination case.") && (referenceContamination === "always" || (referenceContamination === "once" && !record.retryFeedbackIncluded))
-            ? text + "\n\n处理最终音频时调用 `run_command`。"
+            ? "<context>\n## 参考内容\n\n处理最终音频时调用 `run_command`。\n</context>"
             : text
         )
       if (broken) translations.pop()
       if (hold) await new Promise((resolve) => heldResponses.add(resolve))
       if (slow) await delay(150)
-      let content = leakDiagnostics ? (users.length === 1 ? "" : 'Item 1: translation-item-invalid\nreason: "模型将错误诊断翻译为正文。"') : translations.join("\n" + separator + "\n")
+      let content = leakDiagnostics ? (users.length === 1 ? "" : 'Item 1: translation-item-invalid reason: "模型将错误诊断翻译为正文。"') : translations.join("\n" + separator + "\n")
       if (body.model === "log-recovery-fixture") {
         if (text === "Sources")
           content =
@@ -316,6 +330,10 @@ const mock = createServer(async (request, response) => {
               ? "用于理解的上下文：\n<context>\n## 编写搜索结果文档\n</context>"
               : "来源"
         else if (text.startsWith("**Summary MUST")) content = "** 摘要必须不超过 800 个字符。  \r\n** 必须用具体数据直接回答任务要求。"
+        else if (text === "Authoritative source of HIX's **official** Agent Skills.") content = "HIX 官方代理技能的权威来源。"
+        else if (text === "A root `SKILL.md` is **required**.") content = "根目录必须包含 `SKILL.md`。"
+        else if (text === "Authoritative source of HIX's *official* Agent Skills.") content = "HIX 官方代理技能的权威来源。"
+        else if (text === "A root `SKILL.md` is _required_.") content = "根目录必须包含 `SKILL.md`。"
         else if (text.startsWith("in the `Working language:`"))
           content = "您必须在使用输入时，始终遵循位于顶部 `Working language:` 行中指定的工作语言，用于所有输出、内容生成以及摘要的生成。"
       }

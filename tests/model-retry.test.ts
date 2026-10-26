@@ -8,6 +8,67 @@ import { TranslationStore } from "../src/translation/store.ts"
 import { prepareInput } from "../src/translation/prepare.ts"
 import { parseYaml } from "../src/documents/yaml.ts"
 
+test("style recovery identifies the affected formatted source spans instead of bare delimiters", async (t) => {
+  for (const scenario of [
+    { source: "Remove ~~obsolete~~ text.", broken: "移除过时的文本。", fixed: "移除~~过时~~的文本。", spans: ["~~obsolete~~"] },
+    { source: "Keep ~~first~~ and ~~second~~.", broken: "保留~~第一项~~和第二项。", fixed: "保留~~第一项~~和~~第二项~~。", spans: [], ambiguous: ["~~first~~", "~~second~~"] },
+    { source: "Keep **very ~~important~~** text.", broken: "保留**非常重要**的文本。", fixed: "保留**非常~~重要~~**的文本。", spans: ["~~important~~"] }
+  ]) {
+    const events: TranslationEvent[] = []
+    const fixture = await chatFixture(t, (_body, _items, call) => (call === 1 ? scenario.broken : scenario.fixed))
+    const result = await requestTranslation(fixture.service, fixture.settings, inputOf(parseMarkdown(scenario.source)), new AbortController().signal, fixture.gate, undefined, {
+      details: false,
+      emit: (event) => events.push(event)
+    })
+    assert.equal(result[0].text, scenario.fixed)
+    assert.equal(fixture.seen.length, 2)
+    const feedback = modelFeedback(fixture.seen[1].body)
+    for (const span of scenario.spans) assert.ok(feedback.includes(JSON.stringify(span)), "Recovery omitted the source span whose formatting needs repair.")
+    for (const span of scenario.ambiguous ?? []) assert.ok(!feedback.includes(span), "Recovery guessed a damaged span from repeated delimiters.")
+    const failure = events.flatMap((event) => (event.kind === "request" ? event.failures : []))[0]
+    for (const span of scenario.spans) assert.ok(failure.difference.expected?.includes(span), "Human diagnostics omitted the source span.")
+  }
+})
+
+test("native fragment count failures carry observed counts into recovery and cache only the repaired output", async (t) => {
+  const text = "Read {name} then {name}."
+  const unit = {
+    id: "native-count",
+    start: 0,
+    end: text.length,
+    text,
+    format: "text" as const,
+    kind: "string" as const,
+    protected: [...text.matchAll(/\{name\}/gu)].map((match) => ({ start: match.index, end: match.index + match[0].length }))
+  }
+  for (const actual of [1, 3]) {
+    const events: TranslationEvent[] = []
+    const fixed = "阅读 {name}，然后阅读 {name}。"
+    const fixture = await chatFixture(t, (_body, _items, call) => (call === 1 ? "阅读 " + "{name}".repeat(actual) + "。" : fixed))
+    const store = new TranslationStore()
+    t.after(() => store.clear())
+    const run = () =>
+      store.translate(
+        "native-count",
+        { units: [unit] },
+        (input, signal, completed) =>
+          requestTranslation(fixture.service, fixture.settings, input, signal, fixture.gate, completed, { details: false, emit: (event) => events.push(event) }),
+        new AbortController().signal
+      )
+    assert.equal((await run()).get(unit.id), fixed)
+    const failure = events.flatMap((event) => (event.kind === "request" ? event.failures : []))[0]
+    assert.equal(failure.code, "translation-structure-invalid")
+    assert.equal(failure.difference.expected, "2 次：{name}")
+    assert.equal(failure.difference.actual, actual + " 次")
+    const feedback = modelFeedback(fixture.seen[1].body)
+    assert.ok(feedback.includes(failure.difference.modelReason!))
+    assert.match(feedback, new RegExp(actual + " times; expected 2"))
+    assert.ok(feedback.includes(JSON.stringify("{name}")), "Recovery omitted the native fragment whose occurrence count differs.")
+    assert.equal((await run()).get(unit.id), fixed)
+    assert.equal(fixture.seen.length, 2, "The validated recovery was not cached.")
+  }
+})
+
 test("all source items are sent as one line and restore their original breaks while context keeps its format", async (t) => {
   for (const newline of ["\n", "\r\n", "\r"]) {
     const source = "Read first." + newline + "  Continue reading."
@@ -171,9 +232,10 @@ test("context continuation after an internal line break is rejected, regenerated
     )
     const hint = modelFeedback(fixture.seen[1].body)
     const feedbackLines = hint.split("\n")
-    assert.equal(feedbackLines.length, 3, "Recovery must separate its heading, English reason and corrective instruction.")
+    assert.equal(feedbackLines.length, 2, "Recovery must keep its prefixed reason and correction on two lines.")
+    assert.ok(feedbackLines[0].startsWith("Previous response errors: ") && feedbackLines[1].startsWith("Correction: "))
     assert.ok(
-      feedbackLines.slice(1).every((line) => line.length > 0 && !/\p{Script=Han}/u.test(line)),
+      feedbackLines.every((line) => line.length > 0 && !/\p{Script=Han}/u.test(line)),
       "Model feedback included a localized log reason."
     )
     assert.match(hint, /(?:do not|without|exclude|omit)[^.\n]*reference/i, "Recovery did not explicitly exclude reference content.")
@@ -182,7 +244,11 @@ test("context continuation after an internal line break is rejected, regenerated
     const failure = events.find((event) => event.kind === "request" && event.failures.length)
     assert.ok(failure?.kind === "request" && failure.failures[0].difference.reason.includes("内部换行"))
     assert.equal(failure.failures[0].difference.actual, "包含内部换行")
-    assert.equal(failure.failures[0].difference.modelReason, hint.split("\n")[1], "Model feedback and structured diagnostics disagree about the failure reason.")
+    assert.equal(
+      failure.failures[0].difference.modelReason,
+      feedbackLines[0].slice("Previous response errors: ".length),
+      "Model feedback and structured diagnostics disagree about the failure reason."
+    )
     store.clear()
   }
 })
@@ -209,7 +275,7 @@ test("single-item validation recovery omits batch metadata and keeps original me
     )
     assert.deepEqual(fixture.seen[1].body.messages.slice(0, fixture.seen[0].body.messages.length), fixture.seen[0].body.messages)
     const hint = modelFeedback(fixture.seen[1].body)
-    assert.equal(hint.split("\n").length, 3, "A validator combined its reason and corrective instruction.")
+    assert.equal(hint.split("\n").length, 2, "A validator combined its reason and corrective instruction.")
     assert.ok(!/\p{Script=Han}/u.test(hint), "A validator sent a localized log reason to the model.")
     assert.ok(!/Item \d|Current request:|separator|\b(?:translation|service)-[a-z-]+/.test(hint), "Single-item recovery retained batch metadata or diagnostic codes: " + scenario.code)
   }
@@ -333,13 +399,19 @@ test("network recovery respects a one-attempt limit and explicit cancellation", 
 
 test("known structural errors send the matching correction and recover only the rejected item", async (t) => {
   for (const scenario of [
-    { source: "Read [guide](https://example.com).", broken: "阅读 [指南](https://other.example)。", fixed: "阅读 [指南](https://example.com)。", correction: /source link target/ },
-    { source: "Read the original document.", broken: "## 阅读原始文档。", fixed: "阅读原始文档。", correction: /Remove headings/ },
-    { source: "Read the original document.", broken: "阅读 <span>原始文档</span>。", fixed: "阅读原始文档。", correction: /Remove HTML/ },
-    { source: "Read the original document.", broken: "阅读 **原始文档**。", fixed: "阅读原始文档。", correction: /Remove emphasis/ },
-    { source: "Read the original document.", broken: "阅读 <https://example.com>。", fixed: "阅读原始文档。", correction: /Remove link targets/ },
-    { source: "Read the original document.", broken: "阅读 \\*原始文档。", fixed: "阅读原始文档。", correction: /Remove Markdown escape/ },
-    { source: "Read <span>the original document</span>.", broken: "阅读 <div>原始文档</div>。", fixed: "阅读 <span>原始文档</span>。", correction: /source HTML tags/ }
+    {
+      source: "Read [guide](https://example.com).",
+      broken: "阅读 [指南](https://other.example)。",
+      fixed: "阅读 [指南](https://example.com)。",
+      fragment: "https://example.com",
+      correction: /source link target/
+    },
+    { source: "Read the original document.", broken: "## 阅读原始文档。", fixed: "阅读原始文档。", fragment: "##", correction: /Remove headings/ },
+    { source: "Read the original document.", broken: "阅读 <span>原始文档</span>。", fixed: "阅读原始文档。", fragment: "<span>", correction: /Remove HTML/ },
+    { source: "Read the original document.", broken: "阅读 ~~原始文档~~。", fixed: "阅读原始文档。", fragment: "~~原始文档~~", correction: /Remove strikethrough/ },
+    { source: "Read the original document.", broken: "阅读 <https://example.com>。", fixed: "阅读原始文档。", fragment: "<https://example.com>", correction: /Remove link targets/ },
+    { source: "Read the original document.", broken: "阅读 \\*原始文档。", fixed: "阅读原始文档。", fragment: "\\*", correction: /Remove Markdown escape/ },
+    { source: "Read <span>the original document</span>.", broken: "阅读 <div>原始文档</div>。", fixed: "阅读 <span>原始文档</span>。", fragment: "<span>", correction: /source HTML tags/ }
   ]) {
     const fixture = await chatFixture(t, (_body, _items, call) => (call === 1 ? scenario.broken + "\n%%\n正确邻项。" : scenario.fixed))
     const input = inputOf(parseMarkdown(scenario.source + "\n\nRead the neighbour."))
@@ -350,6 +422,7 @@ test("known structural errors send the matching correction and recover only the 
     )
     assert.equal(fixture.seen[1].items.length, 1)
     assert.match(modelFeedback(fixture.seen[1].body), scenario.correction)
+    assert.ok(modelFeedback(fixture.seen[1].body).includes(JSON.stringify(scenario.fragment)), "Recovery omitted the observed damaged or added fragment.")
     assert.ok(!modelFeedback(fixture.seen[1].body).includes("Preserve source syntax, document structure"))
   }
 })

@@ -128,7 +128,7 @@ export function protectedFragments(unit: TextUnit, tree?: MarkdownNode): readonl
 
 export function fragmentContents(unit: TextUnit, tree?: MarkdownNode): readonly (readonly [string, string])[] {
   return protectedFragments(unit, tree)
-    .filter((fragment) => fragment.kind !== "InlineCode" && fragment.kind !== "Technical")
+    .filter((fragment) => !["InlineCode", "Technical", "EmphasisMark"].includes(fragment.kind))
     .map((fragment) => [fragment.kind, fragment.text] as const)
 }
 

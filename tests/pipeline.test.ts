@@ -503,7 +503,7 @@ test("request-layer feedback reaches custom and empty templates without modifyin
   assert.equal(rendered.payload.messages.length, 2)
   assert.deepEqual(rendered.payload.messages[0], { role: "user", content: "" })
   assert.ok(
-    rendered.payload.messages[1].content.includes(feedback + "\n\nTranslate the following text into Simplified Chinese:\n\nOriginal text."),
+    rendered.payload.messages[1].content.includes(feedback) && rendered.payload.messages[1].content.endsWith("Simplified Chinese:\n\nOriginal text."),
     "Diagnostic data was reinterpreted as a template or source was omitted."
   )
   const provider = getProvider("openai")
@@ -534,10 +534,7 @@ test("changing retry instructions retains the full original message prefix for d
       assert.deepEqual(retry.slice(0, -1), initial, "Changing corrections invalidated the original template prefix.")
       assert.equal(retry.at(-1)!.role, "user")
       const correction = retry.at(-1)!.content
-      assert.ok(
-        correction.includes(retryFeedback) && correction.endsWith("Translate the following text into Simplified Chinese:\n\nSources"),
-        "Retry omitted the current source or placed instructions after it."
-      )
+      assert.ok(correction.includes(retryFeedback) && correction.endsWith("Simplified Chinese:\n\nSources"), "Retry omitted the current source or placed instructions after it.")
     }
   }
 })

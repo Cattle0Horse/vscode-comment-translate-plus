@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { termSource, parseTermFile } from "../src/documents/termFiles.ts"
+import { termSource, parseTermFile, appendPreserveTerm } from "../src/documents/termFiles.ts"
 import { parsePreserveTerms, prepareTranslation } from "../src/documents/terms.ts"
 
 test("term sources distinguish Windows drives, UNC, Unix, URI and workspace-relative paths without losing filename characters", () => {
@@ -45,13 +45,41 @@ test("JSON stays strict while JSONC accepts comments and trailing commas; compil
   const source = "file:///terms.jsonc"
   const rules = parsePreserveTerms(parseTermFile('\uFEFF[\n// Shared names\n"Widget", "Widget", {"pattern":"(HTTP|HTTPS)", "flags":"i"},\n]', source))
   const prepared = (text: string) => prepareTranslation({ id: "term", text, start: 0, end: text.length, format: "text" }, rules, 32)
-  for (const text of ["Widget", "HtTp", "HTTPS", "HTTP"]) assert.equal(prepared(text).needsTranslation, false)
-  for (const text of ["widget", "Use Widget.", "HTTP HTTPS"]) assert.equal(prepared(text).needsTranslation, true)
+  for (const text of ["Widget", "widget", "WIDGET", "wIdGeT", "HtTp", "HTTPS", "HTTP"]) {
+    assert.equal(prepared(text).needsTranslation, false)
+    assert.equal(prepared(text).restore(prepared(text).text), text)
+  }
+  for (const text of ["Use Widget.", "HTTP HTTPS", "Widget!", "Wid get"]) assert.equal(prepared(text).needsTranslation, true)
   assert.equal(rules.literals.size, 1)
-  assert.equal(parsePreserveTerms(["Widget", { pattern: "HTTP", flags: "i" }]).identity, parsePreserveTerms([{ pattern: "HTTP", flags: "i" }, "Widget", "Widget"]).identity)
+  assert.equal(parsePreserveTerms(["Widget", { pattern: "HTTP", flags: "i" }]).identity, parsePreserveTerms([{ pattern: "HTTP", flags: "i" }, "widget", "WIDGET"]).identity)
+  const caseSensitive = parsePreserveTerms([{ pattern: "Widget" }])
+  assert.equal(prepareTranslation({ id: "regex", text: "widget", start: 0, end: 6, format: "text" }, caseSensitive, 32).needsTranslation, true)
   for (const text of ['["Widget",]', '[/* comment */ "Widget"]']) {
     assert.throws(() => parseTermFile(text, "file:///terms.json"))
     assert.deepEqual(parseTermFile(text, source), ["Widget"])
   }
   for (const text of ["[] trailing", "[", '{"terms":[]}', "", "[1,,2]"]) assert.throws(() => parseTermFile(text, source))
+})
+
+test("adding a literal preserves JSONC comments and regex rules, escapes content and avoids duplicate writes", () => {
+  const term = ' Widget "quoted" \\ path\n第二行 '
+  for (const [source, text] of [
+    ["file:///terms.json", "[]"],
+    ["file:///terms.json", '\uFEFF["existing", {"pattern":"HTTP", "flags":"i"}]\r\n'],
+    ["file:///terms.jsonc", '\uFEFF[\r\n// Shared names\r\n"existing", /* keep */ {"pattern":"HTTP", "flags":"i"},\r\n]\r\n// end'],
+    ["file:///terms.jsonc", "[/* empty list */]"]
+  ]) {
+    const result = appendPreserveTerm(text, source, term)
+    assert.deepEqual(parseTermFile(result, source), [...parseTermFile(text, source), term])
+    assert.equal(appendPreserveTerm(result, source, term), result)
+    for (const comment of text.match(/\/\/[^\r\n]*|\/\*.*?\*\//gu) ?? []) assert.ok(result.includes(comment))
+    assert.equal(result.startsWith("\uFEFF"), text.startsWith("\uFEFF"))
+  }
+  assert.equal(appendPreserveTerm('["Widget"]', "file:///terms.json", "widget"), '["Widget"]')
+  assert.deepEqual(parseTermFile(appendPreserveTerm('["Widget"]', "file:///terms.json", "Widget!"), "file:///terms.json"), ["Widget", "Widget!"])
+})
+
+test("adding a literal refuses malformed files and invalid existing rules instead of replacing their contents", () => {
+  for (const text of ["", "[", '["name",]', "[/* comment */]", "{}", "[1]", '[{"pattern":"["}]']) assert.throws(() => appendPreserveTerm(text, "file:///terms.json", "Widget"))
+  for (const term of ["", " \n "]) assert.throws(() => appendPreserveTerm("[]", "file:///terms.jsonc", term))
 })

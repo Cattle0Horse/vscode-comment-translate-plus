@@ -109,10 +109,10 @@ class TranslationRun {
     })
   }
 
-  private publish(unit: TranslationUnit, text: string): void {
+  private publish(unit: TranslationUnit, text: string, diagnosticCodes: readonly string[] = []): void {
     this.combined.throwIfAborted()
     if (!unit.pending) return
-    unit.accept(text, (review) => this.policy.fits(this.policy.compile([unit], review, text)))
+    unit.accept(text, (review) => this.policy.fits(this.policy.compile([unit], review, text)), diagnosticCodes)
     this.completed?.({ id: unit.source.id, text: unit.translation! })
   }
 
@@ -210,19 +210,7 @@ class TranslationRun {
             )
           outputItems.set(unit, item.text)
           try {
-            const leaked = diagnosticCodes.find((code) => item.text.includes(code) && !(unit.source.content ?? unit.source.text).includes(code))
-            if (leaked)
-              throw new ModelRetry(
-                {
-                  reason: "The response included a retry diagnostic identifier absent from the source.",
-                  instruction: `Exclude diagnostic text, including ${leaked}, and explanations from the translation.`
-                },
-                {
-                  code: "translation-feedback-leaked",
-                  difference: { reason: "模型将重试错误标识混入译文。", expected: "仅翻译当前原文，不翻译或引用重试诊断。", actual: leaked }
-                }
-              )
-            this.publish(unit, item.text)
+            this.publish(unit, item.text, diagnosticCodes)
           } catch (error) {
             reasons.set(item.id, error)
           }
@@ -236,9 +224,10 @@ class TranslationRun {
       requestSignal.throwIfAborted()
       if (outputItems.size !== units.length)
         throw new ModelRetry(
-          { reason: `The response returned ${outputItems.size} items; expected ${units.length}.`, instruction: "Return exactly one translation per source item, in the original order." },
+          { reason: "The response item count does not match the source items.", instruction: "Return exactly one translation per source item, in the original order." },
           {
-            code: "translation-items-mismatch"
+            code: "translation-items-mismatch",
+            difference: { reason: "返回条目数量不匹配。", expected: units.length + " 项", actual: outputItems.size + " 项" }
           }
         )
       reason = reasons.values().next().value

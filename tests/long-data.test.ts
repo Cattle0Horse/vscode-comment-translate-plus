@@ -8,6 +8,77 @@ import { splitTranslations } from "../src/translation/providers/prompts.ts"
 import { serviceIdentity, validateService } from "../src/translation/settings.ts"
 import { TranslationStore } from "../src/translation/store.ts"
 
+test("logged command reference accepts an exact expanded marker on the first request and caches both items", async (t) => {
+  const source =
+    "# Command Reference\n\nThis is the retained general-purpose command surface. Use `agent-browser <command> --help` for version-specific options or commands outside this reference."
+  const output = "命令参考\n\n%%\n\n这是保留的通用命令界面。如需了解此参考范围之外的特定版本选项或命令，请使用 `agent-browser <command> --help`。"
+  const fixture = await chatFixture(t, () => output)
+  const settings = { ...fixture.settings, batchBySemanticScope: false }
+  const input = inputOf(parseMarkdown(source))
+  const store = new TranslationStore()
+  t.after(() => store.clear())
+  const run = () =>
+    store.translate(
+      "expanded-command",
+      input,
+      (batch, signal, completed) => requestTranslation(fixture.service, settings, batch, signal, fixture.gate, completed),
+      new AbortController().signal
+    )
+  const result = await run()
+  assert.equal(result.get(input.units[0].id), "# 命令参考")
+  assert.equal(result.get(input.units[1].id), output.split("\n\n%%\n\n")[1])
+  assert.deepEqual(await run(), result)
+  assert.equal(fixture.seen.length, 1, "An exact expanded source fragment consumed retries or did not enter the shared cache.")
+})
+
+test("expanded fragments preserve exact contents and multiplicity alongside markers", () => {
+  const command = "`agent-browser <command> --help`"
+  const url = "https://example.com/a-long-source-resource"
+  const source = "Read " + command + " twice: " + command + ", then [guide](" + url + ")."
+  const unit = inputOf(parseMarkdown(source)).units[0]
+  const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
+  for (const output of [
+    "阅读 " + command + " 两次：" + command + "，然后[指南](" + url + ")。",
+    "阅读 <CTP1> 两次：" + command + "，然后[指南](<CTP2>)。",
+    "阅读 <CTP0> 两次：<CTP1>，然后[指南](<CTP2>)。"
+  ]) {
+    const restored = prepared.restore(output)
+    assert.equal(validateTranslation(unit, restored), undefined)
+    assert.equal(restored.split(command).length - 1, 2)
+    assert.ok(restored.includes(url))
+  }
+  assert.equal(prepared.restore(source), source, "Expanded echoes must remain successful unchanged results.")
+  for (const output of [
+    prepared.text.replace("<CTP0>", command.replace("--help", "--Help")),
+    prepared.text.replace("<CTP0>", command.replace(" --help", "  --help")),
+    prepared.text.replace("<CTP0>", command.replace("--help", "--帮助")),
+    prepared.text.replace("<CTP0>", ""),
+    prepared.text + command,
+    source + command,
+    source + "<CTP9>",
+    source + "<CTP0"
+  ])
+    assert.throws(() => prepared.restore(output), /marker-mismatch/u)
+  assert.ok(validateTranslation(unit, prepared.restore(source.replace("[guide](", "[guide]"))), "Expansion must not bypass link structure validation.")
+})
+
+test("expanded source data stays literal across namespace collisions, overlapping values and Python ordering", () => {
+  const code = "`agent-browser <CTP0> --help .*$&`"
+  const source = "Keep <CTP1_0> beside " + code + "."
+  const unit = inputOf(parseMarkdown(source)).units[0]
+  const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
+  assert.equal(prepared.restore(source.replace("Keep", "保留")), source.replace("Keep", "保留"))
+
+  const short = "https://example.com/a-long-resource"
+  const long = short + "/more-data"
+  const text = "Read " + short + " and " + long
+  const python = { id: "ordered", text, start: 0, end: text.length, format: "text" as const, kind: "string" as const, language: "python" }
+  const ordered = prepareTranslation(python, emptyPreserveTerms, 32)
+  assert.equal(ordered.restore(text.replace("Read", "阅读")), text.replace("Read", "阅读"))
+  assert.throws(() => ordered.restore("阅读 " + long), /marker-mismatch/u, "A containing fragment cannot also supply the missing shorter fragment.")
+  assert.throws(() => ordered.restore("阅读 " + long + " and " + short), /structure-invalid/u)
+})
+
 test("response boundaries preserve native CRLF syntax inside each item and retain aligned empty items", () => {
   const first = 'Skill {name} in this "\r\n        "session.'
   const second = "Read `first\r\nsecond`."
@@ -18,7 +89,7 @@ test("response boundaries preserve native CRLF syntax inside each item and retai
   const unit = inputOf(parseMarkdown("Keep `sourceId` unchanged.")).units[0]
   const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
   const restored = prepared.restore("\r\n" + prepared.text + "\r\n")
-  assert.ok(validateTranslation(unit, restored) === undefined, "Boundary CRLF shifted a native code span during validation.")
+  assert.equal(validateTranslation(unit, restored), undefined, "Boundary CRLF shifted a native code span during validation.")
 })
 
 test("copy-only fragments cross the length threshold without masking ordinary names or style boundaries", () => {
@@ -31,7 +102,7 @@ test("copy-only fragments cross the length threshold without masking ordinary na
     assert.ok(prepared.text.includes("**sourceId**"))
     assert.ok(prepared.text.includes(size >= 32 ? "[guide](<CTP0>)" : "[guide](" + url + ")"))
     const restored = prepared.restore(prepared.text.replace("Read", "阅读").replace("sourceId", "来源标识").replace("guide", "指南"))
-    assert.ok(validateTranslation(unit, restored) === undefined)
+    assert.equal(validateTranslation(unit, restored), undefined)
     assert.ok(restored.includes(url))
     if (size >= 32) {
       assert.ok("<CTP0>".length * 4 <= url.length)
@@ -114,7 +185,7 @@ test("decoded JSON content translates labels without exposing serialization esca
   const fixture = await chatFixture(t, () => output)
   const results = await requestTranslation(fixture.service, fixture.settings, { units: [unit] }, new AbortController().signal, fixture.gate)
   assert.equal(fixture.seen.length, 1)
-  assert.ok(validateTranslation(unit, results[0].text) === undefined)
+  assert.equal(validateTranslation(unit, results[0].text), undefined)
   assert.ok(JSON.parse(results[0].text).includes("<运行时上下文快照>"))
   assert.ok(JSON.parse(results[0].text).includes("Asia/Riyadh"))
 })

@@ -1,5 +1,7 @@
 import { emptyPreserveTerms, prepareTranslation } from "../../src/documents/terms.ts"
 import * as vscode from "vscode"
+import { writePreserveTerm } from "../../src/host/addPreserveTerm.ts"
+import { parseTermFile } from "../../src/documents/termFiles.ts"
 import { markdownPreviewUri } from "../../src/features/preview.ts"
 import { displayTranslations, previewLoadingMarker, translationDisplayText } from "../../src/documents/presentation.ts"
 import { defaultSystemPrompt } from "../../src/translation/providers/prompts.ts"
@@ -635,9 +637,79 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   assert(!restored.isDirty, "Restoring a preview made it dirty.")
   checks.push("native translated Markdown preview shares cache, refreshes edits, restores from its URI and delegates relative resources through a read-only filesystem")
   const termsFile = vscode.Uri.joinPath(workspace, "custom-terms.json")
+  const unconfiguredFile = vscode.Uri.joinPath(workspace, "unconfigured-terms.jsonc")
+  await vscode.workspace.fs.writeFile(unconfiguredFile, new TextEncoder().encode('[\n// User rules\n{"pattern":"HTTP", "flags":"i"},\n]\n'))
+  const configuredBeforeAdd = JSON.stringify(config.inspect("preserveTerms"))
+  const rulesBeforeAdd = (await owner.translations.settings(profile.document.uri)).preserveTerms.identity
+  for (const extension of ["json", "jsonc"]) {
+    const newPath = "./new-term-files/" + extension + "/terms." + extension
+    const newFile = vscode.Uri.joinPath(workspace, newPath)
+    await config.update("preserveTermsWriteFile", newPath, vscode.ConfigurationTarget.Global)
+    let emptyRejected = false
+    try {
+      await writePreserveTerm(profile.document.uri, " ")
+    } catch {
+      emptyRejected = true
+    }
+    let exists = true
+    try {
+      await vscode.workspace.fs.stat(newFile)
+    } catch (error) {
+      if (!(error instanceof vscode.FileSystemError) || error.code !== "FileNotFound") throw error
+      exists = false
+    }
+    assert(emptyRejected && !exists, "An invalid term created a file before validation.")
+    assert(await writePreserveTerm(profile.document.uri, 'New "term"'), "A missing target file was not created.")
+    assert(await writePreserveTerm(profile.document.uri, "SecondTerm"), "Appending to the newly created target failed.")
+    assert(!(await writePreserveTerm(profile.document.uri, "secondterm")), "A new target accepted a duplicate term with different casing.")
+    const created = new TextDecoder().decode(await vscode.workspace.fs.readFile(newFile))
+    assert(JSON.stringify(parseTermFile(created, newFile.toString())) === JSON.stringify(['New "term"', "SecondTerm"]), "Creating or reusing the target lost literal values.")
+    const createdDocument = await vscode.workspace.openTextDocument(newFile)
+    assert(!createdDocument.isDirty, "The automatically created term file was not saved.")
+  }
+  const directoryTarget = vscode.Uri.joinPath(workspace, "directory-target.json")
+  await vscode.workspace.fs.createDirectory(directoryTarget)
+  await config.update("preserveTermsWriteFile", directoryTarget.toString(), vscode.ConfigurationTarget.Global)
+  let directoryRejected = false
+  try {
+    await writePreserveTerm(profile.document.uri, "Must not replace a directory")
+  } catch {
+    directoryRejected = true
+  }
+  assert(directoryRejected && (await vscode.workspace.fs.stat(directoryTarget)).type === vscode.FileType.Directory, "An unreadable target was treated as a missing file.")
+  checks.push("missing JSON/JSONC targets and parent directories are created and saved before subsequent appends; invalid input and existing directories are not overwritten")
+  await config.update("preserveTermsWriteFile", "./unconfigured-terms.jsonc", vscode.ConfigurationTarget.Global)
+  assert(await writePreserveTerm(profile.document.uri, ' Widget "quoted" '), "Adding to an unconfigured file failed.")
+  const addedText = new TextDecoder().decode(await vscode.workspace.fs.readFile(unconfiguredFile))
+  assert(addedText.includes("// User rules"), "Adding a literal discarded user comments.")
+  assert(
+    JSON.stringify(parseTermFile(addedText, unconfiguredFile.toString())) === JSON.stringify([{ pattern: "HTTP", flags: "i" }, ' Widget "quoted" ']),
+    "Adding a literal damaged existing rules or literal spelling."
+  )
+  assert(!(await writePreserveTerm(profile.document.uri, ' Widget "quoted" ')), "Adding an existing literal changed the file.")
+  assert(await writePreserveTerm(profile.document.uri, "SecondTerm"), "A second addition did not reuse the configured target.")
+  const savedTerms = new TextDecoder().decode(await vscode.workspace.fs.readFile(unconfiguredFile))
+  assert(parseTermFile(savedTerms, unconfiguredFile.toString()).includes("SecondTerm"), "The second term was not saved to the configured file.")
+  assert(JSON.stringify(config.inspect("preserveTerms")) === configuredBeforeAdd, "Adding to a file silently changed configured sources.")
+  assert((await owner.translations.settings(profile.document.uri)).preserveTerms.identity === rulesBeforeAdd, "An unconfigured file affected active preservation rules.")
+  const dirtyTerms = await vscode.workspace.openTextDocument(unconfiguredFile)
+  const dirtyEdit = new vscode.WorkspaceEdit()
+  dirtyEdit.insert(unconfiguredFile, new vscode.Position(0, 0), "// unsaved\n")
+  assert(await vscode.workspace.applyEdit(dirtyEdit), "Could not prepare unsaved term edits.")
+  let dirtyRejected = false
+  try {
+    await writePreserveTerm(profile.document.uri, "Another")
+  } catch {
+    dirtyRejected = true
+  }
+  assert(dirtyRejected && dirtyTerms.isDirty && dirtyTerms.getText().startsWith("// unsaved"), "Adding a term overwrote or saved unrelated unsaved changes.")
+  assert(new TextDecoder().decode(await vscode.workspace.fs.readFile(unconfiguredFile)) === savedTerms, "A rejected addition changed the saved file.")
+  await dirtyTerms.save()
+  await config.update("preserveTermsWriteFile", undefined, vscode.ConfigurationTarget.Global)
+  checks.push("adding literals reuses the configured JSONC target without changing translation sources or active rules, preserves comments and rejects unsaved edits")
   await vscode.workspace.fs.writeFile(termsFile, new TextEncoder().encode(JSON.stringify(["Widget", "project.lock"])))
   await config.update("preserveTerms", ["./custom-terms.json"], vscode.ConfigurationTarget.Global)
-  const termsSource = "Read Feature, API and Widget project.lock. Keep `API` unchanged.\n\nWidget\n\nproject.lock\n\nAPI"
+  const termsSource = "Read Feature, API and Widget project.lock. Keep `API` unchanged.\n\nwIdGeT\n\nPROJECT.LOCK\n\nAPI"
   const terms = await open("terms.md", "markdown", termsSource)
   const beforeTerms = (await requests()).length
   await start(terms.document, 4)
@@ -1030,7 +1102,10 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   checks.push("partial failure logs once with the exact source line and missing link delimiter; diagnostics stays quiet and retry requests only the unresolved unit")
 
   for (const mode of ["once", "always"]) {
-    const contaminationSource = "- Read the original document. Reference contamination case. " + mode + ". Keep `sourceId`.\n- 这是已有的中文说明，调用 `run_command`。"
+    const contaminationSource =
+      "- Read the original document. Reference contamination case. " +
+      mode +
+      ". Follow [Guide](./guide.md). Keep `sourceId_abcdefghijklmnopqrstuvwxyz_123456789`.\n- 这是已有的中文说明，调用 `run_command`。"
     const contamination = await open("reference-contamination-" + mode + ".md", "markdown", contaminationSource)
     const target = (await owner.documents.parse(contamination.document)).groups.flatMap((group) => group.units)[0]
     const fingerprint = await requestFingerprint(prepareTranslation(target, emptyPreserveTerms, 32).text)
@@ -1193,13 +1268,65 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   checks.push("selection and documentation hover never translate the extension's own output document")
 
   await updateObserved("activeProfile", "unchanged")
+  const unchangedHoverSource = "Read the original document.\r\nContinue reading.\r\n\r\nKeep `sourceId` unchanged."
+  const unchangedHover = await open("unchanged-hover.md", "markdown", unchangedHoverSource)
+  const unchangedHoverAt = new vscode.Position(0, 5)
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const before = (await requests()).length
+    const hover = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", unchangedHover.document.uri, unchangedHoverAt)
+    assert(!values(hover).includes("[注释翻译+]"), "Whitespace-only output appeared in independent hover.")
+    assert(!attempt || (await requests()).length === before, "Repeated unchanged hover escaped the cache.")
+  }
+  unchangedHover.editor.selection = new vscode.Selection(unchangedHover.document.positionAt(0), unchangedHover.document.positionAt(unchangedHoverSource.length))
+  const unchangedSelection = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", unchangedHover.document.uri, unchangedHoverAt)
+  assert(!values(unchangedSelection).includes("[注释翻译+]"), "Whitespace-only selected output exposed a translation or replacement action.")
+  assert(!owner.browse.inspect(unchangedHover.document.uri), "Independent unchanged hover enabled browse mode.")
+  assert(unchangedHover.document.getText() === unchangedHoverSource && !unchangedHover.document.isDirty, "Unchanged hover modified source.")
+  checks.push("independent and selected hover suppress whitespace-only translations and replacement actions while reusing successful results")
+
+  const unchangedDocumentation = await open("unchanged-documentation.txt", "plaintext", "documentation target")
+  let unchangedDocumentationText = "Read the original document.\n\nKeep `sourceId` unchanged."
+  const unchangedDocumentationProvider = vscode.languages.registerHoverProvider(
+    { language: "plaintext", pattern: "**/unchanged-documentation.txt" },
+    { provideHover: () => new vscode.Hover(new vscode.MarkdownString(unchangedDocumentationText)) }
+  )
+  const unchangedDiagnostics = vscode.languages.createDiagnosticCollection("unchanged-hover")
+  const unchangedDiagnostic = new vscode.Diagnostic(new vscode.Range(0, 0, 0, 13), "Read the original document.")
+  unchangedDiagnostic.source = "whitespace-diagnostic"
+  unchangedDiagnostics.set(unchangedDocumentation.document.uri, [unchangedDiagnostic])
+  await config.update("hover.documentation", true, vscode.ConfigurationTarget.Global)
+  try {
+    const before = (await requests()).length
+    const hovers = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", unchangedDocumentation.document.uri, new vscode.Position(0, 5))
+    assert(hovers.length === 1 && values(hovers) === unchangedDocumentationText, "Whitespace-only documentation or diagnostics added a duplicate hover.")
+    const after = (await requests()).length
+    assert(after > before, "Documentation unchanged regression did not exercise the translation service.")
+    await vscode.commands.executeCommand("vscode.executeHoverProvider", unchangedDocumentation.document.uri, new vscode.Position(0, 5))
+    assert((await requests()).length === after, "Unchanged documentation or diagnostic results escaped the cache.")
+    unchangedDocumentationText = '---\nlabel: "Read the original document."\n---'
+    const stringHovers = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", unchangedDocumentation.document.uri, new vscode.Position(0, 5))
+    assert(stringHovers.length === 2 && values(stringHovers).includes("originaldocument"), "Documentation hover hid a meaningful decoded-string whitespace change.")
+  } finally {
+    unchangedDiagnostics.dispose()
+    unchangedDocumentationProvider.dispose()
+    await config.update("hover.documentation", false, vscode.ConfigurationTarget.Global)
+  }
+  checks.push("language-service documentation and diagnostic hover retain original content without whitespace-only duplicates and reuse cache")
+
+  const stringSelectionSource = '---\nlabel: "Read the original document."\n---'
+  const stringSelection = await open("whitespace-string-selection.md", "markdown", stringSelectionSource)
+  stringSelection.editor.selection = new vscode.Selection(stringSelection.document.positionAt(0), stringSelection.document.positionAt(stringSelectionSource.length))
+  const stringSelectionHover = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", stringSelection.document.uri, new vscode.Position(1, 10))
+  assert(values(stringSelectionHover).includes("[注释翻译+]") && values(stringSelectionHover).includes("originaldocument"), "Selected hover hid meaningful decoded-string whitespace.")
+  checks.push("documentation and selected hover preserve meaningful string whitespace changes after per-unit comparison")
+
   const unchangedSource = '---\nlabel: "AcmeSDK"\n---\n\nRead the original document.\n\nKeep `sourceId` unchanged.'
   const unchanged = await open("unchanged.md", "markdown", unchangedSource)
   await start(unchanged.document, 4)
   const completed = owner.browse.inspect(unchanged.document.uri)!
   assert(
     completed.units.every((unit) => unit.translation === unit.text) && !completed.loading.length && !completed.errors.length && !completed.failedUnits.length,
-    "Unchanged model results were lost, left pending or marked as errors."
+    "Unchanged model results were lost, left pending or marked as errors. " + JSON.stringify(completed)
   )
   const unchangedRequests = (await requests()).length
   const unchangedLenses = await vscode.commands.executeCommand<vscode.CodeLens[]>("vscode.executeCodeLensProvider", unchanged.document.uri, 1000)
@@ -1671,6 +1798,58 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   checks.push("pending translate-and-replace discards edited, reconfigured, cancelled or hidden source snapshots")
   await config.update("hover.enabled", true, vscode.ConfigurationTarget.Global)
   await config.update("hover.documentation", false, vscode.ConfigurationTarget.Global)
+  const selectedList = "- Read the original\r\n  document. SelectionListOne\r\n- Keep `sourceId`\r\n  unchanged. SelectionListTwo"
+  const selectedListSource = "# Outside selection\r\n\r\n" + selectedList + "\r\n\r\nUnselected neighbour."
+  const selectedListTarget = await open("hover-selected-list.md", "markdown", selectedListSource)
+  const selectedListStart = selectedListSource.indexOf(selectedList)
+  const selectedListRange = new vscode.Selection(selectedListTarget.document.positionAt(selectedListStart), selectedListTarget.document.positionAt(selectedListStart + selectedList.length))
+  selectedListTarget.editor.selection = selectedListRange
+  const beforeSelectedList = (await requests()).length
+  const selectedListHover = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", selectedListTarget.document.uri, new vscode.Position(2, 5))
+  const expectedSelectedList = "- 阅读原始文档。 SelectionListOne\r\n- 保留 `sourceId` unchanged. SelectionListTwo"
+  assert(values(selectedListHover).includes(expectedSelectedList), "Multiline selected-list hover failed to reassemble both translations and source CRLF boundaries.")
+  assert(selectedListTarget.document.getText() === selectedListSource && !selectedListTarget.document.isDirty, "Selected-list hover edited the source.")
+  const selectedListRequests = (await requests()).slice(beforeSelectedList)
+  const selectedListFingerprints = await Promise.all(["Read the original document. SelectionListOne", "Keep `sourceId` unchanged. SelectionListTwo"].map(requestFingerprint))
+  const selectedListItems = selectedListRequests.flatMap((request) => request.itemFingerprints ?? (request.inputFingerprint ? [request.inputFingerprint] : []))
+  assert(
+    selectedListItems.length === 2 &&
+      selectedListFingerprints.every((fingerprint) => selectedListItems.includes(fingerprint)) &&
+      selectedListRequests.every((request) => !request.retryFeedbackIncluded),
+    "Selected-list translation sent a block boundary/prefix as prose, included a neighbour or required a retry."
+  )
+  const afterSelectedListHover = (await requests()).length
+  assert(await replaceCommand(), "Selected-list command replacement failed after hover.")
+  assert(
+    selectedListTarget.document.getText() === selectedListSource.replace(selectedList, expectedSelectedList) && (await requests()).length === afterSelectedListHover,
+    "Selected-list replacement changed unselected text or failed to reuse each hover item's cache."
+  )
+  await vscode.commands.executeCommand("undo")
+  await waitFor(() => selectedListTarget.document.getText() === selectedListSource, "selected-list replacement undo")
+  checks.push("multiline Markdown selection hover and replacement translate list bodies separately, retain CRLF/list structure, share item caches and undo one captured range")
+  const partialSelectedSource = "- Read the original document. PartialSelectedReady\r\n- Keep [code-only-no-request](./examples/development/code-only.md) unchanged."
+  const partialSelected = await open("hover-partial-selected-list.md", "markdown", partialSelectedSource)
+  partialSelected.editor.selection = new vscode.Selection(new vscode.Position(0, 0), partialSelected.document.positionAt(partialSelectedSource.length))
+  await fetch(origin + "/control", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ damageLink: true }) })
+  try {
+    const partialHover = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", partialSelected.document.uri, new vscode.Position(0, 5))
+    assert(
+      values(partialHover).includes(partialSelectedSource.replace("Read the original document.", "阅读原始文档。")),
+      "A failed selected-list item hid its accepted neighbour or replaced the damaged item instead of preserving source."
+    )
+    assert(partialSelected.document.getText() === partialSelectedSource && !partialSelected.document.isDirty, "Partial selected-list hover wrote the source.")
+  } finally {
+    await fetch(origin + "/control", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ damageLink: false }) })
+  }
+  const beforePartialSelectionRepair = (await requests()).length
+  const repairedSelectedHover = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", partialSelected.document.uri, new vscode.Position(0, 5))
+  assert(
+    values(repairedSelectedHover).includes(partialSelectedSource.replace("Read the original document.", "阅读原始文档。").replace("Keep ", "保留 ")),
+    "Repeating a partial selection hover failed to repair the unresolved item."
+  )
+  const partialSelectionRepairs = (await requests()).slice(beforePartialSelectionRepair)
+  assert(partialSelectionRepairs.length === 1 && partialSelectionRepairs[0].count === 1, "Repairing a partial selection submitted its already completed neighbour.")
+  checks.push("partial selected-list hover retains failed source, displays accepted neighbours and retries only unresolved items using the shared cache")
   const hoverReferenceSource = "Read the original document. SingleHoverTarget"
   const hoverReference = await open("hover-unit-reference.md", "markdown", hoverReferenceSource)
   const beforeSingleHover = (await requests()).length
@@ -2115,6 +2294,10 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   for (const [name, source, expected, attempts] of [
     ["heading", "## Sources", "## 来源", 2],
     ["inline", "Read `sourceId` unchanged. InlineCodeToleranceCase.", "阅读 sourceChanged，并标记 `body/html`。", 1],
+    ["bold", "Authoritative source of HIX's **official** Agent Skills.", "HIX 官方代理技能的权威来源。", 1],
+    ["bold-list", "- A root `SKILL.md` is **required**.", "- 根目录必须包含 `SKILL.md`。", 1],
+    ["italic", "Authoritative source of HIX's *official* Agent Skills.", "HIX 官方代理技能的权威来源。", 1],
+    ["italic-list", "- A root `SKILL.md` is _required_.", "- 根目录必须包含 `SKILL.md`。", 1],
     ["style", "**Summary MUST be ≤ 800 characters.** Must directly answer the task with specific data.", "**摘要必须不超过 800 个字符。** 必须用具体数据直接回答任务要求。", 1],
     [
       "code",
@@ -2145,7 +2328,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     assert((await sent()).length === attempts, "Reopening browse resubmitted the recovered unit: " + name)
     await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
   }
-  checks.push("appended correction instructions and logged style/code wrapper recovery share cached browse, hover and native preview results without source edits or excess attempts")
+  checks.push("appended corrections, omitted inline emphasis and style/code wrapper recovery share cached browse, hover and native preview results without source edits or excess attempts")
 
   await config.update(
     "profiles",
@@ -2200,5 +2383,59 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
   }
   checks.push("LF/CRLF multiline prose sends one joining space without line placeholders and shares folded browse/native preview results while preserving source")
+  for (const newline of ["\n", "\r\n"]) {
+    const commands = [
+      "agent-browser set media dark",
+      "agent-browser --session <name> ...",
+      "agent-browser --json ...",
+      "agent-browser open <url>",
+      "agent-browser <command> --help",
+      "agent-browser is visible @e1"
+    ].join(newline)
+    const bare = await owner.documents.parseSource(commands, "shellscript")
+    assert(bare.groups.length === 0, "Shell commands, options and placeholder fragments became translation units.")
+    const code = [
+      commands,
+      "# Read the original document.",
+      'agent-browser find title "Read the original document." click',
+      "echo 'Read the original document.'",
+      'agent-browser find role button click --name="Read the original document."'
+    ].join(newline)
+    for (const fenced of [false, true]) {
+      const source = fenced ? ["```" + (newline === "\n" ? "bash" : "sh"), code, "```"].join(newline) : code
+      const target = await open("shell-arguments-" + (newline === "\n" ? "lf" : "crlf") + (fenced ? ".md" : ".sh"), fenced ? "markdown" : "shellscript", source)
+      const units = (await owner.documents.parse(target.document, true)).groups.flatMap((group) => group.units)
+      const prose = units.filter((unit) => prepareTranslation(unit, emptyPreserveTerms, 32).needsTranslation)
+      assert(
+        prose.length === 4 && prose.every((unit) => prepareTranslation(unit, emptyPreserveTerms, 32).text === "Read the original document."),
+        "Shell extraction lost comments or quoted prose, or included executable arguments."
+      )
+      assert(
+        units.every((unit) => source.slice(unit.start, unit.end) === unit.text) && !(await owner.documents.target(target.document, source.indexOf("media"))),
+        "Shell units lost source ownership or exposed a command argument as a cursor translation target."
+      )
+      await config.update("browse.strings", true, vscode.ConfigurationTarget.Global)
+      await start(target.document, units.length)
+      assert(
+        owner.browse
+          .inspect(target.document.uri)!
+          .units.filter((unit) => prose.some((item) => item.id === unit.id))
+          .every((unit) => unit.translation.includes("阅读原始文档。")),
+        "Shell comments or quoted strings did not translate through the normal reading chain."
+      )
+      if (fenced) {
+        const preview = await vscode.workspace.openTextDocument(markdownPreviewUri(target.document.uri))
+        await waitFor(() => preview.getText() === source.replaceAll("Read the original document.", "阅读原始文档。"), "Shell preview retains executable syntax")
+        owner.preview.close(preview.uri)
+      }
+      assert(target.document.getText() === source && !target.document.isDirty, "Shell reading or preview edited its source.")
+      await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+      await config.update("browse.strings", false, vscode.ConfigurationTarget.Global)
+    }
+  }
+  checks.push(
+    "real Shell grammar preserves commands, options and placeholders while translating comments and quoted strings in files and fenced previews under LF/CRLF without source edits"
+  )
+
   return checks
 }

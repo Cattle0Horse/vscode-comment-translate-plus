@@ -1,3 +1,4 @@
+import { ModelRetry } from "../src/model/diagnostics.ts"
 import { emptyPreserveTerms, prepareTranslation, parsePreserveTerms } from "../src/documents/terms.ts"
 import assert from "node:assert/strict"
 import { createServer } from "node:http"
@@ -72,7 +73,7 @@ test("fenced Markdown and YAML reuse scalar and prose translation while preservi
         const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
         assert.equal(prepared.restore(prepared.text), unit.text, "No-change translations must retain original YAML syntax and every container prefix.")
         const translated = prepared.restore(prepared.text.replaceAll("Read", "阅读"))
-        assert.ok(validateTranslation(unit, translated) === undefined)
+        assert.equal(validateTranslation(unit, translated), undefined)
         translations.set(unit.id, translated)
       }
       const translated = translatedMarkdown(parsed, translations)
@@ -573,8 +574,8 @@ test("unit cache keeps table cell validation distinct from plain paragraphs even
   const paragraph = { ...inputOf(parseMarkdown("Read text.")).units[0], reference: [] }
   const cell = { ...inputOf(parseMarkdown("| Read text. | Other |\n| --- | --- |")).units[0], reference: [] }
   assert.equal(paragraph.text, cell.text)
-  assert.equal(validateTranslation(paragraph, "译文 | extra") === undefined, true)
-  assert.equal(validateTranslation(cell, "译文 | extra") === undefined, false)
+  assert.equal(validateTranslation(paragraph, "译文 | extra"), undefined)
+  assert.ok(validateTranslation(cell, "译文 | extra") instanceof ModelRetry)
   let calls = 0
   const action = async (input: TranslationInput) => {
     calls++
@@ -612,7 +613,7 @@ test("overlapping in-flight unit sets share existing work and cancellation retai
 test("unchanged results stay completed and cached while representation noise is suppressed without hiding content changes", async (t) => {
   let returned = ""
   const fixture = await chatFixture(t, () => returned)
-  const cases: { format: "markdown" | "yaml" | "text"; kind?: "string"; content?: string; original: string; returned: string; unchanged: boolean }[] = [
+  const cases: { format: "markdown" | "yaml" | "text"; kind?: "string" | "comment"; content?: string; original: string; returned: string; unchanged: boolean }[] = [
     { format: "markdown", original: "AcmeSDK product name.", returned: "AcmeSDK product name.", unchanged: true },
     { format: "markdown", original: "AcmeSDK product name.", returned: "\r\nAcmeSDK product name.\r\n", unchanged: true },
     { format: "yaml", original: '"AcmeSDK"', content: "AcmeSDK", returned: "AcmeSDK", unchanged: true },
@@ -622,7 +623,15 @@ test("unchanged results stay completed and cached while representation noise is 
     { format: "yaml", original: '"AcmeSDK "', content: "AcmeSDK ", returned: "AcmeSDK", unchanged: false },
     { format: "markdown", original: "AcmeSDK product name.", returned: "acmesdk product name.", unchanged: false },
     { format: "markdown", original: "AcmeSDK product name.", returned: "AcmeSDK product name!", unchanged: false },
-    { format: "markdown", original: "AcmeSDK product name.", returned: "AcmeSDK  product name.", unchanged: false }
+    { format: "markdown", original: "AcmeSDK product name.", returned: "AcmeSDK  product name.", unchanged: true },
+    { format: "markdown", original: "AcmeSDK product name.", returned: "AcmeSDKproductname.", unchanged: true },
+    { format: "markdown", original: "AcmeSDK\tproduct\u00a0name.", returned: "AcmeSDK product name.", unchanged: true },
+    { format: "markdown", original: "Read the guide.\r\nContinue reading.", returned: "Readtheguide. Continuereading.", unchanged: true },
+    { format: "text", kind: "comment", original: "/**\n * Read the guide.\n * Continue reading.\n */", returned: "Readtheguide. Continuereading.", unchanged: true },
+    { format: "markdown", original: "Read `a b` carefully.", returned: "Read `ab` carefully.", unchanged: false },
+    { format: "markdown", original: "Read [the guide](https://example.com).", returned: "Read [theguide](https://example.com).", unchanged: true },
+    { format: "text", kind: "string", original: '"AcmeSDK product"', returned: '"AcmeSDKproduct"', unchanged: false },
+    { format: "yaml", original: '"AcmeSDK product"', content: "AcmeSDK product", returned: "AcmeSDKproduct", unchanged: false }
   ]
   for (const [index, item] of cases.entries()) {
     returned = item.returned
@@ -644,7 +653,7 @@ test("unchanged results stay completed and cached while representation noise is 
 })
 
 test("translated retry diagnostics are rejected per unit and never cached as source translations", async (t) => {
-  const diagnosticTranslation = 'Item 1: translation-item-invalid\nreason: "The model returned invalid content."'
+  const diagnosticTranslation = 'Item 1: translation-item-invalid reason: "The model returned invalid content."'
   const fixture = await chatFixture(t, (_body, _items, call) => {
     if (call === 1) return "\n%%\n"
     if (call === 2) return "正确的相邻译文。\n%%\n" + diagnosticTranslation

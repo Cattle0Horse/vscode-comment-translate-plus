@@ -134,13 +134,13 @@ export interface ChatBody {
 export function modelInput(body: ChatBody): string {
   const content = body.messages.filter((message) => message.role === "user").at(-1)?.content ?? ""
   if (content.startsWith("Target language:")) return content.slice(content.indexOf("Source items:\n") + "Source items:\n".length)
-  const instruction = /(?:^|\r?\n)Translate (?:the following text into|to) [^\r\n]+:\r?\n\r?\n/.exec(content)
+  const instruction = /(?:^|\r?\n)(?:Based on the error response, re-translate|Translate) (?:the following text into|to) [^\r\n]+:\r?\n\r?\n/.exec(content)
   return instruction ? content.slice(instruction.index + instruction[0].length) : content
 }
 
 export function modelFeedback(body: Pick<ChatBody, "messages">): string {
   const users = body.messages.filter((message) => message.role === "user")
-  return users.length > 1 ? users[1].content.split(/\n\nTranslate the following text into [^\r\n]+:\r?\n\r?\n/, 1)[0] : ""
+  return users.length > 1 ? users[1].content.split(/\n\n(?:Based on the error response, re-translate|Translate) the following text into [^\r\n]+:\r?\n\r?\n/, 1)[0] : ""
 }
 
 export function modelContext(body: ChatBody): string {
