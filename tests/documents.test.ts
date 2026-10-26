@@ -949,7 +949,7 @@ test("recognizable added and missing markup gets corrections for the actual synt
     [plain, "> 阅读原始文档。", /Remove blockquote prefixes/],
     [plain, "- 阅读原始文档。", /Remove list items/],
     [list, "- [x] 阅读原始文档。", /Remove task-list checkboxes/],
-    [inputOf(parseMarkdown("Read **the original document**.")).units[0], "阅读原始文档。", /source emphasis delimiters/],
+    [inputOf(parseMarkdown("Read **the original document**.")).units[0], "阅读原始文档。", /paired "\*\*" delimiters/],
     [inputOf(parseMarkdown("Read <span>the original document</span>.")).units[0], "阅读原始文档。", /source HTML tags/],
     [inputOf(parseMarkdown("Read [Title].")).units[0], "阅读内容。", /source reference-link labels/]
   ] as const) {

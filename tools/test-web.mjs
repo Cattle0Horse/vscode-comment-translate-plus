@@ -241,11 +241,13 @@ const mock = createServer(async (request, response) => {
         retryFeedbackEnglishSeparated:
           users.length === 2 &&
           feedback
-            .replace(/^Previous response errors:\n/u, "")
             .trim()
             .split("\n\n")
             .filter((block) => !block.startsWith("Current request:"))
-            .every((block) => block.split("\n").length === 2 && !/\p{Script=Han}/u.test(block)),
+            .every((block) => {
+              const lines = block.split("\n")
+              return lines.length === 2 && lines[0].startsWith("Previous response errors: ") && lines[1].startsWith("Correction: ")
+            }),
         previousOutputFingerprint: body.messages.some((message) => message.role === "assistant")
           ? createHash("sha256")
               .update(body.messages.find((message) => message.role === "assistant").content)
@@ -253,8 +255,20 @@ const mock = createServer(async (request, response) => {
           : undefined,
         numberedCorrections:
           users.length === 2 &&
-          feedbackLines.some((line, index) => line.startsWith("Item 1:") && line.includes("exactly once") && feedbackLines[index + 1]?.includes("marker")) &&
-          feedbackLines.some((line, index) => line.startsWith("Item 2:") && line.includes("empty") && feedbackLines[index + 1]?.includes("non-empty")),
+          feedbackLines.some(
+            (line, index) =>
+              line.startsWith("Previous response errors: Item 1:") &&
+              line.includes("exactly once") &&
+              feedbackLines[index + 1]?.startsWith("Correction: Item 1:") &&
+              feedbackLines[index + 1].includes("marker")
+          ) &&
+          feedbackLines.some(
+            (line, index) =>
+              line.startsWith("Previous response errors: Item 2:") &&
+              line.includes("empty") &&
+              feedbackLines[index + 1]?.startsWith("Correction: Item 2:") &&
+              feedbackLines[index + 1].includes("non-empty")
+          ),
         contextCharacters: context.length,
         contextFingerprint: createHash("sha256").update(context).digest("hex"),
         inputCharacters: body.messages.reduce((sum, message) => sum + message.content.length, 0),
