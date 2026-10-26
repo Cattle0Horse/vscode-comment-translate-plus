@@ -114,12 +114,12 @@ for (const [category, terms] of Object.entries(categories)) {
   await json(`candidates/${category}.json`, unique)
 }
 await json("candidates/all.json", all)
-await json("candidates/selected.json", sort(selected))
+await json("candidates/selected.json", selected)
 const additions = JSON.parse(await readFile(resolve(root, "additions.json"), "utf8"))
 if (!Array.isArray(additions)) throw Error("additions.json must be an array")
-const full = uniqueRules([...additions, ...sort(selected), ...all])
+const full = uniqueRules([...additions, ...selected, ...all])
 const excluded = new Set([...ordinaryWords].map((term) => term.toLowerCase()))
-const curated = uniqueRules([...additions, ...sort(selected)].filter((term) => typeof term !== "string" || !excluded.has(term.toLowerCase())))
+const curated = uniqueRules([...additions, ...selected].filter((term) => typeof term !== "string" || !excluded.has(term.toLowerCase())))
 await json("../resources/preserve-terms.json", curated)
 await json("../resources/preserve-terms.full.json", full)
 await json("provenance.json", { candidates: all.map((term) => ({ term, sources: sort(origins.get(term)) })), selected: selectedProvenance })
@@ -140,7 +140,7 @@ const manifest = {
     "输出词库的字符串按 toLowerCase() 忽略大小写去重，依次保留人工补充、规范名称、上游的首个拼写；候选与溯源保留原始拼写；正则原样保留；不取 Devicon tags/图标变体或 Linguist 文件扩展名",
   repositories,
   outputs: { curated: "resources/preserve-terms.json", full: "resources/preserve-terms.full.json" },
-  counts: { ...counts, allUnique: all.length, selected: sort(selected).length, curated: curated.length, full: full.length, rejected: rejected.length },
+  counts: { ...counts, allUnique: all.length, selected: selected.length, curated: curated.length, full: full.length, rejected: rejected.length },
   licenses: { cspell: "MIT", devicon: "MIT", linguist: "MIT" },
   sources
 }
