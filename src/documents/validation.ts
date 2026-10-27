@@ -18,8 +18,60 @@ function translatedString(unit: TextUnit, text: string): string | undefined {
   return !document.errors.length && isScalar(document.contents) && typeof document.contents.value === "string" ? document.contents.value : undefined
 }
 
+/** Inspect only parsed prose gaps: code, escapes and markup attributes can own literal backticks. */
+function unmatchedBackticks(text: string): string[] {
+  const delimiters: string[] = []
+
+  function scan(start: number, end: number): void {
+    for (const match of text.slice(start, end).matchAll(/`+/gu)) delimiters.push(match[0])
+  }
+
+  function visit(node: MarkdownNode): void {
+    if (["InlineCode", "FencedCode", "CodeBlock", "HTMLTag", "HTMLBlock", "Escape", "URL", "Autolink", "LinkLabel", "LinkReference"].includes(node.name)) return
+    let position = node.from
+    for (const child of children(node)) {
+      scan(position, child.from)
+      visit(child)
+      position = child.to
+    }
+    scan(position, node.to)
+  }
+
+  visit(markdownTree(text).topNode)
+  return delimiters
+}
+
 /** Compare actual syntax fragments; each failing constraint owns its feedback. */
 function validateProtectedFragments(expected: ReturnType<typeof fragmentContents>, actual: ReturnType<typeof fragmentContents>, source: string, output: string): ModelRetry | undefined {
+  // Called only after a structural mismatch. Diagnose a new incomplete code boundary
+  // before treating its potentially misleading parsed HTML/link nodes as independent damage.
+  // Literal backticks alone remain model-owned and never make a valid structure fail.
+  if (output.includes("`")) {
+    const sourceDelimiters = unmatchedBackticks(source)
+    for (const delimiter of unmatchedBackticks(output)) {
+      const index = sourceDelimiters.indexOf(delimiter)
+      if (index >= 0) {
+        sourceDelimiters.splice(index, 1)
+        continue
+      }
+      return new ModelRetry(
+        {
+          reason: `The response contains an unmatched inline-code backtick delimiter of length ${delimiter.length}. It may change how HTML, links or other Markdown syntax is parsed.`,
+          instruction:
+            "Check inline-code boundaries before changing HTML or link content. Use matching backtick runs for code spans, or remove unmatched backticks if inline code is not intended. " +
+            "Keep literal angle-bracket text in a complete code span or escape it. Preserve source HTML tags and link targets; return only this source item's translation."
+        },
+        {
+          code: "translation-structure-invalid",
+          difference: {
+            reason: "译文新增了未配对的行内代码反引号，可能导致 HTML、链接或其他 Markdown 结构的解析差异。",
+            expected: "完整的行内代码边界，或普通正文",
+            actual: delimiter.length > 160 ? delimiter.slice(0, 160) + "…（共 " + delimiter.length + " 个反引号）" : delimiter
+          }
+        }
+      )
+    }
+  }
   const unmatched = [...actual]
   const missing = expected.filter((fragment) => {
     const index = unmatched.findIndex((candidate) => candidate[0] === fragment[0] && candidate[1] === fragment[1])

@@ -924,6 +924,40 @@ test("string syntax and protected-fragment order reject with their own correctio
   assert.match(reordered.feedback.instruction, /original order/)
 })
 
+test("broken inline-code boundaries are diagnosed before their apparent HTML or link differences", () => {
+  for (const format of ["markdown", "text"] as const) {
+    for (const [source, output, delimiter] of [
+      ["Compare `<north field>`, `<south field>`, and `<west field>`.", "比较 `<north field>`、`<south field>》和 `<west field>`。", "`"],
+      ["Read [guide](https://guide.example) and `<sample field>`.", "阅读 `[指南](https://guide.example) 和 `<sample field>`。", "`"],
+      ["Compare ``<north field>`` and ``<south field>``.", "比较 ``<north field> 和 ``<south field>``。", "``"]
+    ]) {
+      const unit = { id: "boundaries", start: 0, end: source.length, text: source, format }
+      const failure = validateTranslation(unit, output)!
+      assert.ok(failure instanceof ModelRetry)
+      assert.equal(failure.difference?.actual, delimiter, "The diagnostic selected downstream markup instead of the incomplete code boundary.")
+    }
+  }
+})
+
+test("literal backticks and model-owned inline code do not mask genuine markup changes or add rejection conditions", () => {
+  const parsed = parseMarkdown("Read `<sample field>` and the guide.")
+  const unit = parsed.groups[0].units[0]
+  for (const output of ["阅读 `示例字段 和指南。", "阅读 ``示例字段` 和指南。", "阅读示例字段和指南。", "阅读 `改写后的字段` 和指南。"])
+    assert.equal(translatedMarkdown(parsed, new Map([[unit.id, output]])), output)
+
+  for (const [source, expected, actual] of [
+    ["Read the literal ` and <span>guide</span>.", "<span>", "<div>"],
+    ["Read `paired code` and <span>guide</span>.", "<span>", "<div>"],
+    ["Read \\` and <span>guide</span>.", "<span>", "<div>"],
+    ["Read <span title='`'>guide</span>.", "<span title='`'>", "<div title='`'>"]
+  ]) {
+    const failure = validateTranslation(parseMarkdown(source).groups[0].units[0], source.replaceAll("span", "div"))
+    assert.ok(failure instanceof ModelRetry)
+    assert.equal(failure.difference?.expected, expected)
+    assert.equal(failure.difference?.actual, actual)
+  }
+})
+
 test("HTML additions report markup errors while inline-code mentions remain allowed", () => {
   for (const output of ["第一章打开<head>和<body>。", "<section>第一章</section>"]) {
     const unit = inputOf(parseMarkdown("The sample glossary lists document/head/body.")).units[0]

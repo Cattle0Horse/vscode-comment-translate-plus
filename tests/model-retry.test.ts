@@ -396,6 +396,45 @@ test("network recovery respects a one-attempt limit and explicit cancellation", 
   }
 })
 
+test("incomplete code boundaries take priority over apparent HTML damage and recover without publishing or caching the broken item", async (t) => {
+  const source = "Compare `<north field>`, `<south field>`, and `<west field>`."
+  const broken = "比较 `<north field>`、`<south field>》和 `<west field>`。"
+  const fixed = "比较 `<north field>`、`<south field>` 和 `<west field>`。"
+  const neighbour = "阅读相邻内容。"
+  const published: string[] = []
+  const events: TranslationEvent[] = []
+  const fixture = await chatFixture(t, (_body, _items, call) => {
+    if (call === 1) return broken + "\n%%\n" + neighbour
+    assert.deepEqual(published, [neighbour], "The incomplete code span was published or the valid neighbour was discarded.")
+    return fixed
+  })
+  const input = inputOf(parseMarkdown(source + "\n\nRead the neighbour."))
+  const store = new TranslationStore()
+  t.after(() => store.clear())
+  const run = () =>
+    store.translate(
+      "code-boundary-recovery",
+      input,
+      (request, signal) =>
+        requestTranslation(fixture.service, fixture.settings, request, signal, fixture.gate, (item) => published.push(item.text), {
+          details: false,
+          emit: (event) => events.push(event)
+        }),
+      new AbortController().signal
+    )
+  const result = await run()
+  assert.deepEqual([...result.values()], [fixed, neighbour])
+  assert.deepEqual(published, [neighbour, fixed])
+  assert.equal(fixture.seen.length, 2)
+  assert.deepEqual(fixture.seen[1].items, [source])
+  const failure = events.flatMap((event) => (event.kind === "request" ? event.failures : []))[0]
+  assert.equal(failure.difference.actual, "`")
+  assert.ok(failure.difference.modelReason)
+  assert.ok(modelFeedback(fixture.seen[1].body).includes(failure.difference.modelReason), "The retry did not carry the diagnosed cause into the model request.")
+  assert.deepEqual(await run(), result)
+  assert.equal(fixture.seen.length, 2, "The validated recovery was not cached.")
+})
+
 test("known structural errors send the matching correction and recover only the rejected item", async (t) => {
   for (const scenario of [
     {
