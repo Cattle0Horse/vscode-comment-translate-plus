@@ -61,14 +61,10 @@ export async function extractCode(source: string, language: string, grammar: IGr
       if (previous?.kind === kind && previous.scope === scope && !previous.complete && (previous.end === start || (multiline && /^\s*$/.test(gap)))) previous.end = end
       else spans.push({ start, end, kind, scope, depth, protected: [] })
       const active = spans.at(-1)!
-      if (
-        language === "python" &&
-        token.scopes.includes("punctuation.definition.string.end.python") &&
-        (!fstring || (token.scopes.includes("string.interpolated.python") && token.scopes.filter((scope) => scope === "meta.fstring.python").length === 1))
-      )
-        active.complete = true
+      const fstringExpression = fstring && (!token.scopes.includes("string.interpolated.python") || token.scopes.filter((scope) => scope === "meta.fstring.python").length > 1)
+      if (language === "python" && token.scopes.includes("punctuation.definition.string.end.python") && !fstringExpression) active.complete = true
       const protectedToken =
-        (fstring && (!token.scopes.includes("string.interpolated.python") || token.scopes.filter((scope) => scope === "meta.fstring.python").length > 1)) ||
+        fstringExpression ||
         token.scopes.some(
           (value) =>
             value.startsWith("punctuation.definition.comment") ||
@@ -87,7 +83,7 @@ export async function extractCode(source: string, language: string, grammar: IGr
     offset += current.length + (source.startsWith("\r\n", offset + current.length) ? 2 : 1)
   }
   if (language === "python") {
-    for (const span of spans) if (span.kind === "string") span.literals = [{ start: span.start, end: span.end, protected: [...span.protected] }]
+    for (const span of spans) if (span.kind === "string") span.literals = [{ start: span.start, end: span.end, protected: span.protected }]
     const joined: typeof spans = []
     for (const next of spans) {
       const previous = joined.at(-1)

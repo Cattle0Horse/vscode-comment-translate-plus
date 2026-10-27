@@ -199,6 +199,7 @@ export function pythonStringUnits(source: string, region: TextUnit, literals: re
     if (!opening || /b/iu.test(opening[1]) || !original.endsWith(opening[2])) return []
     const start = literal.start + opening[0].length
     const end = literal.end - opening[2].length
+    const raw = /r/iu.test(opening[1])
     const formatted = /f/iu.test(opening[1])
     const expressions = formatted
       ? literal.protected.flatMap((range) => {
@@ -206,8 +207,8 @@ export function pythonStringUnits(source: string, region: TextUnit, literals: re
           return value.startsWith("{") && value.endsWith("}") && !value.startsWith("{{") ? [value] : []
         })
       : []
-    formats.push({ quote: opening[2], raw: /r/iu.test(opening[1]), formatted, opener: opening[0] })
-    decode(source.slice(start, end), /r/iu.test(opening[1]), formatted, expressions, (value, from, to, protectedToken) => {
+    formats.push({ quote: opening[2], raw, formatted, opener: opening[0] })
+    decode(source.slice(start, end), raw, formatted, expressions, (value, from, to, protectedToken) => {
       if (protectedToken) protectedRanges.push({ start: text.length, end: text.length + value.length })
       if (protectedToken && expressions.includes(value)) expressionRanges.push({ start: text.length, end: text.length + value.length, text: value })
       text += value
@@ -218,15 +219,20 @@ export function pythonStringUnits(source: string, region: TextUnit, literals: re
   const units: (TextUnit & { readonly kind: "string" })[] = []
   for (const block of blocks) {
     const raw = text.slice(block.start, block.end)
-    const lines = [...raw.matchAll(/[^\n]*(?:\n|$)/gu)].filter((match) => match[0])
-    const indent = Math.min(...lines.filter((line) => line[0].trim()).map((line) => line[0].match(/^[\t ]*/u)![0].length))
+    const lines = [...raw.matchAll(/[^\n]*(?:\n|$)/gu)]
+      .filter((match) => match[0])
+      .map((match) => ({
+        text: match[0],
+        start: block.start + match.index,
+        indent: match[0].match(/^[\t ]*/u)![0].length
+      }))
+    const indent = Math.min(...lines.filter((line) => line.text.trim()).map((line) => line.indent))
     let logical = ""
     const offsets: number[] = []
     for (const line of lines) {
-      const position = block.start + line.index
-      const remove = protectedRanges.some((range) => range.start < position && range.end > position) ? 0 : Math.min(indent, line[0].match(/^[\t ]*/u)![0].length)
-      logical += line[0].slice(remove)
-      for (let index = remove; index < line[0].length; index++) offsets.push(block.start + line.index + index)
+      const remove = protectedRanges.some((range) => range.start < line.start && range.end > line.start) ? 0 : Math.min(indent, line.indent)
+      logical += line.text.slice(remove)
+      for (let index = remove; index < line.text.length; index++) offsets.push(line.start + index)
     }
     const parsed = parseMarkdown(logical)
     for (const inner of parsed.groups.flatMap((group) => group.units)) {
@@ -246,7 +252,7 @@ export function pythonStringUnits(source: string, region: TextUnit, literals: re
           return from >= inner.start && to < inner.end && to >= from ? [{ start: from - inner.start, end: to - inner.start + 1 }] : []
         })
       }
-      const expressions = expressionRanges.filter((range) => range.start >= offsets[inner.start] && range.end <= offsets[inner.end - 1] + 1).map((range) => range.text)
+      const expressions = expressionRanges.filter((range) => range.start >= offsets[inner.start] && range.end <= offsets[inner.end - 1] + 1)
       // If a paragraph crosses unlike literals, reopen the final literal for the untouched suffix.
       const transition = firstFormat.opener === lastFormat.opener ? "" : firstFormat.quote + " " + lastFormat.opener
       units.push({
@@ -257,9 +263,7 @@ export function pythonStringUnits(source: string, region: TextUnit, literals: re
         end,
         text: source.slice(start, end),
         reference: sourceReferences(source, { start, end }, "python"),
-        protected: expressionRanges
-          .filter((range) => range.start >= offsets[inner.start] && range.end <= offsets[inner.end - 1] + 1)
-          .map((range) => ({ start: positions[range.start].start - start, end: positions[range.end - 1].end - start })),
+        protected: expressions.map((range) => ({ start: positions[range.start].start - start, end: positions[range.end - 1].end - start })),
         pythonString: {
           unit,
           prefix: source.slice(start, first.start),
@@ -267,7 +271,7 @@ export function pythonStringUnits(source: string, region: TextUnit, literals: re
           quote: firstFormat.quote,
           raw: firstFormat.raw,
           formatted: firstFormat.formatted,
-          expressions
+          expressions: expressions.map((range) => range.text)
         }
       })
     }
