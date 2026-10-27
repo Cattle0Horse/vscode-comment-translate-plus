@@ -29,6 +29,51 @@ const grammar = {
   }
 } as IGrammar
 
+test("Python multiline f-string prose survives interpolation-only lines and blank paragraphs", async () => {
+  for (const newline of ["\n", "\r\n"]) {
+    for (const quote of ['"""', "'''"]) {
+      const source = ["def museum_notice():", "    return f" + quote + "Read the museum catalog.", "", "Available exhibits:", "{labels}", "", "Keep the ticket.", quote].join(newline)
+      let lineIndex = 0
+      const multilineGrammar = {
+        tokenizeLine(line: string, state: typeof INITIAL) {
+          const scopes = ["source.python", "meta.fstring.python", "string.interpolated.python", "string.quoted.multi.python"]
+          const token = (startIndex: number, endIndex: number, scopes: string[]) => ({ startIndex, endIndex, scopes })
+          let tokens
+          if (lineIndex === 0) tokens = [token(0, line.length, ["source.python"])]
+          else if (lineIndex === 1) {
+            const start = line.indexOf("f" + quote)
+            tokens = [
+              token(0, start, ["source.python"]),
+              token(start, start + 1, [...scopes, "storage.type.string.python"]),
+              token(start + 1, start + 1 + quote.length, [...scopes, "punctuation.definition.string.begin.python"]),
+              token(start + 1 + quote.length, line.length, scopes)
+            ]
+          } else if (line === "{labels}") tokens = [token(0, line.length, ["source.python", "meta.fstring.python"])]
+          else if (line === quote) tokens = [token(0, line.length, [...scopes, "punctuation.definition.string.end.python"])]
+          else tokens = [token(0, line.length, scopes)]
+          lineIndex++
+          return { tokens, ruleStack: state, stoppedEarly: false }
+        }
+      } as IGrammar
+      const units = await extractCode(source, "python", multilineGrammar, () => {})
+      const prepared = units.map((unit) => prepareTranslation(unit, emptyPreserveTerms, 32))
+      assert.deepEqual(
+        prepared.map((item) => item.text),
+        ["Read the museum catalog.", "Available exhibits:", "{labels}", "Keep the ticket."]
+      )
+      assert.ok(prepared.every((item, index) => item.restore(item.text) === units[index].text))
+      let translated = source
+      const results = ["阅读博物馆目录。", "可参观的展览：", "{labels}", "保留门票。"]
+      for (let index = units.length - 1; index >= 0; index--) {
+        const output = prepared[index].restore(results[index])
+        assert.equal(validateTranslation(units[index], output), undefined)
+        translated = translated.slice(0, units[index].start) + output + translated.slice(units[index].end)
+      }
+      assert.equal(translated, ["def museum_notice():", "    return f" + quote + results[0], "", results[1], "{labels}", "", results[3], quote].join(newline))
+    }
+  }
+})
+
 test("Python adjacent literal prose sends complete paragraphs without source quote boundaries", async () => {
   for (const newline of ["\n", "\r\n"]) {
     const source = ["description = (", '    "Read the museum catalog "', '    "before visiting the gallery.\\n\\nKeep the ticket "', '    "for the next exhibition."', ")"].join(newline)

@@ -487,6 +487,69 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   await config.update("browse.strings", true, vscode.ConfigurationTarget.Global)
   for (const quote of ['"""', "'''"]) {
     for (const newline of ["\n", "\r\n"]) {
+      const source = [
+        "def museum_notice(exhibits):",
+        '    """Read the original document."""',
+        '    labels = "\\n".join(f"- **{name}**" for name in exhibits)',
+        "    return f" + quote + "Read the original document.",
+        "",
+        "Available exhibits:",
+        "{labels}",
+        "",
+        "Read the original document. {labels}",
+        "Keep both lines together.",
+        quote,
+        'other = "Keep the original string."'
+      ].join(newline)
+      const expected = [
+        "Read the original document.",
+        "{name}",
+        "Read the original document.",
+        "Available exhibits:",
+        "{labels}",
+        "Read the original document. {labels} Keep both lines together.",
+        "Keep the original string."
+      ]
+      const target = await open("multiline-fstring-" + (quote[0] === '"' ? "double" : "single") + (newline === "\n" ? "-lf.py" : "-crlf.py"), "python", source)
+      const units = (await owner.documents.parse(target.document)).groups.flatMap((group) => group.units)
+      assert(
+        JSON.stringify(units.map((unit) => prepareTranslation(unit, emptyPreserveTerms, 32).text)) === JSON.stringify(expected),
+        "Multiline f-string prose disappeared at a standalone interpolation or crossed the closing quote."
+      )
+      const before = (await requests()).length
+      await start(target.document, units.length)
+      const completed = owner.browse.inspect(target.document.uri)!.units
+      const paragraph = completed.find((unit) => unit.text.includes("Read the original document. {labels}"))
+      assert(
+        paragraph?.translation &&
+          validateTranslation(paragraph, paragraph.translation) === undefined &&
+          pythonStringContent(paragraph, paragraph.translation) === "阅读原始文档。 {labels} 保留两行在一起。",
+        "Multiline f-string browsing did not translate complete prose while preserving the interpolation."
+      )
+      const sent = (await requests()).slice(before).flatMap((request) => request.itemFingerprints ?? [])
+      const allowed = await Promise.all(expected.map(requestFingerprint))
+      assert(
+        sent.every((fingerprint) => allowed.includes(fingerprint)),
+        "Multiline f-string HTTP received source quote boundaries or incomplete prose."
+      )
+      assert(target.document.getText() === source && !target.document.isDirty, "Multiline f-string browsing changed source.")
+      await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+      for (const prefix of ["fr", "rf", "F"]) {
+        const variant = source.replace("return f" + quote, "return " + prefix + quote)
+        const parsed = (await owner.documents.parseSource(variant, "python")).groups.flatMap((group) => group.units)
+        assert(
+          JSON.stringify(parsed.map((unit) => prepareTranslation(unit, emptyPreserveTerms, 32).text)) === JSON.stringify(expected),
+          "A raw or uppercase multiline f-string lost prose around interpolation-only lines."
+        )
+      }
+    }
+  }
+  await config.update("browse.strings", false, vscode.ConfigurationTarget.Global)
+  checks.push("real Python multiline f-strings retain paragraphs around standalone and inline interpolations, translate over mock HTTP and keep source intact for both quotes and LF/CRLF")
+
+  await config.update("browse.strings", true, vscode.ConfigurationTarget.Global)
+  for (const quote of ['"""', "'''"]) {
+    for (const newline of ["\n", "\r\n"]) {
       const source = ["def search():", "    " + quote + "Read the original document.", "", "        Args:", "            Read the original document.", "    " + quote, "    return 1"].join(
         newline
       )

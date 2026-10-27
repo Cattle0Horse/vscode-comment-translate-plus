@@ -16,6 +16,7 @@ export async function extractCode(source: string, language: string, grammar: IGr
     kind: CodeRegion["kind"]
     scope: string
     depth: number
+    multiline: boolean
     protected: { start: number; end: number }[]
     complete?: boolean
     commentPrefix?: string
@@ -60,8 +61,8 @@ export async function extractCode(source: string, language: string, grammar: IGr
       const gap = previous ? source.slice(previous.end, start) : ""
       const multiline =
         scope.startsWith("comment.block") || token.scopes.some((value) => value.startsWith("string.quoted.") && value.includes(".multi.")) || scope.startsWith("string.template")
-      if (previous?.kind === kind && previous.scope === scope && !previous.complete && (previous.end === start || (multiline && /^\s*$/.test(gap)))) previous.end = end
-      else spans.push({ start, end, kind, scope, depth, protected: [] })
+      if (previous?.kind === kind && previous.scope === scope && !previous.complete && (previous.end === start || (previous.multiline && /^\s*$/.test(gap)))) previous.end = end
+      else spans.push({ start, end, kind, scope, depth, multiline, protected: [] })
       const active = spans.at(-1)!
       const fstringExpression = fstring && (!token.scopes.includes("string.interpolated.python") || token.scopes.filter((scope) => scope === "meta.fstring.python").length > 1)
       if (language === "python" && token.scopes.includes("punctuation.definition.string.end.python") && !fstringExpression) active.complete = true
