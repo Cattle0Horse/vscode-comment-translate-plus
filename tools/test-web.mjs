@@ -12,6 +12,11 @@ import { setTimeout as delay } from "node:timers/promises"
 import { open, runTests } from "@vscode/test-web"
 import yauzl from "yauzl"
 import { localServiceFromEnvironment } from "./local-service.mjs"
+import manifest from "../package.json" with { type: "json" }
+
+const languageCodes = new Map(
+  Object.entries(manifest.contributes.configuration.properties["commentTranslatePlus.profiles"].items.properties.languageNames.default).map(([code, name]) => [name, code])
+)
 
 const flags = new Set(process.argv.slice(2))
 assert.ok(
@@ -229,10 +234,7 @@ const mock = createServer(async (request, response) => {
         provider: "openai",
         model: body.model,
         target:
-          user.match(/^Target language: [^\n]*?\[([^\]]+)\]/)?.[1] ??
-          system.match(/Target language: [^\n]*?\[([^\]]+)\]/)?.[1] ??
-          { "Simplified Chinese": "zh-CN", "Traditional Chinese": "zh-TW", English: "en" }[instruction?.[1]] ??
-          instruction?.[1],
+          user.match(/^Target language: [^\n]*?\[([^\]]+)\]/)?.[1] ?? system.match(/Target language: [^\n]*?\[([^\]]+)\]/)?.[1] ?? languageCodes.get(instruction?.[1]) ?? instruction?.[1],
         source: system.match(/Source language: [^\n]*?\[([^\]]+)\]/)?.[1],
         sourceDeclared: system.includes("Source language:"),
         referenceIncluded: !!context,

@@ -37,7 +37,7 @@ test("post-translation language review retries only suspicious prose and caches 
   assert.equal(reviewedMessages[0].content, originalMessages[0].content, "The review changed the user's system template.")
   const hint = modelFeedback(fixture.seen[1].body)
   assert.ok(
-    hint.includes(settings.targetLanguage) && !/Item \d|Current request:|translation-language-/.test(hint),
+    hint.includes(settings.languageNames[settings.targetLanguage]) && !/Item \d|Current request:|translation-language-/.test(hint),
     "A single-item correction retained diagnostic labels or lost its target language."
   )
   assert.ok(!published.includes(source), "A provisional untranslated result reached the display or cache.")
@@ -69,7 +69,10 @@ test("a language review allows unchanged results but rejects other-language rewr
       assert.ok(finish.kind === "finish" && finish.status === (rephrase ? "failed" : "complete") && finish.failures.length === (rephrase ? 1 : 0))
       if (maximum > 1) {
         const feedback = modelFeedback(fixture.seen[1].body)
-        assert.ok(feedback.includes(settings.targetLanguage) && !feedback.includes("score="), "The model review lost the requested target or received detector scores.")
+        assert.ok(
+          feedback.includes(settings.languageNames[settings.targetLanguage]) && !feedback.includes("score="),
+          "The model review lost the requested target or received detector scores."
+        )
         assert.ok(entries.some((entry) => entry.includes("[WARNING]")))
         assert.equal(
           entries.some((entry) => entry.includes("[ERROR]")),
@@ -100,7 +103,7 @@ test("synthetic catalog rewrites recover on the last attempt without publishing 
   for (const retry of fixture.seen.slice(1)) {
     assert.deepEqual(retry.body.messages.slice(0, fixture.seen[0].body.messages.length), fixture.seen[0].body.messages, "Recovery changed the original template messages.")
     const hint = modelFeedback(retry.body)
-    assert.ok(hint.includes(fixture.settings.targetLanguage) && !/Item \d|Current request:|translation-language-|score/.test(hint))
+    assert.ok(hint.includes(fixture.settings.languageNames[fixture.settings.targetLanguage]) && !/Item \d|Current request:|translation-language-|score/.test(hint))
   }
 })
 
