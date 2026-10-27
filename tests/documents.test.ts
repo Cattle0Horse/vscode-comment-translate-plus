@@ -13,6 +13,7 @@ import type { TranslationInput } from "../src/model/translation.ts"
 import { splitTranslations } from "../src/translation/providers/prompts.ts"
 import type { TranslationEvent } from "../src/model/events.ts"
 import { sourceReferences } from "../src/documents/references.ts"
+import { pythonStringContent, pythonStringUnits } from "../src/documents/python.ts"
 import {
   referenceText,
   embeddedMarkdown,
@@ -829,9 +830,11 @@ test("Python triple quote boundary tokens stay local without masking internal es
 
 test("Python concatenated literals preserve interpolation and ordered syntax through translation", () => {
   for (const newline of ["\n", "\r\n"]) {
-    const text = ["f\"Skill '{name}' is already loaded in this \"", '        "session. Continue reading."'].join(newline)
+    const text = ["f\"Museum '{name}' uses shelf {shelf} in this \"", '        "catalog. Continue reading."'].join(newline)
     const boundary = text.indexOf('"' + newline)
+    const second = text.indexOf('"', boundary + 1)
     const interpolation = text.indexOf("{name}")
+    const shelf = text.indexOf("{shelf}")
     const unit = {
       id: "python-concatenation",
       start: 0,
@@ -840,30 +843,27 @@ test("Python concatenated literals preserve interpolation and ordered syntax thr
       kind: "string" as const,
       format: "text" as const,
       language: "python",
-      protected: [
-        { start: 0, end: 2 },
-        { start: interpolation, end: interpolation + 6 },
-        { start: boundary, end: boundary + newline.length + 10 },
-        { start: text.length - 1, end: text.length }
-      ]
+      protected: []
     }
-    const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
-    assert.equal(prepared.text, text.slice(2, -1))
-    assert.equal(prepared.restore(prepared.text), text)
-    const translated = prepared.restore(prepared.text.replace("Skill", "技能").replace("Continue reading.", "继续阅读。"))
-    assert.equal(translated, text.replace("Skill", "技能").replace("Continue reading.", "继续阅读。"))
-    assert.equal(validateTranslation(unit, translated), undefined)
+    const [prose] = pythonStringUnits(text, unit, [
+      {
+        start: 0,
+        end: boundary + 1,
+        protected: [
+          { start: interpolation, end: interpolation + 6 },
+          { start: shelf, end: shelf + 7 }
+        ]
+      },
+      { start: second, end: text.length, protected: [] }
+    ])
+    const prepared = prepareTranslation(prose, emptyPreserveTerms, 32)
+    assert.equal(prepared.text, "Museum '{name}' uses shelf {shelf} in this catalog. Continue reading.")
+    assert.equal(prepared.restore(prepared.text), prose.text)
+    const translated = prepared.restore(prepared.text.replace("Museum", "博物馆").replace("Continue reading.", "继续阅读。"))
+    assert.equal(pythonStringContent(prose, translated), prepared.text.replace("Museum", "博物馆").replace("Continue reading.", "继续阅读。"))
+    assert.equal(validateTranslation(prose, translated), undefined)
     assert.throws(() => prepared.restore(prepared.text.replace("{name}", "")), /structure-invalid/u)
-    assert.throws(
-      () =>
-        prepared.restore(
-          prepared.text
-            .replace("{name}", "<SWAP>")
-            .replace(text.slice(boundary, boundary + newline.length + 10), "{name}")
-            .replace("<SWAP>", text.slice(boundary, boundary + newline.length + 10))
-        ),
-      /structure-invalid/u
-    )
+    assert.throws(() => prepared.restore(prepared.text.replace("{name}", "<SWAP>").replace("{shelf}", "{name}").replace("<SWAP>", "{shelf}")), /structure-invalid/u)
   }
 })
 

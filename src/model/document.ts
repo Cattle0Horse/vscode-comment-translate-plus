@@ -15,6 +15,16 @@ export interface TextUnit {
   /** Normalized Markdown definition keys, including definitions outside this unit. */
   readonly linkLabels?: readonly string[]
   readonly embedding?: { readonly unit: TextUnit; readonly prefixes: readonly string[] }
+  /** Python prose is parsed in decoded coordinates; literal syntax stays local. */
+  readonly pythonString?: {
+    readonly unit: TextUnit
+    readonly prefix: string
+    readonly continuation: string
+    readonly quote: string
+    readonly raw: boolean
+    readonly formatted: boolean
+    readonly expressions: readonly string[]
+  }
 }
 
 export interface TextGroup {

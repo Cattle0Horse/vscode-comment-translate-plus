@@ -36,7 +36,18 @@ function unitContentKey(unit: TextUnit): readonly unknown[] {
     unit.protected,
     unit.linkLabels,
     unit.display !== undefined,
-    unit.embedding ? [unitContentKey(unit.embedding.unit), unit.embedding.prefixes] : undefined
+    unit.embedding ? [unitContentKey(unit.embedding.unit), unit.embedding.prefixes] : undefined,
+    unit.pythonString
+      ? [
+          unitContentKey(unit.pythonString.unit),
+          unit.pythonString.prefix,
+          unit.pythonString.continuation,
+          unit.pythonString.quote,
+          unit.pythonString.raw,
+          unit.pythonString.formatted,
+          unit.pythonString.expressions
+        ]
+      : undefined
   ]
 }
 

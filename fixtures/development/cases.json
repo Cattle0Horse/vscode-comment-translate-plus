@@ -189,7 +189,7 @@
         "units": 3,
         "strings": true,
         "contains": [
-            "\"\"\"Read the original document.\nKeep both lines together.\"\"\""
+            "Read the original document.\nKeep both lines together."
         ],
         "excludes": [
             "message =",

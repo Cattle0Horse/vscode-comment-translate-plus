@@ -7,6 +7,7 @@ import { yamlShape } from "./yaml.ts"
 import { fragmentContents, linkReferenceKind } from "./protection.ts"
 import { unembedTranslation } from "./embedding.ts"
 import { translationBody } from "./body.ts"
+import { pythonStringContent } from "./python.ts"
 
 function translatedString(unit: TextUnit, text: string): string | undefined {
   if (unit.format !== "yaml") {
@@ -239,6 +240,7 @@ function comparisonProse(unit: TextUnit): string {
 export function translationIsUnchanged(unit: TextUnit, translated: string): boolean {
   if (translated === unit.text) return true
   if (unit.embedding) return translationIsUnchanged(unit.embedding.unit, unembedTranslation(unit, translated))
+  if (unit.pythonString) return pythonStringContent(unit, translated) === unit.pythonString.unit.text
   if (unit.kind === "string") return false
   if (unit.content !== undefined) {
     return translatedString(unit, translated) === unit.content
@@ -278,6 +280,16 @@ export function validateTranslation(unit: TextUnit, translated: string, code = "
       )
     }
     return validateTranslation(unit.embedding.unit, logical, code)
+  }
+  if (unit.pythonString) {
+    try {
+      return validateTranslation(unit.pythonString.unit, pythonStringContent(unit, translated), code)
+    } catch {
+      return new ModelRetry(
+        { reason: "The response changed Python string syntax.", instruction: "Translate only the requested prose; preserve string escapes and interpolations." },
+        { code, difference: { reason: "译文破坏了 Python 字符串语法或插值。" } }
+      )
+    }
   }
   if (unit.content !== undefined) {
     let value: string | undefined

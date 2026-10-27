@@ -158,6 +158,9 @@ export function translationBody(unit: TextUnit) {
 /** Identify surviving source breaks before folding prose; embedding prefixes follow these exact source positions. */
 export function translationLineBreaks(unit: TextUnit): readonly boolean[] {
   if (unit.embedding) return translationLineBreaks(unit.embedding.unit)
+  if (unit.pythonString) {
+    return [...unit.text.matchAll(/\r?\n/gu)].map(({ index }) => unit.protected?.some((range) => range.start <= index && range.end > index) ?? false)
+  }
   const { original, start, end, ranges } = translationBody(unit)
   return [...original.matchAll(/\r\n|[\r\n]/gu)].map(
     ({ index }) => index < start || index >= end || ranges.some((range) => !range.fold && range.start <= index - start && range.end > index - start)

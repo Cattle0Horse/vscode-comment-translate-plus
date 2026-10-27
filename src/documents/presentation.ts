@@ -5,6 +5,7 @@ import { children, markdownTree, standalone } from "./tree.ts"
 import { unembedTranslation } from "./embedding.ts"
 import { validateTranslation, markdownDocumentShape } from "./validation.ts"
 import { assertYamlStructure } from "./yaml.ts"
+import { pythonStringContent } from "./python.ts"
 
 /** Assemble source-owned ranges once, rejecting overlap instead of guessing alignment. */
 function assembleText(source: string, replacements: readonly { readonly start: number; readonly end: number; readonly text: string }[], range = { start: 0, end: source.length }): string {
@@ -25,6 +26,7 @@ export function translationDisplayText(text: string, format: TextUnit["format"],
     text = unembedTranslation(unit, text)
     unit = unit.embedding.unit
   }
+  if (unit?.pythonString) return unit.pythonString.prefix + pythonStringContent(unit, text)
   if (format !== "yaml") return text
   const source = standalone(text)
   const document = parseDocument(source)

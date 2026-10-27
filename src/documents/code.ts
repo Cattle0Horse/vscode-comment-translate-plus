@@ -2,6 +2,7 @@ import { INITIAL } from "vscode-textmate"
 import type { IGrammar } from "vscode-textmate"
 import type { TextUnit } from "../model/document.ts"
 import { sourceReferences } from "./references.ts"
+import { pythonStringUnits } from "./python.ts"
 
 export interface CodeRegion extends TextUnit {
   readonly kind: "comment" | "string"
@@ -9,7 +10,16 @@ export interface CodeRegion extends TextUnit {
 
 export async function extractCode(source: string, language: string, grammar: IGrammar, checkCurrent: () => void): Promise<readonly CodeRegion[]> {
   let state = INITIAL
-  let spans: { start: number; end: number; kind: CodeRegion["kind"]; scope: string; depth: number; protected: { start: number; end: number }[] }[] = []
+  let spans: {
+    start: number
+    end: number
+    kind: CodeRegion["kind"]
+    scope: string
+    depth: number
+    protected: { start: number; end: number }[]
+    complete?: boolean
+    literals?: { start: number; end: number; protected: { start: number; end: number }[] }[]
+  }[] = []
   let depth = 0
   let offset = 0
   const lines = source.split(/\r?\n/u)
@@ -46,10 +56,17 @@ export async function extractCode(source: string, language: string, grammar: IGr
       if (end <= start) continue
       const previous = spans.at(-1)
       const gap = previous ? source.slice(previous.end, start) : ""
-      const multiline = scope.startsWith("comment.block") || scope.includes("string.quoted.multi") || scope.startsWith("string.template")
-      if (previous?.kind === kind && previous.scope === scope && (previous.end === start || (multiline && /^\s*$/.test(gap)))) previous.end = end
+      const multiline =
+        scope.startsWith("comment.block") || token.scopes.some((value) => value.startsWith("string.quoted.") && value.includes(".multi.")) || scope.startsWith("string.template")
+      if (previous?.kind === kind && previous.scope === scope && !previous.complete && (previous.end === start || (multiline && /^\s*$/.test(gap)))) previous.end = end
       else spans.push({ start, end, kind, scope, depth, protected: [] })
       const active = spans.at(-1)!
+      if (
+        language === "python" &&
+        token.scopes.includes("punctuation.definition.string.end.python") &&
+        (!fstring || (token.scopes.includes("string.interpolated.python") && token.scopes.filter((scope) => scope === "meta.fstring.python").length === 1))
+      )
+        active.complete = true
       const protectedToken =
         (fstring && (!token.scopes.includes("string.interpolated.python") || token.scopes.filter((scope) => scope === "meta.fstring.python").length > 1)) ||
         token.scopes.some(
@@ -70,6 +87,7 @@ export async function extractCode(source: string, language: string, grammar: IGr
     offset += current.length + (source.startsWith("\r\n", offset + current.length) ? 2 : 1)
   }
   if (language === "python") {
+    for (const span of spans) if (span.kind === "string") span.literals = [{ start: span.start, end: span.end, protected: [...span.protected] }]
     const joined: typeof spans = []
     for (const next of spans) {
       const previous = joined.at(-1)
@@ -84,27 +102,29 @@ export async function extractCode(source: string, language: string, grammar: IGr
         joined.push(next)
         continue
       }
-      if (next.start > previous.end) previous.protected.push({ start: previous.end, end: next.start })
-      previous.protected.push(...next.protected)
+      previous.literals!.push(...next.literals!)
       previous.end = next.end
     }
     spans = joined
   }
   const regions = spans
     .filter((span) => /\p{L}/u.test(source.slice(span.start, span.end)))
-    .map((span) => ({
-      id: `u${span.start}-${span.end}`,
-      start: span.start,
-      end: span.end,
-      text: source.slice(span.start, span.end),
-      content: span.kind === "string" && (language === "json" || language === "jsonc") ? (JSON.parse(source.slice(span.start, span.end)) as string) : undefined,
-      format: "text" as const,
-      kind: span.kind,
-      reference: sourceReferences(source, span, language),
-      scope: "code:" + language,
-      language,
-      protected: span.protected.map((range) => ({ start: range.start - span.start, end: range.end - span.start }))
-    }))
+    .flatMap((span) => {
+      const region: CodeRegion = {
+        id: `u${span.start}-${span.end}`,
+        start: span.start,
+        end: span.end,
+        text: source.slice(span.start, span.end),
+        content: span.kind === "string" && (language === "json" || language === "jsonc") ? (JSON.parse(source.slice(span.start, span.end)) as string) : undefined,
+        format: "text" as const,
+        kind: span.kind,
+        reference: sourceReferences(source, span, language),
+        scope: "code:" + language,
+        language,
+        protected: span.protected.map((range) => ({ start: range.start - span.start, end: range.end - span.start }))
+      }
+      return span.literals ? pythonStringUnits(source, region, span.literals) : [region]
+    })
   checkCurrent()
   return regions
 }

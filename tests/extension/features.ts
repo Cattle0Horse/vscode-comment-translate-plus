@@ -1,4 +1,6 @@
 import { emptyPreserveTerms, prepareTranslation } from "../../src/documents/terms.ts"
+import { pythonStringContent } from "../../src/documents/python.ts"
+import { validateTranslation } from "../../src/documents/validation.ts"
 import * as vscode from "vscode"
 import { writePreserveTerm } from "../../src/host/addPreserveTerm.ts"
 import { parseTermFile } from "../../src/documents/termFiles.ts"
@@ -412,6 +414,11 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
       assert(!prepared.text.includes(quote) && !prepared.hasMarkers, "Python triple quote boundaries consumed model markers.")
       assert(prepared.restore(prepared.text) === unit.text, "Local triple quote restoration changed source content.")
     }
+    const singleSource = "    " + quote + "Read the original document." + quote
+    const single = (await owner.documents.parseSource(singleSource, "python")).groups.flatMap((group) => group.units)
+    assert(single.length === 1 && single[0].text === "Read the original document.", "Single-line docstring source delimiters became prose.")
+    const translated = prepareTranslation(single[0], emptyPreserveTerms, 32).restore("阅读原始文档。")
+    assert(translationDisplayText(translated, single[0].format, single[0]) === "阅读原始文档。", "Single-line docstring display included triple quotes.")
   }
   await config.update("browse.strings", false, vscode.ConfigurationTarget.Global)
   checks.push("real Python grammar keeps triple quote boundaries local for both quote styles and multiline docstrings")
@@ -431,7 +438,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     const units = parsed.groups.flatMap((group) => group.units)
     assert(units.length === 1, "Python implicit concatenation was split into incomplete translation items.")
     const unit = units[0]
-    assert(unit.text.startsWith('f"Skill') && unit.text.endsWith('content."'), "Python literal range lost its prefix or tail.")
+    assert(unit.text.startsWith("Skill") && unit.text.endsWith("content."), "Python prose range contains an outer delimiter or lost its body.")
     const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
     assert(
       prepared.text.startsWith("Skill '") && prepared.text.includes("is already loaded") && prepared.text.includes("session.") && prepared.text.endsWith("skill content."),
@@ -440,7 +447,8 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     assert(prepared.text.includes("{name}") && !prepared.hasMarkers, "Short Python syntax unnecessarily consumed CTP markers.")
     assert(prepared.restore(prepared.text) === unit.text, "Python concatenation no-op changed syntax or line endings.")
     const modified = prepared.restore(prepared.text.replace("Skill", "技能"))
-    assert(modified === unit.text.replace("Skill", "技能"), "Python translation changed interpolation or concatenation syntax.")
+    assert(pythonStringContent(unit, modified) === unit.pythonString!.unit.text.replace("Skill", "技能"), "Python translation changed interpolation or prose.")
+    assert(validateTranslation(unit, modified) === undefined && !/[\r\n]/u.test(prepared.text), "Python concatenation leaked source layout or failed restoration.")
     const before = (await requests()).length
     await start(target.document, 1)
     const sent = (await requests()).slice(before).flatMap((request) => request.itemFingerprints ?? [])
@@ -454,6 +462,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     ['("Read text." + "Keep text.")', 2],
     ['"Read text."\n"Keep text."', 2],
     ['"Read text." \\\n"Keep text."', 1],
+    ['(f"Read {shelf[\'name\']} before "\n"visiting the gallery.")', 1],
     ['(f"Read {user.name!r:>10}."\n"Keep text.")', 1]
   ] as const) {
     const parsed = await owner.documents.parseSource(expression, "python")
@@ -463,6 +472,13 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
       const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
       assert(prepared.restore(prepared.text) === unit.text, "Python expression no-op lost protected syntax.")
       if (expression.includes("user.name")) assert(prepared.text.includes("{user.name!r:>10}") && !prepared.hasMarkers, "Short Python interpolation consumed CTP markers.")
+      if (expression.includes("shelf[")) {
+        const translated = prepared.restore(prepared.text.replace("Read", "阅读"))
+        assert(
+          validateTranslation(unit, translated) === undefined && pythonStringContent(unit, translated).includes("{shelf['name']}"),
+          "An interpolation's inner quote closed the outer f-string."
+        )
+      }
     }
   }
   await config.update("browse.strings", false, vscode.ConfigurationTarget.Global)
@@ -513,6 +529,98 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   }
   await config.update("browse.strings", false, vscode.ConfigurationTarget.Global)
   checks.push("Python docstring indentation survives browse, unchanged-label suppression, cached hover and undoable cursor replacement for both quotes and LF/CRLF")
+
+  await config.update("browse.strings", true, vscode.ConfigurationTarget.Global)
+  for (const newline of ["\n", "\r\n"]) {
+    const source = [
+      "def museum_catalog():",
+      '    """Read the original document.',
+      "",
+      "    Read the original",
+      "    document.",
+      "",
+      "    - Read the original",
+      "      document.",
+      "    - Read the original document.",
+      "    1. Read the original",
+      "       document.",
+      "    2. Read the original document.",
+      "",
+      "    Args:",
+      "        shelf: Read the original",
+      "            document.",
+      "        limit: Read the original document.",
+      "",
+      "    Example:",
+      '        museum_catalog(shelf="fiction", limit=4)',
+      "",
+      "    Returns:",
+      "        Read the original document.",
+      '    """'
+    ].join(newline)
+    const target = await open("museum-prose-" + (newline === "\n" ? "lf.py" : "crlf.py"), "python", source)
+    const parsed = await owner.documents.parse(target.document)
+    const units = parsed.groups.flatMap((group) => group.units)
+    const expected = [
+      "Read the original document.",
+      "Read the original document.",
+      "Read the original document.",
+      "Read the original document.",
+      "Read the original document.",
+      "Read the original document.",
+      "Args:",
+      "shelf: Read the original document.",
+      "limit: Read the original document.",
+      "Example:",
+      "Returns:",
+      "Read the original document."
+    ]
+    assert(
+      JSON.stringify(units.map((unit) => prepareTranslation(unit, emptyPreserveTerms, 32).text)) === JSON.stringify(expected),
+      "Real Python grammar split prose continuations or merged list/field boundaries."
+    )
+    const before = (await requests()).length
+    await start(target.document, units.length)
+    const completed = owner.browse.inspect(target.document.uri)!.units
+    assert(
+      completed.every((unit) => unit.translation !== undefined && validateTranslation(unit, unit.translation) === undefined),
+      "Python prose did not complete with valid restored literals."
+    )
+    const last = completed.at(-1)!
+    const rows = displayTranslations(
+      source,
+      completed.filter((unit): unit is typeof unit & { translation: string } => unit.translation !== undefined)
+    )
+    assert(
+      last.end === source.lastIndexOf(newline + '    """') && rows.every((row) => !row.translation.includes('"""')),
+      "Docstring display included closing quotes or placed the final prose row after them."
+    )
+    const lenses = await vscode.commands.executeCommand<vscode.CodeLens[]>("vscode.executeCodeLensProvider", target.document.uri)
+    assert(
+      lenses?.some((lens) => lens.range.start.line === target.document.positionAt(last.end).line + 1),
+      "The final paragraph did not reserve its display row before the closing triple quote."
+    )
+    const sent = (await requests()).slice(before).flatMap((request) => request.itemFingerprints ?? [])
+    const allowed = await Promise.all(expected.map(requestFingerprint))
+    assert(sent.length > 0 && sent.every((fingerprint) => allowed.includes(fingerprint)), "Python HTTP received source syntax, partial continuations or executable examples.")
+    const after = (await requests()).length
+    const offset = source.indexOf("    document.") + 5
+    await vscode.commands.executeCommand("vscode.executeHoverProvider", target.document.uri, target.document.positionAt(offset))
+    assert((await requests()).length === after, "A continuation-line hover did not reuse its complete paragraph.")
+    assert(target.document.getText() === source && !target.document.isDirty, "Paragraph/list browsing modified Python source.")
+    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    const position = target.document.positionAt(offset)
+    target.editor.selection = new vscode.Selection(position, position)
+    assert(await vscode.commands.executeCommand<boolean>("commentTranslatePlus.translateAndReplace"), "Continuation-line paragraph replacement failed.")
+    assert(
+      target.document.getText() === source.replace("    Read the original" + newline + "    document.", "    阅读原始文档。"),
+      "Paragraph replacement changed a label, list, example or neighbouring paragraph."
+    )
+    await vscode.commands.executeCommand("undo")
+    assert(target.document.getText() === source, "Paragraph replacement did not undo in one step.")
+  }
+  await config.update("browse.strings", false, vscode.ConfigurationTarget.Global)
+  checks.push("Python prose paragraphs and ordered/unordered list and parameter continuations share requests, cache, hover and undoable replacement without translating examples")
 
   await vscode.window.showTextDocument(typescript.document, { viewColumn: vscode.ViewColumn.One, preserveFocus: false, preview: false })
   await config.update("hover.documentation", true, vscode.ConfigurationTarget.Global)
