@@ -12,7 +12,7 @@ import type { SourceEdit } from "../documents/edits.ts"
 import type { PreparedInput, TranslationInput } from "../model/translation.ts"
 import type { TranslationItem } from "../model/translation.ts"
 import type { PreserveTerms } from "../model/translation.ts"
-import { describeError, TranslationFailure } from "../model/diagnostics.ts"
+import { describeError, TranslationFailure, ParseFailure } from "../model/diagnostics.ts"
 import { TermFiles } from "./termFiles.ts"
 import type { prepareSelection } from "../documents/selection.ts"
 
@@ -155,8 +155,13 @@ export class TranslationRuntime implements vscode.Disposable {
   diagnose(error: unknown, uri?: vscode.Uri): string {
     const message = error instanceof Error ? error.message : ""
     const code = /^[a-z][a-z0-9-]+$/.test(message) ? message : "translation-failed"
-    if (!(error instanceof TranslationFailure && error.reported))
-      this.log.write("error", (uri ? vscode.workspace.asRelativePath(uri, false) + "：" : "") + describeError(code) + "（" + code + "）")
+    let location = uri ? vscode.workspace.asRelativePath(uri, false) : ""
+    if (uri && error instanceof ParseFailure) {
+      const document = vscode.workspace.textDocuments.find((document) => document.uri.toString() === uri.toString())
+      const position = document?.positionAt(error.diagnostic.range.start)
+      if (position) location += ":" + (position.line + 1) + ":" + (position.character + 1)
+    }
+    if (!(error instanceof TranslationFailure && error.reported)) this.log.write("error", (location ? location + "：" : "") + describeError(code) + "（" + code + "）")
     return code
   }
 

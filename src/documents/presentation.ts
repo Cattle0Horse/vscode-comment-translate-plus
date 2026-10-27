@@ -5,7 +5,6 @@ import { children, markdownTree, standalone } from "./tree.ts"
 import { unembedTranslation } from "./embedding.ts"
 import { validateTranslation, markdownDocumentShape } from "./validation.ts"
 import { assertYamlStructure } from "./yaml.ts"
-import { pythonStringContent } from "./python.ts"
 
 /** Assemble source-owned ranges once, rejecting overlap instead of guessing alignment. */
 function assembleText(source: string, replacements: readonly { readonly start: number; readonly end: number; readonly text: string }[], range = { start: 0, end: source.length }): string {
@@ -22,11 +21,11 @@ function assembleText(source: string, replacements: readonly { readonly start: n
 
 /** Display text uses scalar values, while validation and Markdown previews retain valid YAML. */
 export function translationDisplayText(text: string, format: TextUnit["format"], unit?: TextUnit): string {
-  while (unit?.embedding) {
+  while (unit?.projection?.kind === "container") {
     text = unembedTranslation(unit, text)
-    unit = unit.embedding.unit
+    unit = unit.projection.unit
   }
-  if (unit?.pythonString) return unit.pythonString.prefix + pythonStringContent(unit, text)
+  if (unit?.projection?.kind === "literal") return unit.projection.codec.display(text)
   if (format !== "yaml") return text
   const source = standalone(text)
   const document = parseDocument(source)
@@ -78,7 +77,7 @@ export function translatedMarkdown(document: ParsedDocument, translations: Reado
   const replacements = units.flatMap((unit) => {
     const text = translations.get(unit.id)
     if (text === undefined) return []
-    if (unit.embedding) {
+    if (unit.projection?.kind === "container") {
       const failure = validateTranslation(unit, text)
       if (failure) throw failure
     }
@@ -90,9 +89,9 @@ export function translatedMarkdown(document: ParsedDocument, translations: Reado
     if (!block.parsed) continue
     const inner = new Map<string, string>()
     for (const unit of units) {
-      if (!unit.embedding || unit.start < block.start || unit.end > block.end) continue
+      if (unit.projection?.kind !== "container" || unit.start < block.start || unit.end > block.end) continue
       const text = translations.get(unit.id)
-      if (text !== undefined) inner.set(unit.embedding.unit.id, unembedTranslation(unit, text))
+      if (text !== undefined) inner.set(unit.projection.unit.id, unembedTranslation(unit, text))
     }
     if (!inner.size) continue
     if (block.language === "yaml" || block.language === "yml") {
@@ -106,7 +105,7 @@ export function translatedMarkdown(document: ParsedDocument, translations: Reado
     } else if (["markdown", "md", "skill", "prompt", "instructions", "chatagent"].includes(block.language)) translatedMarkdown(block.parsed, inner)
   }
   // Only the assembler can permit fence-body changes: every edit above owns a validated unit.
-  const embedded = units.some((unit) => unit.embedding)
+  const embedded = units.some((unit) => unit.projection?.kind === "container")
   const linkLabels = document.linkLabels
   if (JSON.stringify(markdownDocumentShape(document.source, embedded, linkLabels)) !== JSON.stringify(markdownDocumentShape(translated, embedded, linkLabels)))
     throw Error("translation-structure-invalid")
@@ -119,11 +118,11 @@ export const previewLoadingMarker = '<span class="ctp-preview-loading" role="pro
 export function progressiveMarkdown(document: ParsedDocument, translations: ReadonlyMap<string, string>): string {
   const text = translatedMarkdown(document, translations)
   const units = document.groups.flatMap((group) => group.units).sort((a, b) => a.start - b.start)
-  const pendingEnds = new Set(units.filter((unit) => !unit.embedding && unit.format === "markdown" && !translations.has(unit.id)).map((unit) => unit.end))
+  const pendingEnds = new Set(units.filter((unit) => unit.projection?.kind !== "container" && unit.format === "markdown" && !translations.has(unit.id)).map((unit) => unit.end))
   const icon = previewLoadingMarker
   const points = new Map([...pendingEnds].map((end) => [end, " " + icon]))
   for (const group of document.groups)
-    if (group.units.some((unit) => !unit.embedding && unit.format === "yaml" && !translations.has(unit.id))) {
+    if (group.units.some((unit) => unit.projection?.kind !== "container" && unit.format === "yaml" && !translations.has(unit.id))) {
       const offset = group.end + (document.source[group.end] === "\n" ? 1 : 0)
       const newline = document.source.includes("\r\n") ? "\r\n" : "\n"
       points.set(offset, (document.source[offset - 1] === "\n" ? newline : newline + newline) + icon + newline)

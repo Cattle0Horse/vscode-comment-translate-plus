@@ -138,7 +138,7 @@ export class SourceReplacementAction implements vscode.Disposable {
         const original = document.getText()
         const parsed = await this.documents.parse(document, true)
         const unit = parsed.groups.flatMap((group) => group.units).find((unit) => unit.start === start && unit.end === end)
-        if (unit?.embedding) translatedMarkdown(parsed, new Map([[unit.id, text]]))
+        if (unit?.projection?.kind === "container") translatedMarkdown(parsed, new Map([[unit.id, text]]))
         else assertMarkdownStructure(original, original.slice(0, start) + text + original.slice(end))
         if ((await replacementIdentity(document.uri, this.translations)) !== identity) return false
       }

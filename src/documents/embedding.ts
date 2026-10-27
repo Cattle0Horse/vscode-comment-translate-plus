@@ -2,6 +2,7 @@ import type { EmbeddedCode, TextUnit } from "../model/document.ts"
 import type { MarkdownNode } from "./tree.ts"
 import { children } from "./tree.ts"
 import { translationLineBreaks } from "./body.ts"
+import { SourceMap, sourceOffset } from "./sourceMap.ts"
 
 export function codeBlock(source: string, node: MarkdownNode, offset: number): EmbeddedCode | undefined {
   const nodes = children(node)
@@ -20,7 +21,7 @@ export function codeBlock(source: string, node: MarkdownNode, offset: number): E
   const closing = nodes.at(-1)
   const end = closing?.name === "CodeMark" && closing !== nodes[0] ? source.lastIndexOf("\n", offset + closing.from - 1) + 1 : offset + node.to
   if (!from || from >= end) return
-  const pieces: { from: number; to: number; offset: number }[] = []
+  const mapping = new SourceMap()
   const textNodes = nodes.filter((child) => child.name === "CodeText")
   let text = ""
   let textIndex = 0
@@ -33,24 +34,15 @@ export function codeBlock(source: string, node: MarkdownNode, offset: number): E
     const token = candidate && offset + candidate.from < to ? candidate : undefined
     let start = token ? Math.max(line, offset + token.from) : lineEnd
     while (start < lineEnd && start - line < column && /[\t ]/u.test(source[start])) start++
-    pieces.push({ from: start, to, offset: text.length })
+    mapping.append(to - start, start, to)
     text += source.slice(start, to)
     line = to
   }
-  return { start: opening, end: offset + node.to, language, source: text, pieces }
+  return { start: opening, end: offset + node.to, language, source: text, pieces: mapping.pieces }
 }
 
 export function embeddedOffset(block: EmbeddedCode, position: number, end = false): number {
-  let low = 0
-  let high = block.pieces.length
-  while (low < high) {
-    const middle = (low + high) >>> 1
-    if (block.pieces[middle].offset < position || (!end && block.pieces[middle].offset === position)) low = middle + 1
-    else high = middle
-  }
-  const piece = block.pieces[Math.max(0, low - 1)]
-  if (!piece || position < piece.offset || position > piece.offset + piece.to - piece.from) throw Error("translation-structure-invalid")
-  return piece.from + position - piece.offset
+  return sourceOffset(block.pieces, position, end)
 }
 
 export function embeddedUnit(source: string, block: EmbeddedCode, unit: TextUnit): TextUnit {
@@ -66,7 +58,7 @@ export function embeddedUnit(source: string, block: EmbeddedCode, unit: TextUnit
     start,
     end,
     text: source.slice(start, end),
-    // Logical token ranges stay on embedding.unit; container prefixes change raw offsets.
+    // Logical token ranges stay on projection.unit; container prefixes change raw offsets.
     protected: undefined,
     display: unit.display ? { start: embeddedOffset(block, unit.display.start), end: embeddedOffset(block, unit.display.end, true) } : undefined,
     reference: [
@@ -86,17 +78,18 @@ export function embeddedUnit(source: string, block: EmbeddedCode, unit: TextUnit
     ],
     scope: "embedded:" + block.start + ":" + (unit.scope ?? ""),
     language: unit.language ?? (unit.format === "yaml" ? "yaml" : unit.format === "markdown" ? "markdown" : block.language),
-    embedding: { unit, prefixes }
+    projection: { kind: "container", unit, prefixes }
   }
 }
 
 /** Remove only source-owned container prefixes; unknown prefixes fail closed. */
 export function unembedTranslation(unit: TextUnit, text: string): string {
-  if (!unit.embedding) return text
-  if (text === unit.text) return unit.embedding.unit.text
+  const projection = unit.projection
+  if (projection?.kind !== "container") throw Error("translation-structure-invalid")
+  if (text === unit.text) return projection.unit.text
   if (unit.format === "yaml" && /^"(?:[^"\\\r\n]|\\.)*"(?:\r?\n)*$/u.test(text)) return text
-  const retained = translationLineBreaks(unit.embedding.unit)
-  const prefixes = unit.embedding.prefixes.filter((_, index) => retained[index])
+  const retained = translationLineBreaks(projection.unit)
+  const prefixes = projection.prefixes.filter((_, index) => retained[index])
   let index = 0
   const logical = text.replace(/\r?\n[^\r\n]*/gu, (line) => {
     const newline = line.startsWith("\r\n") ? "\r\n" : "\n"
@@ -109,11 +102,12 @@ export function unembedTranslation(unit: TextUnit, text: string): string {
 }
 
 export function embedTranslation(unit: TextUnit, text: string): string {
-  if (!unit.embedding) return text
-  if (text === unit.embedding.unit.text) return unit.text
+  const projection = unit.projection
+  if (projection?.kind !== "container") throw Error("translation-structure-invalid")
+  if (text === projection.unit.text) return unit.text
   if (unit.format === "yaml" && /^"(?:[^"\\\r\n]|\\.)*"(?:\r?\n)*$/u.test(text)) return text
-  const retained = translationLineBreaks(unit.embedding.unit)
-  const prefixes = unit.embedding.prefixes.filter((_, index) => retained[index])
+  const retained = translationLineBreaks(projection.unit)
+  const prefixes = projection.prefixes.filter((_, index) => retained[index])
   let index = 0
   const result = text.replace(/\r?\n/gu, (newline) => {
     const prefix = prefixes[index++]

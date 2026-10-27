@@ -133,7 +133,7 @@ export class BrowseWorkspace implements vscode.Disposable {
     } catch (error) {
       if (this.disposed || this.sessions.get(document.uri.toString()) !== documentSession || document.isClosed || document.version !== version) return
       const code = this.translations.diagnose(error, document.uri)
-      documentSession.session.update({ source: document.getText(), groups: [], errors: [code] }, version)
+      documentSession.session.reject(version, code)
     }
   }
 

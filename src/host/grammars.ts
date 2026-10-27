@@ -57,10 +57,14 @@ export class GrammarExtractor implements vscode.Disposable {
   }
 
   async load(language: string): Promise<IGrammar> {
-    const scope = this.languages.get(language)
-    const grammar = scope ? await this.registry.loadGrammar(scope) : null
-    if (!grammar) throw Error("language-grammar-unavailable")
-    return grammar
+    try {
+      const scope = this.languages.get(language)
+      const grammar = scope ? await this.registry.loadGrammar(scope) : null
+      if (grammar) return grammar
+    } catch {
+      // Filesystem, WASM and grammar compilation failures share one bounded public diagnostic.
+    }
+    throw Error("language-grammar-unavailable")
   }
 
   dispose(): void {

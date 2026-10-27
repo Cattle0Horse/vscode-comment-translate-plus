@@ -1,11 +1,10 @@
 import { translationBody } from "./body.ts"
-import { embedTranslation } from "./embedding.ts"
+import { restoreProjection } from "./projection.ts"
 import type { TextUnit } from "../model/document.ts"
 import type { PreserveTerms } from "../model/translation.ts"
 import { ModelRetry } from "../model/diagnostics.ts"
 import { validateTranslation, validateTranslationText } from "./validation.ts"
 import { protectedFragments } from "./protection.ts"
-import { restorePythonString } from "./python.ts"
 
 const markerFeedback = "Keep every <CTP...> marker unchanged and exactly once in its own item."
 
@@ -54,13 +53,9 @@ export function prepareTranslation(
   minimumMarkerCharacters: number,
   context = ""
 ): { text: string; source: string; hasMarkers: boolean; needsTranslation: boolean; restore(text: string): string } {
-  if (unit.embedding) {
-    const prepared = prepareTranslation(unit.embedding.unit, preserveTerms, minimumMarkerCharacters, context)
-    return { ...prepared, restore: (text) => embedTranslation(unit, prepared.restore(text)) }
-  }
-  if (unit.pythonString) {
-    const prepared = prepareTranslation(unit.pythonString.unit, preserveTerms, minimumMarkerCharacters, context)
-    return { ...prepared, restore: (text) => restorePythonString(unit, prepared.restore(text)) }
+  if (unit.projection) {
+    const prepared = prepareTranslation(unit.projection.unit, preserveTerms, minimumMarkerCharacters, context)
+    return { ...prepared, restore: (text) => restoreProjection(unit, prepared.restore(text)) }
   }
   const { original, source, start, end, ranges: protectedRanges, echoedPrefix } = translationBody(unit)
   let prefix = "<CTP"

@@ -1,5 +1,5 @@
 import { emptyPreserveTerms, prepareTranslation } from "../../src/documents/terms.ts"
-import { pythonStringContent } from "../../src/documents/python.ts"
+import { projectionContent } from "../../src/documents/projection.ts"
 import { validateTranslation } from "../../src/documents/validation.ts"
 import * as vscode from "vscode"
 import { writePreserveTerm } from "../../src/host/addPreserveTerm.ts"
@@ -447,7 +447,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     assert(prepared.text.includes("{name}") && !prepared.hasMarkers, "Short Python syntax unnecessarily consumed CTP markers.")
     assert(prepared.restore(prepared.text) === unit.text, "Python concatenation no-op changed syntax or line endings.")
     const modified = prepared.restore(prepared.text.replace("Skill", "技能"))
-    assert(pythonStringContent(unit, modified) === unit.pythonString!.unit.text.replace("Skill", "技能"), "Python translation changed interpolation or prose.")
+    assert(projectionContent(unit, modified) === unit.projection!.unit.text.replace("Skill", "技能"), "Python translation changed interpolation or prose.")
     assert(validateTranslation(unit, modified) === undefined && !/[\r\n]/u.test(prepared.text), "Python concatenation leaked source layout or failed restoration.")
     const before = (await requests()).length
     await start(target.document, 1)
@@ -475,7 +475,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
       if (expression.includes("shelf[")) {
         const translated = prepared.restore(prepared.text.replace("Read", "阅读"))
         assert(
-          validateTranslation(unit, translated) === undefined && pythonStringContent(unit, translated).includes("{shelf['name']}"),
+          validateTranslation(unit, translated) === undefined && projectionContent(unit, translated).includes("{shelf['name']}"),
           "An interpolation's inner quote closed the outer f-string."
         )
       }
@@ -523,7 +523,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
       assert(
         paragraph?.translation &&
           validateTranslation(paragraph, paragraph.translation) === undefined &&
-          pythonStringContent(paragraph, paragraph.translation) === "阅读原始文档。 {labels} 保留两行在一起。",
+          projectionContent(paragraph, paragraph.translation) === "阅读原始文档。 {labels} 保留两行在一起。",
         "Multiline f-string browsing did not translate complete prose while preserving the interpolation."
       )
       const sent = (await requests()).slice(before).flatMap((request) => request.itemFingerprints ?? [])

@@ -16,17 +16,30 @@ export interface TextUnit {
   readonly language?: string
   /** Normalized Markdown definition keys, including definitions outside this unit. */
   readonly linkLabels?: readonly string[]
-  readonly embedding?: { readonly unit: TextUnit; readonly prefixes: readonly string[] }
-  /** Python prose is parsed in decoded coordinates; literal syntax stays local. */
-  readonly pythonString?: {
-    readonly unit: TextUnit
-    readonly prefix: string
-    readonly continuation: string
-    readonly quote: string
-    readonly raw: boolean
-    readonly formatted: boolean
-    readonly expressions: readonly string[]
-  }
+  readonly projection?: UnitProjection
+}
+
+/** Syntax owners expose prose conversion, never their AST or language-specific state. */
+export type UnitProjection =
+  | { readonly kind: "container"; readonly unit: TextUnit; readonly prefixes: readonly string[] }
+  | {
+      readonly kind: "literal"
+      readonly unit: TextUnit
+      readonly codec: {
+        readonly identity: string
+        readonly invalid: { readonly reason: string; readonly instruction: string; readonly difference: TranslationDifference }
+        restore(text: string): string
+        content(text: string): string
+        display(text: string): string
+      }
+    }
+
+/** Half-open UTF-16 ranges in logical text and its immediate source text. */
+export interface SourcePiece {
+  readonly from: number
+  readonly to: number
+  readonly start: number
+  readonly end: number
 }
 
 export interface TextGroup {
@@ -38,9 +51,16 @@ export interface TextGroup {
 export interface ParsedDocument {
   readonly source: string
   readonly groups: readonly TextGroup[]
-  readonly errors: readonly string[]
+  readonly errors: readonly ParseDiagnostic[]
   readonly codeBlocks?: readonly EmbeddedCode[]
   readonly linkLabels?: readonly string[]
+}
+
+export interface ParseDiagnostic {
+  readonly code: "frontmatter-incomplete" | "frontmatter-invalid" | "yaml-invalid" | "language-grammar-unavailable" | "language-tokenization-timeout"
+  readonly kind: "syntax" | "grammar" | "timeout"
+  readonly language: string
+  readonly range: { readonly start: number; readonly end: number }
 }
 
 export interface EmbeddedCode {
@@ -48,7 +68,7 @@ export interface EmbeddedCode {
   readonly end: number
   readonly language: string
   readonly source: string
-  readonly pieces: readonly { readonly from: number; readonly to: number; readonly offset: number }[]
+  readonly pieces: readonly SourcePiece[]
   readonly parsed?: ParsedDocument
   readonly reference?: readonly ReferenceBlock[]
 }

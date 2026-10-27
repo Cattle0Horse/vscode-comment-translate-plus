@@ -13,7 +13,8 @@ import type { TranslationInput } from "../src/model/translation.ts"
 import { splitTranslations } from "../src/translation/providers/prompts.ts"
 import type { TranslationEvent } from "../src/model/events.ts"
 import { sourceReferences } from "../src/documents/references.ts"
-import { pythonStringContent, pythonStringUnits } from "../src/documents/python.ts"
+import { pythonStringUnits } from "../src/documents/python.ts"
+import { projectionContent } from "../src/documents/projection.ts"
 import {
   referenceText,
   embeddedMarkdown,
@@ -53,7 +54,10 @@ test("embedded translations reject missing container prefixes, line-boundary dam
 test("malformed fenced YAML retains source and valid neighbouring Markdown remains translatable", async () => {
   const source = "Read the guide.\n\n```yaml\nvalue: [invalid\n```\n\n```md\nRead more.\n```"
   const parsed = await embeddedMarkdown(source)
-  assert.deepEqual(parsed.errors, ["yaml-invalid"])
+  assert.deepEqual(
+    parsed.errors.map((error) => error.code),
+    ["yaml-invalid"]
+  )
   const translations = new Map(
     parsed.groups
       .flatMap((group) => group.units)
@@ -429,7 +433,10 @@ test("fenced code and link definitions are not translation units; table prose is
 
 test("invalid YAML is reported and not translated through a permissive fallback", () => {
   const parsed = parseMarkdown("---\nname: [broken\n---\n\nBody text.")
-  assert.deepEqual(parsed.errors, ["frontmatter-invalid"])
+  assert.deepEqual(
+    parsed.errors.map((error) => error.code),
+    ["frontmatter-invalid"]
+  )
   assert.deepEqual(
     parsed.groups.flatMap((group) => group.units).map((unit) => unit.text),
     ["Body text."]
@@ -438,7 +445,10 @@ test("invalid YAML is reported and not translated through a permissive fallback"
 
 test("an unfinished frontmatter block is not mistaken for Markdown prose", () => {
   const parsed = parseMarkdown("---\nname: unfinished\ndescription: [")
-  assert.deepEqual(parsed.errors, ["frontmatter-incomplete"])
+  assert.deepEqual(
+    parsed.errors.map((error) => error.code),
+    ["frontmatter-incomplete"]
+  )
   assert.deepEqual(parsed.groups, [])
 })
 
@@ -672,7 +682,10 @@ test("standalone YAML uses original scalar ranges across LF/CRLF, BOM, streams a
 test("invalid standalone YAML is rejected without text fallback and replacement preserves stream structure and native types", () => {
   for (const source of ["name: [invalid", "name: first\nname: second", "---\nname: value\n---\nname: [invalid"]) {
     const parsed = parseYaml(source)
-    assert.deepEqual(parsed.errors, ["yaml-invalid"])
+    assert.deepEqual(
+      parsed.errors.map((error) => error.code),
+      ["yaml-invalid"]
+    )
     assert.deepEqual(parsed.groups, [])
   }
   const source = "name: text\nenabled: true\n---\ncount: 0x10\nbase: &base text\nalias: *base"
@@ -860,7 +873,7 @@ test("Python concatenated literals preserve interpolation and ordered syntax thr
     assert.equal(prepared.text, "Museum '{name}' uses shelf {shelf} in this catalog. Continue reading.")
     assert.equal(prepared.restore(prepared.text), prose.text)
     const translated = prepared.restore(prepared.text.replace("Museum", "博物馆").replace("Continue reading.", "继续阅读。"))
-    assert.equal(pythonStringContent(prose, translated), prepared.text.replace("Museum", "博物馆").replace("Continue reading.", "继续阅读。"))
+    assert.equal(projectionContent(prose, translated), prepared.text.replace("Museum", "博物馆").replace("Continue reading.", "继续阅读。"))
     assert.equal(validateTranslation(prose, translated), undefined)
     assert.throws(() => prepared.restore(prepared.text.replace("{name}", "")), /structure-invalid/u)
     assert.throws(() => prepared.restore(prepared.text.replace("{name}", "<SWAP>").replace("{shelf}", "{name}").replace("<SWAP>", "{shelf}")), /structure-invalid/u)

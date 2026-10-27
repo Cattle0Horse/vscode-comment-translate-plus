@@ -1,5 +1,5 @@
 import { parseDocument } from "yaml"
-import type { TextUnit, TextGroup, ParsedDocument, EmbeddedCode, ReferenceBlock } from "../model/document.ts"
+import type { TextUnit, TextGroup, ParsedDocument, EmbeddedCode, ReferenceBlock, ParseDiagnostic } from "../model/document.ts"
 import type { MarkdownNode } from "./tree.ts"
 import { markdownTree, markdownLinkLabels, children, makeUnit } from "./tree.ts"
 import { yamlUnits } from "./yaml.ts"
@@ -30,7 +30,7 @@ function startWithPrefix(source: string, start: number): number {
 
 export function parseMarkdown(source: string, linkLabels?: readonly string[]): ParsedDocument {
   const groups: TextGroup[] = []
-  const errors: string[] = []
+  const errors: ParseDiagnostic[] = []
   const codeBlocks: EmbeddedCode[] = []
   let bodyStart = 0
   const opening = source.match(/^\uFEFF?---[\t ]*\r?\n/)
@@ -38,13 +38,13 @@ export function parseMarkdown(source: string, linkLabels?: readonly string[]): P
     const delimiter = /^---[\t ]*\r?$/gm
     delimiter.lastIndex = opening[0].length
     const closing = delimiter.exec(source)
-    if (!closing) return { source, groups, errors: ["frontmatter-incomplete"] }
+    if (!closing) return { source, groups, errors: [{ code: "frontmatter-incomplete", kind: "syntax", language: "yaml", range: { start: 0, end: source.length } }] }
     bodyStart = closing.index + closing[0].length
     try {
       const units = yamlUnits(source, opening[0].length, parseDocument(source.slice(opening[0].length, closing.index), { strict: true }))
       if (units.length) groups.push({ start: 0, end: bodyStart, units })
     } catch {
-      errors.push("frontmatter-invalid")
+      errors.push({ code: "frontmatter-invalid", kind: "syntax", language: "yaml", range: { start: 0, end: bodyStart } })
     }
   }
   const body = source.slice(bodyStart)
@@ -187,7 +187,13 @@ export async function parseMarkdownWithCode(
     const block = { ...raw, language: resolveLanguage(raw.language) }
     const inner = await parseCode(block.source, block.language)
     blocks.push({ ...block, parsed: inner })
-    errors.push(...inner.errors)
+    errors.push(
+      ...inner.errors.map((error) => {
+        const start = embeddedOffset(block, error.range.start)
+        const end = error.range.end === error.range.start ? start : embeddedOffset(block, error.range.end, true)
+        return { ...error, range: { start, end } }
+      })
+    )
     for (const group of inner.groups) {
       const units = group.units.map((unit) => embeddedUnit(source, block, unit))
       if (units.length) groups.push({ start: embeddedOffset(block, group.start), end: embeddedOffset(block, group.end, true), units })

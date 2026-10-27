@@ -1,4 +1,10 @@
-import type { TranslationDifference } from "./document.ts"
+import type { TranslationDifference, ParseDiagnostic } from "./document.ts"
+
+export class ParseFailure extends Error {
+  constructor(readonly diagnostic: ParseDiagnostic) {
+    super(diagnostic.code)
+  }
+}
 
 const cancellationDescriptions = {
   "user-cancelled": "用户取消",

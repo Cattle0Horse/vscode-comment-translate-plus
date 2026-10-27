@@ -5,9 +5,8 @@ import type { MarkdownNode } from "./tree.ts"
 import { children, markdownTree, markdownLinkLabels, standalone } from "./tree.ts"
 import { yamlShape } from "./yaml.ts"
 import { fragmentContents, linkReferenceKind } from "./protection.ts"
-import { unembedTranslation } from "./embedding.ts"
+import { projectionContent } from "./projection.ts"
 import { translationBody } from "./body.ts"
-import { pythonStringContent } from "./python.ts"
 
 function translatedString(unit: TextUnit, text: string): string | undefined {
   if (unit.format !== "yaml") {
@@ -291,8 +290,10 @@ function comparisonProse(unit: TextUnit): string {
 /** Compare validated results; ignore prose whitespace while keeping literal fragments and decoded strings exact. */
 export function translationIsUnchanged(unit: TextUnit, translated: string): boolean {
   if (translated === unit.text) return true
-  if (unit.embedding) return translationIsUnchanged(unit.embedding.unit, unembedTranslation(unit, translated))
-  if (unit.pythonString) return pythonStringContent(unit, translated) === unit.pythonString.unit.text
+  if (unit.projection) {
+    const logical = projectionContent(unit, translated)
+    return unit.projection.kind === "literal" ? logical === unit.projection.unit.text : translationIsUnchanged(unit.projection.unit, logical)
+  }
   if (unit.kind === "string") return false
   if (unit.content !== undefined) {
     return translatedString(unit, translated) === unit.content
@@ -321,27 +322,21 @@ export function validateTranslationText(translated: string, code = "translation-
 export function validateTranslation(unit: TextUnit, translated: string, code = "translation-structure-invalid"): ModelRetry | undefined {
   const bounds = validateTranslationText(translated, code)
   if (bounds) return bounds
-  if (unit.embedding) {
+  if (unit.projection) {
     let logical: string
     try {
-      logical = unembedTranslation(unit, translated)
+      logical = projectionContent(unit, translated)
     } catch {
+      if (unit.projection.kind === "literal") {
+        const { reason, instruction, difference } = unit.projection.codec.invalid
+        return new ModelRetry({ reason, instruction }, { code, difference })
+      }
       return new ModelRetry(
         { reason: "The response changed code-block container prefixes or line boundaries.", instruction: "Preserve source code-block container prefixes and structural line boundaries." },
         { code, difference: { reason: "模型修改了代码块的容器前缀或行边界。", expected: unit.text, actual: translated } }
       )
     }
-    return validateTranslation(unit.embedding.unit, logical, code)
-  }
-  if (unit.pythonString) {
-    try {
-      return validateTranslation(unit.pythonString.unit, pythonStringContent(unit, translated), code)
-    } catch {
-      return new ModelRetry(
-        { reason: "The response changed Python string syntax.", instruction: "Translate only the requested prose; preserve string escapes and interpolations." },
-        { code, difference: { reason: "译文破坏了 Python 字符串语法或插值。" } }
-      )
-    }
+    return validateTranslation(unit.projection.unit, logical, code)
   }
   if (unit.content !== undefined) {
     let value: string | undefined

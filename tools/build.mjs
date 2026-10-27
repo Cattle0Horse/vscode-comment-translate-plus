@@ -106,6 +106,8 @@ if (args.has("--watch")) {
       ...options,
       entryPoints: [
         "src/documents/markdown.ts",
+        "src/documents/code.ts",
+        "src/documents/tokenization.ts",
         "src/documents/yaml.ts",
         "src/documents/presentation.ts",
         "src/documents/validation.ts",

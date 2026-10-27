@@ -1,11 +1,61 @@
 import type { TextUnit } from "../model/document.ts"
 import { parseMarkdown } from "./markdown.ts"
 import { sourceReferences } from "./references.ts"
+import { SourceMap } from "./sourceMap.ts"
+import type { CodeSpan, RegionToken, SourceToken } from "./tokenization.ts"
+import { regionToken } from "./tokenization.ts"
 
-interface Literal {
+/** Python's interpolation scopes and grouping depth belong to its literal syntax. */
+export function* pythonTokens(source: string, tokens: Iterable<SourceToken>): Iterable<RegionToken> {
+  let depth = 0
+  for (const token of tokens) {
+    const fstring = token.scopes.includes("meta.fstring.python")
+    const classified = regionToken(token, fstring ? "string.interpolated.python" : undefined)
+    if (!classified) {
+      for (const character of source.slice(token.start, token.end)) {
+        if ("([{".includes(character)) depth++
+        else if (")]}".includes(character)) depth--
+      }
+      continue
+    }
+    const expression = fstring && (!token.scopes.includes("string.interpolated.python") || token.scopes.filter((scope) => scope === "meta.fstring.python").length > 1)
+    yield {
+      ...classified,
+      depth,
+      complete: token.scopes.includes("punctuation.definition.string.end.python") && !expression,
+      protected: classified.protected || expression || token.scopes.includes("storage.type.string.python")
+    }
+  }
+}
+
+export function joinPythonLiterals(source: string, spans: readonly CodeSpan[]): readonly (CodeSpan & { readonly literals?: readonly PythonLiteral[] })[] {
+  const joined: (CodeSpan & { literals?: PythonLiteral[] })[] = []
+  for (const next of spans) {
+    const previous = joined.at(-1)
+    const gap = previous ? source.slice(previous.end, next.start) : ""
+    const adjacent = /^[\t ]*(?:\\\r?\n[\t ]*|\r?\n[\t ]*)*$/u.test(gap) && (!/[\r\n]/u.test(gap) || (previous?.depth ?? 0) > 0 || /\\\r?\n/u.test(gap))
+    if (previous?.kind === "string" && next.kind === "string" && previous.depth === next.depth && adjacent) {
+      previous.literals!.push(next)
+      previous.end = next.end
+    } else joined.push({ ...next, literals: next.kind === "string" ? [next] : undefined })
+  }
+  return joined
+}
+
+export interface PythonLiteral {
   readonly start: number
   readonly end: number
   readonly protected: readonly { readonly start: number; readonly end: number }[]
+}
+
+interface LiteralSyntax {
+  readonly unit: TextUnit
+  readonly prefix: string
+  readonly continuation: string
+  readonly quote: string
+  readonly raw: boolean
+  readonly formatted: boolean
+  readonly expressions: readonly string[]
 }
 
 const escapes: Readonly<Record<string, string>> = { n: "\n", r: "\r", t: "\t", a: "\x07", b: "\b", f: "\f", v: "\v", "\\": "\\", '"': '"', "'": "'" }
@@ -61,13 +111,13 @@ function decode(text: string, raw: boolean, formatted: boolean, expressions: rea
   if (expressionIndex !== expressions.length) throw Error("translation-structure-invalid")
 }
 
-function expressionSyntax(expression: string, syntax: NonNullable<TextUnit["pythonString"]>): string {
+function expressionSyntax(expression: string, syntax: LiteralSyntax): string {
   if (syntax.formatted) return expression
   // An interpolation from a later f-string must remain executable when the paragraph starts in a plain literal.
   return syntax.quote + " f" + syntax.quote + expression + syntax.quote + " " + (syntax.raw ? "r" : "") + syntax.quote
 }
 
-function encode(text: string, syntax: NonNullable<TextUnit["pythonString"]>): string {
+function encode(text: string, syntax: LiteralSyntax): string {
   let output = ""
   let cursor = 0
   for (const expression of [...syntax.expressions, ""]) {
@@ -95,15 +145,13 @@ function encode(text: string, syntax: NonNullable<TextUnit["pythonString"]>): st
   return output
 }
 
-export function restorePythonString(unit: TextUnit, text: string): string {
-  const syntax = unit.pythonString!
-  if (text === syntax.unit.text) return unit.text
+function restoreString(original: string, syntax: LiteralSyntax, text: string): string {
+  if (text === syntax.unit.text) return original
   return syntax.prefix + encode(text, syntax) + syntax.continuation
 }
 
-export function pythonStringContent(unit: TextUnit, translated: string): string {
-  const syntax = unit.pythonString!
-  if (translated === unit.text) return syntax.unit.text
+function stringContent(original: string, syntax: LiteralSyntax, translated: string): string {
+  if (translated === original) return syntax.unit.text
   const suffix = syntax.continuation
   if (!translated.startsWith(syntax.prefix) || !translated.endsWith(suffix) || translated.length < syntax.prefix.length + suffix.length) throw Error("translation-structure-invalid")
   const body = translated.slice(syntax.prefix.length, translated.length - suffix.length)
@@ -187,13 +235,13 @@ function proseBlocks(text: string, protectedRanges: readonly { start: number; en
   return blocks
 }
 
-export function pythonStringUnits(source: string, region: TextUnit, literals: readonly Literal[]): (TextUnit & { readonly kind: "string" })[] {
+export function pythonStringUnits(source: string, region: TextUnit, literals: readonly PythonLiteral[]): (TextUnit & { readonly kind: "string" })[] {
   let text = ""
-  const positions: { start: number; end: number; literal: number }[] = []
+  const positions = new SourceMap()
   const protectedRanges: { start: number; end: number }[] = []
   const expressionRanges: { start: number; end: number; text: string }[] = []
   const formats: { quote: string; raw: boolean; formatted: boolean; opener: string }[] = []
-  for (const [index, literal] of literals.entries()) {
+  for (const literal of literals) {
     const original = source.slice(literal.start, literal.end)
     const opening = original.match(/^([rRuUbBfF]*)("""|'''|"|')/u)
     if (!opening || /b/iu.test(opening[1]) || !original.endsWith(opening[2])) return []
@@ -212,7 +260,7 @@ export function pythonStringUnits(source: string, region: TextUnit, literals: re
       if (protectedToken) protectedRanges.push({ start: text.length, end: text.length + value.length })
       if (protectedToken && expressions.includes(value)) expressionRanges.push({ start: text.length, end: text.length + value.length, text: value })
       text += value
-      for (let character = 0; character < value.length; character++) positions.push({ start: start + from, end: start + to, literal: index })
+      positions.append(value.length, start + from, start + to)
     })
   }
   const blocks = proseBlocks(text, protectedRanges)
@@ -228,50 +276,68 @@ export function pythonStringUnits(source: string, region: TextUnit, literals: re
       }))
     const indent = Math.min(...lines.filter((line) => line.text.trim()).map((line) => line.indent))
     let logical = ""
-    const offsets: number[] = []
+    const offsets = new SourceMap()
     for (const line of lines) {
       const remove = protectedRanges.some((range) => range.start < line.start && range.end > line.start) ? 0 : Math.min(indent, line.indent)
       logical += line.text.slice(remove)
-      for (let index = remove; index < line.text.length; index++) offsets.push(line.start + index)
+      offsets.append(line.text.length - remove, line.start + remove, line.start + line.text.length)
     }
     const parsed = parseMarkdown(logical)
     for (const inner of parsed.groups.flatMap((group) => group.units)) {
-      const first = positions[offsets[inner.start]]
-      const last = positions[offsets[inner.end - 1]]
-      if (!first || !last) continue
-      const firstFormat = formats[first.literal]
-      const lastFormat = formats[last.literal]
-      const start = inner.start === 0 ? positions[block.start].start : first.start
-      const end = last.end
+      const decoded = offsets.range(inner.start, inner.end)
+      const mapped = positions.range(decoded.start, decoded.end)
+      const firstLiteral = literals.findIndex((literal) => literal.start <= mapped.start && literal.end > mapped.start)
+      const lastLiteral = literals.findIndex((literal) => literal.start < mapped.end && literal.end >= mapped.end)
+      if (firstLiteral < 0 || lastLiteral < 0) throw Error("translation-structure-invalid")
+      const firstFormat = formats[firstLiteral]
+      const lastFormat = formats[lastLiteral]
+      const start = inner.start === 0 ? positions.offset(block.start) : mapped.start
+      const end = mapped.end
       const unit: TextUnit = {
         ...inner,
         language: "python",
         protected: protectedRanges.flatMap((range) => {
-          const from = offsets.indexOf(range.start, inner.start)
-          const to = offsets.indexOf(range.end - 1, inner.start)
-          return from >= inner.start && to < inner.end && to >= from ? [{ start: from - inner.start, end: to - inner.start + 1 }] : []
+          const from = offsets.logical(range.start)
+          const to = offsets.logical(range.end, true)
+          return from !== undefined && to !== undefined && from >= inner.start && to <= inner.end && to > from ? [{ start: from - inner.start, end: to - inner.start }] : []
         })
       }
-      const expressions = expressionRanges.filter((range) => range.start >= offsets[inner.start] && range.end <= offsets[inner.end - 1] + 1)
+      const expressions = expressionRanges.filter((range) => range.start >= decoded.start && range.end <= decoded.end)
       // If a paragraph crosses unlike literals, reopen the final literal for the untouched suffix.
       const transition = firstFormat.opener === lastFormat.opener ? "" : firstFormat.quote + " " + lastFormat.opener
+      const original = source.slice(start, end)
+      const syntax: LiteralSyntax = {
+        unit,
+        prefix: source.slice(start, mapped.start),
+        continuation: transition,
+        quote: firstFormat.quote,
+        raw: firstFormat.raw,
+        formatted: firstFormat.formatted,
+        expressions: expressions.map((range) => range.text)
+      }
       units.push({
         ...region,
         kind: "string",
         id: `u${start}-${end}`,
         start,
         end,
-        text: source.slice(start, end),
+        text: original,
         reference: sourceReferences(source, { start, end }, "python"),
-        protected: expressions.map((range) => ({ start: positions[range.start].start - start, end: positions[range.end - 1].end - start })),
-        pythonString: {
+        protected: expressions.map((range) => ({ start: positions.offset(range.start) - start, end: positions.offset(range.end, true) - start })),
+        projection: {
+          kind: "literal",
           unit,
-          prefix: source.slice(start, first.start),
-          continuation: transition,
-          quote: firstFormat.quote,
-          raw: firstFormat.raw,
-          formatted: firstFormat.formatted,
-          expressions: expressions.map((range) => range.text)
+          codec: {
+            identity: JSON.stringify([syntax.prefix, transition, syntax.quote, syntax.raw, syntax.formatted, syntax.expressions]),
+            invalid: {
+              reason: "The response changed Python string syntax.",
+              instruction: "Translate only the requested prose; preserve string escapes and interpolations.",
+              difference: { reason: "译文破坏了 Python 字符串语法或插值。" }
+            },
+            restore: (text) => restoreString(original, syntax, text),
+            content: (text) => stringContent(original, syntax, text),
+            display: (text) => syntax.prefix + stringContent(original, syntax, text)
+          }
         }
       })
     }

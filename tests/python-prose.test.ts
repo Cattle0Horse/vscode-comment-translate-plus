@@ -2,8 +2,10 @@ import assert from "node:assert/strict"
 import { test } from "node:test"
 import { INITIAL, type IGrammar } from "vscode-textmate"
 import { extractCode } from "../src/documents/code.ts"
+import { CodeTokenizer } from "../src/documents/tokenization.ts"
 import { emptyPreserveTerms, prepareTranslation } from "../src/documents/terms.ts"
-import { pythonStringContent, pythonStringUnits } from "../src/documents/python.ts"
+import { pythonStringUnits } from "../src/documents/python.ts"
+import { projectionContent } from "../src/documents/projection.ts"
 import { validateTranslation } from "../src/documents/validation.ts"
 import { TranslationStore } from "../src/translation/store.ts"
 import { chatFixture, modelContext, modelFeedback, requestTranslation } from "./support/fixtures.ts"
@@ -55,7 +57,7 @@ test("Python multiline f-string prose survives interpolation-only lines and blan
           return { tokens, ruleStack: state, stoppedEarly: false }
         }
       } as IGrammar
-      const units = await extractCode(source, "python", multilineGrammar, () => {})
+      const units = await extractCode(source, "python", new CodeTokenizer(multilineGrammar), () => {})
       const prepared = units.map((unit) => prepareTranslation(unit, emptyPreserveTerms, 32))
       assert.deepEqual(
         prepared.map((item) => item.text),
@@ -77,7 +79,7 @@ test("Python multiline f-string prose survives interpolation-only lines and blan
 test("Python adjacent literal prose sends complete paragraphs without source quote boundaries", async () => {
   for (const newline of ["\n", "\r\n"]) {
     const source = ["description = (", '    "Read the museum catalog "', '    "before visiting the gallery.\\n\\nKeep the ticket "', '    "for the next exhibition."', ")"].join(newline)
-    const units = await extractCode(source, "python", grammar, () => {})
+    const units = await extractCode(source, "python", new CodeTokenizer(grammar), () => {})
     const prepared = units.map((unit) => prepareTranslation(unit, emptyPreserveTerms, 32))
     assert.deepEqual(
       prepared.map((item) => item.text),
@@ -214,7 +216,7 @@ test("Python paragraph serialization preserves interpolation, literal braces, es
     assert.equal(prepared.restore(prepared.text), unit.text)
     const translated = prepared.restore(prepared.text.replace("Read", "阅读"))
     assert.equal(validateTranslation(unit, translated), undefined)
-    assert.equal(pythonStringContent(unit, translated), unit.pythonString!.unit.text.replace("Read", "阅读"))
+    assert.equal(projectionContent(unit, translated), unit.projection!.unit.text.replace("Read", "阅读"))
     if (parts.some((part) => part.includes("{name}"))) {
       const restoredSource = source.slice(0, unit.start) + translated + source.slice(unit.end)
       assert.ok(restoredSource.includes('f"') || restoredSource.includes("f'"), "A source interpolation became literal text.")
@@ -228,7 +230,7 @@ test("Python paragraph folding inside quoted Markdown fences retains container p
   for (const newline of ["\n", "\r\n"]) {
     const source = ["> ```python", "> value = (", '>     "Read the museum catalog "', '>     "before visiting."', "> )", "> ```"].join(newline)
     const parsed = await parseMarkdownWithCode(source, async (text, language) => {
-      const units = await extractCode(text, language, grammar, () => {})
+      const units = await extractCode(text, language, new CodeTokenizer(grammar), () => {})
       return { source: text, groups: units.map((unit) => ({ start: unit.start, end: unit.end, units: [unit] })), errors: [] }
     })
     const units = parsed.groups.flatMap((group) => group.units)
@@ -252,7 +254,7 @@ test("Repeated f-string expressions belong only to their own paragraphs", () => 
     const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
     const output = prepared.restore(prepared.text.replace(/Read|Visit/gu, "参观"))
     assert.equal(validateTranslation(unit, output), undefined)
-    assert.equal(pythonStringContent(unit, output), "参观 {name}.")
+    assert.equal(projectionContent(unit, output), "参观 {name}.")
     assert.throws(() => prepared.restore("参观 {name} 和 {name}."), /structure-invalid/u)
   }
 })

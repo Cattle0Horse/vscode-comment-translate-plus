@@ -96,7 +96,7 @@ export class Application implements vscode.Disposable {
     const document = event.document
     const id = document.uri.toString()
     const pending = this.timers.get(id)
-    const parsed = this.documents.invalidate(document.uri)
+    const parsed = this.documents.invalidate(document.uri, { retainTokenization: true })
     const previous = pending ? pending.previous : parsed
     const edits = [...(pending?.edits ?? []), event.contentChanges]
     this.hover.cancel(document.uri, "document-changed")

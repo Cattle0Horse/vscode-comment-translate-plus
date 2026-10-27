@@ -22,7 +22,7 @@ export function unlikelyTargetLanguage(text: string, target: string): { language
 }
 
 export function isTargetLanguage(unit: TextUnit, target: string): boolean {
-  if (unit.pythonString) unit = unit.pythonString.unit
+  while (unit.projection) unit = unit.projection.unit
   if (unit.content !== undefined) unit = { ...unit, text: unit.content, format: "text", protected: undefined }
   if (unit.text.length > 4096) return false
   let text = ""

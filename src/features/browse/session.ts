@@ -1,6 +1,7 @@
 import type { TranslationInput } from "../../model/translation.ts"
 import type { TranslationItem } from "../../model/translation.ts"
 import type { ParsedDocument, TextUnit } from "../../model/document.ts"
+import { ParseFailure } from "../../model/diagnostics.ts"
 import type { CancellationReason } from "../../model/diagnostics.ts"
 import { unchangedRange, unitContentKey } from "../../documents/edits.ts"
 import type { SourceEdit } from "../../documents/edits.ts"
@@ -66,8 +67,14 @@ export class BrowseSession {
       const before = retained?.get(unit.start + ":" + unit.end)
       if (before && JSON.stringify(unitContentKey(before)) === JSON.stringify(unitContentKey(unit))) this.translations.set(unit.id, { ...unit, translation: before.translation })
     }
-    this.planningErrors = document.errors
-    for (const code of document.errors) this.failed?.(Error(code))
+    this.planningErrors = document.errors.map((error) => error.code)
+    for (const diagnostic of document.errors) this.failed?.(new ParseFailure(diagnostic))
+    this.changed()
+  }
+
+  reject(version: number, code: string): void {
+    this.reset(version)
+    this.planningErrors = [code]
     this.changed()
   }
 

@@ -5,6 +5,7 @@ import type { HostCaseResult } from "./cases.ts"
 import { runFeatures } from "./features.ts"
 import { runEditReuse } from "./edits.ts"
 import { runCommentParagraphs } from "./comments.ts"
+import { runParsing } from "./parsing.ts"
 
 function assert(value: unknown, message: string): asserts value {
   if (!value) throw Error(message)
@@ -47,6 +48,7 @@ export async function run(): Promise<void> {
   const controller = extension.exports
   assert(!controller.browse.inspect(uri), "Opening the document must not start translation.")
   checks.push("official Web Worker host activates without automatic service calls")
+  checks.push(...(await runParsing(workspace, controller)))
   const bytes = await (await fetch(vscode.Uri.joinPath(extension.extensionUri, "dist/extension.cjs").toString())).arrayBuffer()
   const digest = await crypto.subtle.digest("SHA-256", bytes)
   const bundleHash = [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, "0")).join("")
