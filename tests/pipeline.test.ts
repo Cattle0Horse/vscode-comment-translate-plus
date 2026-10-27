@@ -840,7 +840,7 @@ test("YAML key colon recovery preserves value punctuation, original key punctuat
     [4, "字段:", "字段:"]
   ] as const) {
     const unit = units[index]
-    const translated = prepareTranslation(unit, emptyPreserveTerms, 32).restore(returned)
+    const translated = prepareTranslation(unit, 32).restore(returned)
     assert.equal(translationDisplayText(translated, "yaml"), expected)
   }
 })

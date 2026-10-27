@@ -1,6 +1,6 @@
 import * as vscode from "vscode"
 import type { Application } from "../../src/host/application.ts"
-import { emptyPreserveTerms, prepareTranslation } from "../../src/documents/terms.ts"
+import { prepareTranslation } from "../../src/documents/terms.ts"
 
 /** Exercise the real grammar, document events and nested-fence cache through the production reader. */
 export async function runParsing(workspace: vscode.Uri, owner: Application): Promise<string[]> {
@@ -25,7 +25,7 @@ export async function runParsing(workspace: vscode.Uri, owner: Application): Pro
     const fresh = await owner.documents.parseSource(source, "python")
     if (JSON.stringify(incremental) !== JSON.stringify(fresh)) throw Error("Incremental Python grammar state diverged from fresh parsing at version " + versions.indexOf(source))
     for (const unit of incremental.groups.flatMap((group) => group.units)) {
-      const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
+      const prepared = prepareTranslation(unit, 32)
       if (unit.text !== source.slice(unit.start, unit.end) || prepared.restore(prepared.text) !== unit.text)
         throw Error("Python source mapping or unchanged restoration drifted after an edit.")
     }

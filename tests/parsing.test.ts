@@ -7,7 +7,7 @@ import { SourceMap } from "../src/documents/sourceMap.ts"
 import { ParseFailure } from "../src/model/diagnostics.ts"
 import { parseMarkdownWithCode } from "../src/documents/markdown.ts"
 import { parseYaml } from "../src/documents/yaml.ts"
-import { emptyPreserveTerms, prepareTranslation } from "../src/documents/terms.ts"
+import { prepareTranslation } from "../src/documents/terms.ts"
 
 class QuoteState implements StateStack {
   readonly _stackElementBrand = undefined
@@ -70,7 +70,7 @@ test("incremental parsing equals fresh parsing when edits change multiline state
     assert.deepEqual(incremental, fresh)
     for (const unit of incremental) {
       assert.equal(unit.text, source.slice(unit.start, unit.end))
-      const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
+      const prepared = prepareTranslation(unit, 32)
       assert.equal(prepared.restore(prepared.text), unit.text)
     }
   }

@@ -1,5 +1,5 @@
 import { ModelRetry } from "../src/model/diagnostics.ts"
-import { emptyPreserveTerms, parsePreserveTerms, prepareTranslation } from "../src/documents/terms.ts"
+import { emptyPreserveTerms, parsePreserveTerms, prepareTranslation, isPreservedTerm } from "../src/documents/terms.ts"
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import { parseMarkdown } from "../src/documents/markdown.ts"
@@ -43,13 +43,13 @@ test("URLs and code identifiers stay protected inside prose, and technical handl
     { id: "comment", start: 0, end: 0, text: "Read https://example.com/a and sourceId.", format: "text" as const, kind: "comment" as const },
     { id: "string", start: 0, end: 0, text: "Read https://example.com/a and source_id.", format: "text" as const, kind: "string" as const }
   ]) {
-    const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
+    const prepared = prepareTranslation(unit, 32)
     assert.equal(prepared.text, unit.text)
     assert.equal(prepared.restore(prepared.text.replace("Read", "阅读")), unit.text.replace("Read", "阅读"))
     assert.throws(() => prepared.restore(prepared.text.replace("https://example.com/a", "changed")), /translation-structure-invalid/)
   }
   const template = "Read ${targetLang} and ${source.id}."
-  const prepared = prepareTranslation({ id: "template", start: 0, end: template.length, text: template, format: "text", kind: "string" }, emptyPreserveTerms, 32)
+  const prepared = prepareTranslation({ id: "template", start: 0, end: template.length, text: template, format: "text", kind: "string" }, 32)
   assert.equal(prepared.text, template)
   assert.equal(prepared.restore("阅读 ${targetLang} 和 ${source.id}。"), "阅读 ${targetLang} 和 ${source.id}。")
   assert.equal(prepared.restore("阅读 ${目标语言} 和 ${来源.标识}。"), "阅读 ${目标语言} 和 ${来源.标识}。")
@@ -62,7 +62,7 @@ test("URLs and code identifiers stay protected inside prose, and technical handl
   assert.equal(fixture.seen.length, 0)
   for (const source of ["Read https://example.com/a?x=1&y=two.", "Read (https://example.com/a).", "Read https://example.com/a_(b)."]) {
     const unit = inputOf(parseMarkdown(source)).units[0]
-    const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
+    const prepared = prepareTranslation(unit, 32)
     assert.equal(prepared.restore(prepared.text.replace("Read", "阅读")), source.replace("Read", "阅读"))
   }
 })
@@ -71,7 +71,7 @@ test("copy-only data completes locally while ordinary names remain translatable"
   const fixture = await chatFixture(t, (_body, items) => items.map((item) => item.replace("Read", "阅读").replace("sourceId", "来源标识")).join("\n%%\n"))
   for (const value of ["https://example.com/a", "./src/config.ts", "HTTP/2", "0x1234", "ops@example.com", "v1.2.3"]) {
     for (const unit of [{ id: "plain", start: 0, end: value.length, text: value, format: "text" as const }, inputOf(parseYaml("label: " + JSON.stringify(value))).units[1]]) {
-      const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
+      const prepared = prepareTranslation(unit, 32)
       assert.equal(prepared.hasMarkers, false)
       assert.equal(prepared.needsTranslation, false)
       assert.equal(prepared.restore(prepared.text), unit.text)
@@ -81,14 +81,14 @@ test("copy-only data completes locally while ordinary names remain translatable"
   const result = await requestTranslation(fixture.service, fixture.settings, input, new AbortController().signal, fixture.gate)
   assert.equal(result[0].text, "阅读 来源标识 and source_id.")
   assert.equal(fixture.seen[0].items[0], input.units[0].text)
-  assert.equal(prepareTranslation(input.units[0], emptyPreserveTerms, 32).hasMarkers, false)
+  assert.equal(prepareTranslation(input.units[0], 32).hasMarkers, false)
 })
 
 test("default short names only preserve complete bodies and clearing the defaults restores HTTP translation", async (t) => {
   const source = "Read HTTP, HTTPS, HTTP(S), http(s), HTTP/HTTPS, HTTP/2, TCP/IP, DNS, JSON, json, uv.lock, UTF-8, API, GraphQL, CPU, I/O and https://example.com/a now."
   for (const kind of [undefined, "comment", "string"] as const) {
     const unit = { id: "protocol", start: 0, end: source.length, text: source, format: "text" as const, kind }
-    const prepared = prepareTranslation(unit, defaultPreserveTerms, 32)
+    const prepared = prepareTranslation(unit, 32)
     assert.equal(prepared.needsTranslation, true)
     assert.equal(prepared.text, source)
     const translated = prepared.restore(prepared.text.replace("API", "接口").replace("json", "数据格式"))
@@ -97,12 +97,11 @@ test("default short names only preserve complete bodies and clearing the default
     assert.throws(() => prepared.restore(prepared.text.replace("HTTP/2", "")), /translation-structure-invalid/)
   }
   for (const text of ["api", "aPi", "JSON", "JsOn"]) {
-    const prepared = prepareTranslation({ id: "word", start: 0, end: text.length, text, format: "text" }, defaultPreserveTerms, 32)
-    assert.equal(prepared.needsTranslation, false, text)
-    assert.equal(prepared.restore(prepared.text), text)
+    assert.equal(isPreservedTerm({ id: "word", start: 0, end: text.length, text, format: "text" }, defaultPreserveTerms), true, text)
   }
   for (const text of ["API!", "API JSON", "JSONify", "myuv.lock", "uv.locker", "sampleword"]) {
-    const prepared = prepareTranslation({ id: "word", start: 0, end: text.length, text, format: "text" }, defaultPreserveTerms, 32)
+    const prepared = prepareTranslation({ id: "word", start: 0, end: text.length, text, format: "text" }, 32)
+    assert.equal(isPreservedTerm({ id: "word", start: 0, end: text.length, text, format: "text" }, defaultPreserveTerms), false, text)
     assert.equal(prepared.text, text)
     assert.equal(prepared.needsTranslation, true, text)
   }

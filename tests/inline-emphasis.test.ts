@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import { test } from "node:test"
 import { parseMarkdown } from "../src/documents/markdown.ts"
 import { translatedMarkdown } from "../src/documents/presentation.ts"
-import { emptyPreserveTerms, prepareTranslation } from "../src/documents/terms.ts"
+import { prepareTranslation } from "../src/documents/terms.ts"
 import { validateTranslation } from "../src/documents/validation.ts"
 import type { TranslationEvent } from "../src/model/events.ts"
 import { TranslationStore } from "../src/translation/store.ts"
@@ -69,8 +69,8 @@ test("inline emphasis is model-owned across nested markup, lists, headings and t
     const translated = inputOf(parseMarkdown(output)).units[0].text
     assert.equal(validateTranslation(unit, translated), undefined, source)
     assert.equal(translatedMarkdown(document, new Map([[unit.id, translated]])), output)
-    const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
-    assert.equal(prepared.restore(prepareTranslation({ ...unit, text: translated }, emptyPreserveTerms, 32).text), translated)
+    const prepared = prepareTranslation(unit, 32)
+    assert.equal(prepared.restore(prepareTranslation({ ...unit, text: translated }, 32).text), translated)
   }
 })
 
@@ -133,7 +133,7 @@ test("comparisons in table cells and locally restored emphasis do not become blo
   ]) {
     const document = parseMarkdown(source)
     const unit = inputOf(document).units[0]
-    const restored = prepareTranslation(unit, emptyPreserveTerms, 32).restore(output)
+    const restored = prepareTranslation(unit, 32).restore(output)
     assert.equal(validateTranslation(unit, restored), undefined)
     assert.equal(translatedMarkdown(document, new Map([[unit.id, restored]])), expected)
   }

@@ -3,7 +3,7 @@ import { test } from "node:test"
 import { INITIAL, type IGrammar } from "vscode-textmate"
 import { extractCode } from "../src/documents/code.ts"
 import { CodeTokenizer } from "../src/documents/tokenization.ts"
-import { emptyPreserveTerms, prepareTranslation } from "../src/documents/terms.ts"
+import { prepareTranslation } from "../src/documents/terms.ts"
 import { validateTranslation, translationIsUnchanged } from "../src/documents/validation.ts"
 import { displayTranslations, translatedMarkdown } from "../src/documents/presentation.ts"
 import { parseMarkdownWithCode } from "../src/documents/markdown.ts"
@@ -41,7 +41,7 @@ test("consecutive standalone line comments form one paragraph with local syntax 
       ].join(newline)
       const units = await extractCode(source, "fixture", new CodeTokenizer(lineGrammar(marker)), () => {})
       assert.equal(units.length, 2)
-      const prepared = prepareTranslation(units[0], emptyPreserveTerms, 32)
+      const prepared = prepareTranslation(units[0], 32)
       assert.equal(prepared.text, "Read the museum catalog before visiting the gallery.")
       assert.equal(prepared.restore(prepared.text), units[0].text)
       const translated = prepared.restore("参观画廊前阅读博物馆目录。")
@@ -62,12 +62,12 @@ test("blank lines, code, inline comments, indentation and marker changes separat
   const grammar = lineGrammar("//")
   const units = await extractCode(lines.join("\n"), "fixture", new CodeTokenizer(grammar), () => {})
   assert.deepEqual(
-    units.map((unit) => prepareTranslation(unit, emptyPreserveTerms, 32).text),
+    units.map((unit) => prepareTranslation(unit, 32).text),
     ["First.", "Second.", "Inline.", "Third.", "Indented.", "Fourth.", "Documentation. Continuation."]
   )
   const rust = await extractCode("/// Read the catalog\n/// before entering.", "rust", new CodeTokenizer(lineGrammar("///", false)), () => {})
   assert.equal(rust.length, 1)
-  assert.equal(prepareTranslation(rust[0], emptyPreserveTerms, 32).text, "Read the catalog before entering.")
+  assert.equal(prepareTranslation(rust[0], 32).text, "Read the catalog before entering.")
 })
 
 test("comment paragraphs share edit invalidation and keep neighbouring paragraphs displayed", async () => {
@@ -75,7 +75,7 @@ test("comment paragraphs share edit invalidation and keep neighbouring paragraph
   const grammar = lineGrammar("//")
   const units = await extractCode(source, "fixture", new CodeTokenizer(grammar), () => {})
   const session = new BrowseSession(
-    async (input) => new Map(input.units.map((unit) => [unit.id, "// 译文：" + prepareTranslation(unit, emptyPreserveTerms, 32).text])),
+    async (input) => new Map(input.units.map((unit) => [unit.id, "// 译文：" + prepareTranslation(unit, 32).text])),
     () => {}
   )
   session.update({ source, groups: units.map((unit) => ({ ...unit, units: [unit] })), errors: [] }, 1)
@@ -98,7 +98,7 @@ test("quoted Markdown code fences collapse comment prose while preserving the ou
   })
   const units = parsed.groups.flatMap((group) => group.units)
   assert.equal(units.length, 1)
-  const prepared = prepareTranslation(units[0], emptyPreserveTerms, 32)
+  const prepared = prepareTranslation(units[0], 32)
   assert.equal(prepared.text, "Read the catalog before entering.")
   assert.equal(prepared.restore(prepared.text), units[0].text)
   const translated = prepared.restore("进入前阅读目录。")

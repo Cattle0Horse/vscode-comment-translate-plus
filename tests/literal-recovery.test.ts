@@ -5,7 +5,7 @@ import type { TranslationEvent } from "../src/model/events.ts"
 import { parseMarkdown } from "../src/documents/markdown.ts"
 import { pythonStringUnits } from "../src/documents/python.ts"
 import { projectionContent } from "../src/documents/projection.ts"
-import { emptyPreserveTerms, prepareTranslation } from "../src/documents/terms.ts"
+import { prepareTranslation } from "../src/documents/terms.ts"
 import { validateTranslation } from "../src/documents/validation.ts"
 import { TranslationStore } from "../src/translation/store.ts"
 import { chatFixture, inputOf, modelFeedback, requestTranslation } from "./support/fixtures.ts"
@@ -34,7 +34,7 @@ test("Python adjacent strings diagnose exposed literal examples through their de
     const literals = [...source.matchAll(/"[^"]*"/gu)].map((match) => ({ start: match.index, end: match.index + match[0].length, protected: [] }))
     const region = { id: "python", start: 0, end: source.length, text: source, format: "text" as const, kind: "string" as const, language: "python" }
     const [unit] = pythonStringUnits(source, region, literals)
-    const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
+    const prepared = prepareTranslation(unit, 32)
     const broken = prepared.restore("按印刷内容复制书架标签：<GALLERY> 示例。")
     const failure = validateTranslation(unit, broken)
     assert.ok(failure instanceof ModelRetry)
@@ -90,7 +90,7 @@ test("literal recovery retries only damaged items, publishes repaired text and s
   assert.deepEqual(await run(), result)
   assert.equal(fixture.seen.length, 2)
 
-  const prepared = prepareTranslation(input.units[1], emptyPreserveTerms, 32)
+  const prepared = prepareTranslation(input.units[1], 32)
   assert.throws(() => prepared.restore(broken[0]), ModelRetry)
   assert.throws(() => prepared.restore(fixed[0] + " " + path), ModelRetry)
 })

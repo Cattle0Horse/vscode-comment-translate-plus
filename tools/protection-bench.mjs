@@ -18,7 +18,7 @@ export default {
       id: "prepare-restore-validate-200-formatted-units",
       run() {
         for (const unit of units) {
-          const prepared = prepareTranslation(unit, emptyPreserveTerms, minimumMarkerCharacters)
+          const prepared = prepareTranslation(unit, minimumMarkerCharacters)
           const restored = prepared.restore(prepared.text)
           assert.equal(restored, unit.text)
           assert.equal(validateTranslation(unit, restored), undefined)

@@ -70,7 +70,7 @@ test("fenced Markdown and YAML reuse scalar and prose translation while preservi
       const translations = new Map<string, string>()
       for (const unit of units) {
         assert.equal(source.slice(unit.start, unit.end), unit.text)
-        const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
+        const prepared = prepareTranslation(unit, 32)
         assert.equal(prepared.restore(prepared.text), unit.text, "No-change translations must retain original YAML syntax and every container prefix.")
         const translated = prepared.restore(prepared.text.replaceAll("Read", "阅读"))
         assert.equal(validateTranslation(unit, translated), undefined)
@@ -94,7 +94,7 @@ test("moving an embedded document reuses validated per-unit cache without retain
   const action: Parameters<TranslationStore["translate"]>[2] = async (input) => {
     calls++
     return input.units.map((unit) => {
-      const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
+      const prepared = prepareTranslation(unit, 32)
       return { id: unit.id, text: prepared.restore(prepared.text.replace("Read", "阅读")) }
     })
   }

@@ -4,7 +4,7 @@ import type { TextUnit } from "../src/model/document.ts"
 import type { TranslationEvent } from "../src/model/events.ts"
 import { ModelRetry } from "../src/model/diagnostics.ts"
 import { parseMarkdown } from "../src/documents/markdown.ts"
-import { emptyPreserveTerms, prepareTranslation } from "../src/documents/terms.ts"
+import { prepareTranslation } from "../src/documents/terms.ts"
 import { validateTranslation } from "../src/documents/validation.ts"
 import { TranslationStore } from "../src/translation/store.ts"
 import { chatFixture, inputOf, modelFeedback, requestTranslation } from "./support/fixtures.ts"
@@ -12,7 +12,7 @@ import { chatFixture, inputOf, modelFeedback, requestTranslation } from "./suppo
 test("item bounds and internal line breaks precede marker and native syntax damage", () => {
   const source = "Read [Guide](./guide.md) and `sourceId_abcdefghijklmnopqrstuvwxyz_123456789`."
   const unit = inputOf(parseMarkdown(source)).units[0]
-  const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
+  const prepared = prepareTranslation(unit, 32)
   assert.throws(() => prepared.restore(" \r\n "), /translation-item-invalid/)
   assert.throws(
     () => prepared.restore("X".repeat(200001) + "\n<context>"),
@@ -35,7 +35,7 @@ test("item bounds and internal line breaks precede marker and native syntax dama
 
 test("marker syntax precedes marker counts and native content counts precede string order", () => {
   const source = "Read `sourceId_abcdefghijklmnopqrstuvwxyz_123456789`."
-  const prepared = prepareTranslation(inputOf(parseMarkdown(source)).units[0], emptyPreserveTerms, 32)
+  const prepared = prepareTranslation(inputOf(parseMarkdown(source)).units[0], 32)
   for (const output of ["阅读 <CTP99>。", "阅读 <CTPbroken>。"]) {
     assert.throws(
       () => prepared.restore(output),
@@ -53,7 +53,7 @@ test("marker syntax precedes marker counts and native content counts precede str
     format: "text",
     protected: [...text.matchAll(/\{\w+\}/gu)].map((match) => ({ start: match.index, end: match.index + match[0].length }))
   }
-  const string = prepareTranslation(unit, emptyPreserveTerms, 32)
+  const string = prepareTranslation(unit, 32)
   assert.throws(
     () => string.restore("阅读 {second}。"),
     (error) => error instanceof ModelRetry && /native source fragment/.test(error.feedback.reason)

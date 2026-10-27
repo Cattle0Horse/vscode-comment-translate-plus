@@ -11,7 +11,7 @@ export interface TranslationInput {
 }
 
 export interface PreparedInput {
-  readonly units: readonly (TextUnit & { readonly reference: readonly ReferenceBlock[] })[]
+  readonly units: readonly (TextUnit & { readonly reference: readonly ReferenceBlock[]; readonly preserved?: true })[]
 }
 
 export interface TranslationItem {

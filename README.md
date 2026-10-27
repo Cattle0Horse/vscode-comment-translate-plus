@@ -60,7 +60,7 @@
 
 点击状态栏中的扩展入口可打开操作菜单，也可从编辑器右键菜单进入。所有命令都能在命令面板中搜索到，分类为 `Comment Translate Plus`。
 
-快速补充保留词：将 `commentTranslatePlus.preserveTermsWriteFile` 配置为 JSON/JSONC 词表路径（如 `./.vscode/preserve-terms.jsonc`），选中文本后执行 **Comment Translate Plus: 添加保留词**，确认词条即可追加；文件或父目录不存在时自动创建。也可以直接执行命令后输入；未配置路径时首次选择文件并记住，以后无需再选。写入文件不必在 `commentTranslatePlus.preserveTerms` 中，也不会自动加入该来源列表。已被来源列表引用的词表可执行 **刷新保留词** 立即生效。
+快速补充保留词：将 `commentTranslatePlus.preserveTermsWriteFile` 配置为 JSON/JSONC 词表路径（如 `./.vscode/preserve-terms.jsonc`），选中文本后执行 **Comment Translate Plus: 添加保留词**，直接追加选中内容，不弹出词条输入框；文件或父目录不存在时自动创建。也可以直接执行命令后输入；未配置路径时首次选择文件并记住，以后无需再选。写入文件不必在 `commentTranslatePlus.preserveTerms` 中，也不会自动加入该来源列表。已被来源列表引用的词表可执行 **刷新保留词** 立即生效。
 
 ### 对照与占位模式
 

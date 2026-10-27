@@ -3,7 +3,7 @@ import { test } from "node:test"
 import { INITIAL, type IGrammar } from "vscode-textmate"
 import { extractCode } from "../src/documents/code.ts"
 import { CodeTokenizer } from "../src/documents/tokenization.ts"
-import { emptyPreserveTerms, prepareTranslation } from "../src/documents/terms.ts"
+import { prepareTranslation } from "../src/documents/terms.ts"
 import { pythonStringUnits } from "../src/documents/python.ts"
 import { projectionContent } from "../src/documents/projection.ts"
 import { validateTranslation } from "../src/documents/validation.ts"
@@ -58,7 +58,7 @@ test("Python multiline f-string prose survives interpolation-only lines and blan
         }
       } as IGrammar
       const units = await extractCode(source, "python", new CodeTokenizer(multilineGrammar), () => {})
-      const prepared = units.map((unit) => prepareTranslation(unit, emptyPreserveTerms, 32))
+      const prepared = units.map((unit) => prepareTranslation(unit, 32))
       assert.deepEqual(
         prepared.map((item) => item.text),
         ["Read the museum catalog.", "Available exhibits:", "{labels}", "Keep the ticket."]
@@ -80,7 +80,7 @@ test("Python adjacent literal prose sends complete paragraphs without source quo
   for (const newline of ["\n", "\r\n"]) {
     const source = ["description = (", '    "Read the museum catalog "', '    "before visiting the gallery.\\n\\nKeep the ticket "', '    "for the next exhibition."', ")"].join(newline)
     const units = await extractCode(source, "python", new CodeTokenizer(grammar), () => {})
-    const prepared = units.map((unit) => prepareTranslation(unit, emptyPreserveTerms, 32))
+    const prepared = units.map((unit) => prepareTranslation(unit, 32))
     assert.deepEqual(
       prepared.map((item) => item.text),
       ["Read the museum catalog before visiting the gallery.", "Keep the ticket for the next exhibition."]
@@ -139,7 +139,7 @@ test("Python docstrings fold prose and each list or parameter continuation while
         newline,
         quote
       )
-      const prepared = units.map((unit) => prepareTranslation(unit, emptyPreserveTerms, 32))
+      const prepared = units.map((unit) => prepareTranslation(unit, 32))
       assert.deepEqual(
         prepared.map((item) => item.text),
         [
@@ -212,7 +212,7 @@ test("Python paragraph serialization preserves interpolation, literal braces, es
     const end = literals.at(-1)!.end
     const region: TextUnit = { id: "literal", start, end, text: source.slice(start, end), kind: "string", format: "text", language: "python" }
     const [unit] = pythonStringUnits(source, region, literals)
-    const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
+    const prepared = prepareTranslation(unit, 32)
     assert.equal(prepared.restore(prepared.text), unit.text)
     const translated = prepared.restore(prepared.text.replace("Read", "阅读"))
     assert.equal(validateTranslation(unit, translated), undefined)
@@ -235,7 +235,7 @@ test("Python paragraph folding inside quoted Markdown fences retains container p
     })
     const units = parsed.groups.flatMap((group) => group.units)
     assert.equal(units.length, 1)
-    const prepared = prepareTranslation(units[0], emptyPreserveTerms, 32)
+    const prepared = prepareTranslation(units[0], 32)
     assert.equal(prepared.text, "Read the museum catalog before visiting.")
     assert.equal(translatedMarkdown(parsed, new Map([[units[0].id, prepared.restore(prepared.text)]])), source)
     const translated = prepared.restore("参观前阅读博物馆目录。")
@@ -251,7 +251,7 @@ test("Repeated f-string expressions belong only to their own paragraphs", () => 
   const units = pythonStringUnits(source, region, [{ start: 0, end: source.length, protected: protectedRanges }])
   assert.equal(units.length, 2)
   for (const unit of units) {
-    const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
+    const prepared = prepareTranslation(unit, 32)
     const output = prepared.restore(prepared.text.replace(/Read|Visit/gu, "参观"))
     assert.equal(validateTranslation(unit, output), undefined)
     assert.equal(projectionContent(unit, output), "参观 {name}.")
@@ -267,7 +267,7 @@ test("Python string display owns prose only and ends before a closing triple quo
       const last = units.at(-1)!
       assert.equal(source.slice(first.start - quote.length, first.start), quote)
       assert.ok(!first.text.includes(quote) && !last.text.includes(quote))
-      const result = prepareTranslation(last, emptyPreserveTerms, 32).restore("配置完成的目录读取器。")
+      const result = prepareTranslation(last, 32).restore("配置完成的目录读取器。")
       assert.equal(translationDisplayText(result, last.format, last), "        配置完成的目录读取器。")
       const [row] = displayTranslations(source, [{ ...last, translation: result }])
       assert.equal(row.end, source.lastIndexOf(newline + "    " + quote))
@@ -277,7 +277,7 @@ test("Python string display owns prose only and ends before a closing triple quo
     const source = quote + "Read the museum catalog." + quote
     const region: TextUnit = { id: "single-line", text: source, start: 0, end: source.length, format: "text", kind: "string", language: "python" }
     const [unit] = pythonStringUnits(source, region, [{ start: 0, end: source.length, protected: [] }])
-    const translated = prepareTranslation(unit, emptyPreserveTerms, 32).restore("阅读博物馆目录。")
+    const translated = prepareTranslation(unit, 32).restore("阅读博物馆目录。")
     assert.equal(translationDisplayText(translated, unit.format, unit), "阅读博物馆目录。")
     assert.equal(source.slice(0, unit.start) + translated + source.slice(unit.end), quote + "阅读博物馆目录。" + quote)
   }

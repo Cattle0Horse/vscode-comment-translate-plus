@@ -2,7 +2,7 @@ import type { PreparedInput, TranslationInput } from "../model/translation.ts"
 import type { ReferenceBlock } from "../model/document.ts"
 import type { ServiceSettings } from "./settings.ts"
 import { getProvider } from "./providers/index.ts"
-import { prepareTranslation } from "../documents/terms.ts"
+import { isPreservedTerm, prepareTranslation } from "../documents/terms.ts"
 import { referenceCandidates, referenceText } from "../documents/references.ts"
 
 /** Resolve references before cache lookup so the key describes what this unit can actually send. */
@@ -11,8 +11,9 @@ export function prepareInput(settings: ServiceSettings, input: TranslationInput)
   return {
     units: input.units.map((unit) => {
       const reference: ReferenceBlock[] = []
-      if (settings.maxContextCharacters <= 0) return { ...unit, reference }
-      const original = prepareTranslation(unit, settings.preserveTerms, settings.minimumMarkerCharacters)
+      const source: PreparedInput["units"][number] = { ...unit, reference, preserved: isPreservedTerm(unit, settings.preserveTerms) ? true : undefined }
+      if (source.preserved || settings.maxContextCharacters <= 0) return source
+      const original = prepareTranslation(unit, settings.minimumMarkerCharacters)
       // Folding prose line breaks alone does not require a duplicate source reference.
       for (const blocks of referenceCandidates(unit, original)) {
         const first = blocks[0]
@@ -23,7 +24,7 @@ export function prepareInput(settings: ServiceSettings, input: TranslationInput)
         if (context.length > settings.maxUnitContextCharacters) continue
         // Reference text can affect only marker namespace selection. Reuse the
         // prepared body unless it introduces a possible namespace collision.
-        const item = context.includes("<CTP") ? prepareTranslation(unit, settings.preserveTerms, settings.minimumMarkerCharacters, context) : original
+        const item = context.includes("<CTP") ? prepareTranslation(unit, settings.minimumMarkerCharacters, context) : original
         const size = provider.prepare({
           settings,
           context,
@@ -31,7 +32,7 @@ export function prepareInput(settings: ServiceSettings, input: TranslationInput)
         })
         if (size.referenceCharacters && size.characters <= settings.maxRequestCharacters && size.referenceCharacters <= settings.maxContextCharacters) reference.push(...blocks)
       }
-      return { ...unit, reference }
+      return source
     })
   }
 }

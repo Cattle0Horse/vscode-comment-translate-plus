@@ -1,4 +1,4 @@
-import { emptyPreserveTerms, prepareTranslation } from "../src/documents/terms.ts"
+import { prepareTranslation } from "../src/documents/terms.ts"
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import type { TranslationEvent } from "../src/model/events.ts"
@@ -86,7 +86,7 @@ test("synthetic visitor notes recover a single style-boundary line break before 
 
 test("style-boundary recovery preserves prose whitespace and rejects paragraph breaks or invalid markers", () => {
   const unit = inputOf(parseMarkdown("**Read *the original* document** and keep `sourceId`.")).units[0]
-  const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
+  const prepared = prepareTranslation(unit, 32)
   const output = "**阅读  仔细 *原始* 文档** 并保留 `sourceId`."
   const wrapped = output.replace("**阅读", "** \r\n 阅读").replace("文档**", "文档 \r\n **")
   const restored = prepared.restore(wrapped)
@@ -109,12 +109,12 @@ test("a source-owned inline code marker may echo its exact backtick wrapper with
   const result = await requestTranslation(fixture.service, fixture.settings, input, new AbortController().signal, fixture.gate)
   assert.ok(result[0].text.includes("`Example reading room: the northern exhibition hall`") && !result[0].text.includes("``"))
   assert.equal(fixture.seen.length, 1)
-  const prepared = prepareTranslation(input.units[0], emptyPreserveTerms, 32)
+  const prepared = prepareTranslation(input.units[0], 32)
   assert.throws(() => prepared.restore(output + " <CTP0>"), /marker-mismatch/)
   assert.equal(validateTranslation(input.units[0], prepared.restore(output + " `extra`")), undefined)
   const path = inputOf(parseMarkdown("Read /examples/catalog/entry.md.")).units[0]
   assert.equal(
-    validateTranslation(path, prepareTranslation(path, emptyPreserveTerms, 32).restore("阅读 `/examples/catalog/entry.md`。")),
+    validateTranslation(path, prepareTranslation(path, 32).restore("阅读 `/examples/catalog/entry.md`。")),
     undefined,
     "A new inline-code wrapper around a plain path was rejected."
   )

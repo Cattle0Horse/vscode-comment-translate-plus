@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import { termSource, parseTermFile, appendPreserveTerm } from "../src/documents/termFiles.ts"
-import { parsePreserveTerms, prepareTranslation } from "../src/documents/terms.ts"
+import { parsePreserveTerms, isPreservedTerm } from "../src/documents/terms.ts"
 
 test("term sources distinguish Windows drives, UNC, Unix, URI and workspace-relative paths without losing filename characters", () => {
   for (const [input, expected] of [
@@ -44,16 +44,15 @@ test("ambiguous paths and untrusted network forms are rejected before reading a 
 test("JSON stays strict while JSONC accepts comments and trailing commas; compiled rules keep full-body and literal semantics", () => {
   const source = "file:///terms.jsonc"
   const rules = parsePreserveTerms(parseTermFile('\uFEFF[\n// Shared names\n"Widget", "Widget", {"pattern":"(HTTP|HTTPS)", "flags":"i"},\n]', source))
-  const prepared = (text: string) => prepareTranslation({ id: "term", text, start: 0, end: text.length, format: "text" }, rules, 32)
+  const preserved = (text: string) => isPreservedTerm({ id: "term", text, start: 0, end: text.length, format: "text" }, rules)
   for (const text of ["Widget", "widget", "WIDGET", "wIdGeT", "HtTp", "HTTPS", "HTTP"]) {
-    assert.equal(prepared(text).needsTranslation, false)
-    assert.equal(prepared(text).restore(prepared(text).text), text)
+    assert.equal(preserved(text), true)
   }
-  for (const text of ["Use Widget.", "HTTP HTTPS", "Widget!", "Wid get"]) assert.equal(prepared(text).needsTranslation, true)
+  for (const text of ["Use Widget.", "HTTP HTTPS", "Widget!", "Wid get"]) assert.equal(preserved(text), false)
   assert.equal(rules.literals.size, 1)
   assert.equal(parsePreserveTerms(["Widget", { pattern: "HTTP", flags: "i" }]).identity, parsePreserveTerms([{ pattern: "HTTP", flags: "i" }, "widget", "WIDGET"]).identity)
   const caseSensitive = parsePreserveTerms([{ pattern: "Widget" }])
-  assert.equal(prepareTranslation({ id: "regex", text: "widget", start: 0, end: 6, format: "text" }, caseSensitive, 32).needsTranslation, true)
+  assert.equal(isPreservedTerm({ id: "regex", text: "widget", start: 0, end: 6, format: "text" }, caseSensitive), false)
   for (const text of ['["Widget",]', '[/* comment */ "Widget"]']) {
     assert.throws(() => parseTermFile(text, "file:///terms.json"))
     assert.deepEqual(parseTermFile(text, source), ["Widget"])

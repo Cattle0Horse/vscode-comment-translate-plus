@@ -1,4 +1,4 @@
-import { emptyPreserveTerms, prepareTranslation } from "../../src/documents/terms.ts"
+import { prepareTranslation } from "../../src/documents/terms.ts"
 import { projectionContent } from "../../src/documents/projection.ts"
 import { validateTranslation } from "../../src/documents/validation.ts"
 import * as vscode from "vscode"
@@ -371,7 +371,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     const parsed = await owner.documents.parse(target.document, true)
     const unit = parsed.groups.flatMap((group) => group.units).find((unit) => unit.content === content)
     assert(unit, "Real JSON grammar lost the decoded string value.")
-    const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
+    const prepared = prepareTranslation(unit, 32)
     assert(prepared.hasMarkers === markers && !prepared.text.includes("\\n"), "JSON exposed serialization escapes or masked ordinary labels.")
     assert(markers || prepared.text.includes("This is"), "JSON preparation hid This behind an escape marker.")
     const before = (await requests()).length
@@ -410,14 +410,14 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     const units = parsed.groups.flatMap((group) => group.units)
     assert(units.length > 0, "Python grammar lost triple quoted strings.")
     for (const unit of units) {
-      const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
+      const prepared = prepareTranslation(unit, 32)
       assert(!prepared.text.includes(quote) && !prepared.hasMarkers, "Python triple quote boundaries consumed model markers.")
       assert(prepared.restore(prepared.text) === unit.text, "Local triple quote restoration changed source content.")
     }
     const singleSource = "    " + quote + "Read the original document." + quote
     const single = (await owner.documents.parseSource(singleSource, "python")).groups.flatMap((group) => group.units)
     assert(single.length === 1 && single[0].text === "Read the original document.", "Single-line docstring source delimiters became prose.")
-    const translated = prepareTranslation(single[0], emptyPreserveTerms, 32).restore("阅读原始文档。")
+    const translated = prepareTranslation(single[0], 32).restore("阅读原始文档。")
     assert(translationDisplayText(translated, single[0].format, single[0]) === "阅读原始文档。", "Single-line docstring display included triple quotes.")
   }
   await config.update("browse.strings", false, vscode.ConfigurationTarget.Global)
@@ -439,7 +439,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     assert(units.length === 1, "Python implicit concatenation was split into incomplete translation items.")
     const unit = units[0]
     assert(unit.text.startsWith("Skill") && unit.text.endsWith("content."), "Python prose range contains an outer delimiter or lost its body.")
-    const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
+    const prepared = prepareTranslation(unit, 32)
     assert(
       prepared.text.startsWith("Skill '") && prepared.text.includes("is already loaded") && prepared.text.includes("session.") && prepared.text.endsWith("skill content."),
       "Python concatenation did not send the complete sentence."
@@ -469,7 +469,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     const units = parsed.groups.flatMap((group) => group.units)
     assert(units.length === count, "Python concatenation crossed a statement, comma or operator boundary: " + expression)
     for (const unit of units) {
-      const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
+      const prepared = prepareTranslation(unit, 32)
       assert(prepared.restore(prepared.text) === unit.text, "Python expression no-op lost protected syntax.")
       if (expression.includes("user.name")) assert(prepared.text.includes("{user.name!r:>10}") && !prepared.hasMarkers, "Short Python interpolation consumed CTP markers.")
       if (expression.includes("shelf[")) {
@@ -513,7 +513,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
       const target = await open("multiline-fstring-" + (quote[0] === '"' ? "double" : "single") + (newline === "\n" ? "-lf.py" : "-crlf.py"), "python", source)
       const units = (await owner.documents.parse(target.document)).groups.flatMap((group) => group.units)
       assert(
-        JSON.stringify(units.map((unit) => prepareTranslation(unit, emptyPreserveTerms, 32).text)) === JSON.stringify(expected),
+        JSON.stringify(units.map((unit) => prepareTranslation(unit, 32).text)) === JSON.stringify(expected),
         "Multiline f-string prose disappeared at a standalone interpolation or crossed the closing quote."
       )
       const before = (await requests()).length
@@ -538,7 +538,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
         const variant = source.replace("return f" + quote, "return " + prefix + quote)
         const parsed = (await owner.documents.parseSource(variant, "python")).groups.flatMap((group) => group.units)
         assert(
-          JSON.stringify(parsed.map((unit) => prepareTranslation(unit, emptyPreserveTerms, 32).text)) === JSON.stringify(expected),
+          JSON.stringify(parsed.map((unit) => prepareTranslation(unit, 32).text)) === JSON.stringify(expected),
           "A raw or uppercase multiline f-string lost prose around interpolation-only lines."
         )
       }
@@ -639,7 +639,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
       "Read the original document."
     ]
     assert(
-      JSON.stringify(units.map((unit) => prepareTranslation(unit, emptyPreserveTerms, 32).text)) === JSON.stringify(expected),
+      JSON.stringify(units.map((unit) => prepareTranslation(unit, 32).text)) === JSON.stringify(expected),
       "Real Python grammar split prose continuations or merged list/field boundaries."
     )
     const before = (await requests()).length
@@ -876,6 +876,24 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   assert(dirtyRejected && dirtyTerms.isDirty && dirtyTerms.getText().startsWith("// unsaved"), "Adding a term overwrote or saved unrelated unsaved changes.")
   assert(new TextDecoder().decode(await vscode.workspace.fs.readFile(unconfiguredFile)) === savedTerms, "A rejected addition changed the saved file.")
   await dirtyTerms.save()
+  const selectedTerm = ' Widget "selected" \nSecond line '
+  const selectionSource = "Before\n" + selectedTerm + "\nAfter"
+  const termSelectionSource = await open("selected-preserve-term.txt", "plaintext", selectionSource)
+  termSelectionSource.editor.selection = new vscode.Selection(termSelectionSource.document.positionAt(7), termSelectionSource.document.positionAt(7 + selectedTerm.length))
+  let additionComplete = false
+  const addition = vscode.commands.executeCommand("commentTranslatePlus.addPreserveTerm").then(() => {
+    additionComplete = true
+  })
+  try {
+    await waitFor(() => additionComplete, "selected preserve term saved without input confirmation")
+  } finally {
+    await vscode.commands.executeCommand("workbench.action.closeQuickOpen")
+    await addition
+  }
+  const selectionTerms = parseTermFile(new TextDecoder().decode(await vscode.workspace.fs.readFile(unconfiguredFile)), unconfiguredFile.toString())
+  assert(selectionTerms.includes(selectedTerm), "The add command did not save the exact selected text.")
+  assert(termSelectionSource.document.getText() === selectionSource && !termSelectionSource.document.isDirty, "Adding selected text modified its source document.")
+  checks.push("the add preserve term command saves selected multiline text and whitespace without input confirmation or source edits")
   await config.update("preserveTermsWriteFile", undefined, vscode.ConfigurationTarget.Global)
   checks.push("adding literals reuses the configured JSONC target without changing translation sources or active rules, preserves comments and rejects unsaved edits")
   await vscode.workspace.fs.writeFile(termsFile, new TextEncoder().encode(JSON.stringify(["Widget", "project.lock"])))
@@ -907,7 +925,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     (await requests())
       .slice(beforeTerms)
       .flatMap((request) => request.itemFingerprints ?? [])
-      .includes(await requestFingerprint(prepareTranslation(termUnit, emptyPreserveTerms, 32).text)),
+      .includes(await requestFingerprint(prepareTranslation(termUnit, 32).text)),
     "Custom preserved terms masked part of a mixed model request."
   )
   await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
@@ -1281,7 +1299,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
       ". Follow [Guide](./guide.md). Keep `sourceId_abcdefghijklmnopqrstuvwxyz_123456789`.\n- 这是已有的中文说明，调用 `sample_task`。"
     const contamination = await open("reference-contamination-" + mode + ".md", "markdown", contaminationSource)
     const target = (await owner.documents.parse(contamination.document)).groups.flatMap((group) => group.units)[0]
-    const fingerprint = await requestFingerprint(prepareTranslation(target, emptyPreserveTerms, 32).text)
+    const fingerprint = await requestFingerprint(prepareTranslation(target, 32).text)
     const before = (await requests()).length
     await fetch(origin + "/control", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ referenceContamination: mode }) })
     try {
@@ -2476,7 +2494,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   ] as const) {
     const target = await open("log-recovery-" + name + ".md", "markdown", source)
     const unit = (await owner.documents.parse(target.document)).groups.flatMap((group) => group.units)[0]
-    const fingerprint = await requestFingerprint(prepareTranslation(unit, emptyPreserveTerms, 32).text)
+    const fingerprint = await requestFingerprint(prepareTranslation(unit, 32).text)
     const before = (await requests()).length
     const sent = async () => (await requests()).slice(before).filter((request) => request.model === "log-recovery-fixture" && request.inputFingerprint === fingerprint)
     await start(target.document, 1)
@@ -2573,9 +2591,9 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
       const source = fenced ? ["```" + (newline === "\n" ? "bash" : "sh"), code, "```"].join(newline) : code
       const target = await open("shell-arguments-" + (newline === "\n" ? "lf" : "crlf") + (fenced ? ".md" : ".sh"), fenced ? "markdown" : "shellscript", source)
       const units = (await owner.documents.parse(target.document, true)).groups.flatMap((group) => group.units)
-      const prose = units.filter((unit) => prepareTranslation(unit, emptyPreserveTerms, 32).needsTranslation)
+      const prose = units.filter((unit) => prepareTranslation(unit, 32).needsTranslation)
       assert(
-        prose.length === 4 && prose.every((unit) => prepareTranslation(unit, emptyPreserveTerms, 32).text === "Read the original document."),
+        prose.length === 4 && prose.every((unit) => prepareTranslation(unit, 32).text === "Read the original document."),
         "Shell extraction lost comments or quoted prose, or included executable arguments."
       )
       assert(

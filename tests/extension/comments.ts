@@ -1,6 +1,6 @@
 import * as vscode from "vscode"
 import type { Application } from "../../src/host/application.ts"
-import { prepareTranslation, emptyPreserveTerms } from "../../src/documents/terms.ts"
+import { prepareTranslation } from "../../src/documents/terms.ts"
 
 function assert(value: unknown, message: string): asserts value {
   if (!value) throw Error(message)
@@ -32,7 +32,7 @@ export async function runCommentParagraphs(workspace: vscode.Uri, owner: Applica
       const parsed = await owner.documents.parse(document)
       const units = parsed.groups.flatMap((group) => group.units)
       assert(units.length === 2 && units.every((unit) => unit.kind === "comment"), "Real grammar did not produce two comment paragraphs: " + language)
-      const body = prepareTranslation(units[0], emptyPreserveTerms, 32)
+      const body = prepareTranslation(units[0], 32)
       assert(
         body.text === "Read the original document." && body.restore(body.text) === units[0].text,
         "Comment syntax reached paragraph prose or unchanged restoration lost bytes: " + language

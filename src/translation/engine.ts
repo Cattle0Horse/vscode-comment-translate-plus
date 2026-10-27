@@ -129,7 +129,7 @@ class TranslationRun {
       this.combined.throwIfAborted()
       if (!unit.wanted) continue
       unit.prepare(collisions)
-      if (unit.skipped) this.completed?.({ id: unit.source.id, text: unit.translation! })
+      if (unit.translation !== undefined) this.completed?.({ id: unit.source.id, text: unit.translation })
       else if (!unit.prepared!.needsTranslation) this.publish(unit, unit.prepared!.text)
     }
   }

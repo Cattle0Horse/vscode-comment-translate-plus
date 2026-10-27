@@ -36,10 +36,14 @@ export class TranslationUnit {
   }
 
   prepare(collisions: string): void {
-    if (this.settings.skipSameLanguage && isTargetLanguage(this.source, this.settings.targetLanguage)) {
+    if (this.source.preserved) {
+      const failure = validateTranslation(this.source, this.source.text)
+      if (failure) throw failure
+      this.translation = this.source.text
+    } else if (this.settings.skipSameLanguage && isTargetLanguage(this.source, this.settings.targetLanguage)) {
       this.skipped = true
       this.translation = this.source.text
-    } else this.prepared = prepareTranslation(this.source, this.settings.preserveTerms, this.settings.minimumMarkerCharacters, collisions)
+    } else this.prepared = prepareTranslation(this.source, this.settings.minimumMarkerCharacters, collisions)
   }
 
   beginAttempt(): void {

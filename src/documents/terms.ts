@@ -47,14 +47,21 @@ export function parsePreserveTerms(value: unknown): PreserveTerms {
 
 export const emptyPreserveTerms = parsePreserveTerms([])
 
+/** Match the complete source body before language detection, masking or reference planning. */
+export function isPreservedTerm(unit: TextUnit, preserveTerms: PreserveTerms): boolean {
+  if (!preserveTerms.literals.size && !preserveTerms.expressions.length) return false
+  while (unit.projection) unit = unit.projection.unit
+  const { source } = translationBody(unit)
+  return preserveTerms.literals.has(source.toLowerCase()) || preserveTerms.expressions.some((term) => term.test(source))
+}
+
 export function prepareTranslation(
   unit: TextUnit,
-  preserveTerms: PreserveTerms,
   minimumMarkerCharacters: number,
   context = ""
 ): { text: string; source: string; hasMarkers: boolean; needsTranslation: boolean; restore(text: string): string } {
   if (unit.projection) {
-    const prepared = prepareTranslation(unit.projection.unit, preserveTerms, minimumMarkerCharacters, context)
+    const prepared = prepareTranslation(unit.projection.unit, minimumMarkerCharacters, context)
     return { ...prepared, restore: (text) => restoreProjection(unit, prepared.restore(text)) }
   }
   const { original, source, start, end, ranges: protectedRanges, echoedPrefix } = translationBody(unit)
@@ -137,11 +144,7 @@ export function prepareTranslation(
     text,
     source,
     hasMarkers: markers.size > 0,
-    needsTranslation:
-      !preserveTerms.literals.has(source.toLowerCase()) &&
-      !preserveTerms.expressions.some((term) => term.test(source)) &&
-      !!remaining.trim() &&
-      (!protectedRanges.length || /\p{L}/u.test(remaining)),
+    needsTranslation: !!remaining.trim() && (!protectedRanges.length || /\p{L}/u.test(remaining)),
     restore: (translated) => {
       const bounds = validateTranslationText(translated, translated.trim() ? "translation-structure-invalid" : "translation-item-invalid")
       if (bounds) throw bounds

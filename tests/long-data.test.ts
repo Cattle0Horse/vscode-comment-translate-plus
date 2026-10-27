@@ -1,4 +1,4 @@
-import { emptyPreserveTerms, prepareTranslation } from "../src/documents/terms.ts"
+import { prepareTranslation } from "../src/documents/terms.ts"
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import { validateTranslation } from "../src/documents/validation.ts"
@@ -35,7 +35,7 @@ test("expanded fragments preserve exact contents and multiplicity alongside mark
   const url = "https://example.com/a-long-source-resource"
   const source = "Read " + command + " twice: " + command + ", then [guide](" + url + ")."
   const unit = inputOf(parseMarkdown(source)).units[0]
-  const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
+  const prepared = prepareTranslation(unit, 32)
   for (const output of [
     "阅读 " + command + " 两次：" + command + "，然后[指南](" + url + ")。",
     "阅读 <CTP1> 两次：" + command + "，然后[指南](<CTP2>)。",
@@ -65,14 +65,14 @@ test("expanded source data stays literal across namespace collisions, overlappin
   const code = "`sample-reader <CTP0> --help .*$&`"
   const source = "Keep <CTP1_0> beside " + code + "."
   const unit = inputOf(parseMarkdown(source)).units[0]
-  const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
+  const prepared = prepareTranslation(unit, 32)
   assert.equal(prepared.restore(source.replace("Keep", "保留")), source.replace("Keep", "保留"))
 
   const short = "https://example.com/a-long-resource"
   const long = short + "/more-data"
   const text = "Read " + short + " and " + long
   const python = { id: "ordered", text, start: 0, end: text.length, format: "text" as const, kind: "string" as const, language: "python" }
-  const ordered = prepareTranslation(python, emptyPreserveTerms, 32)
+  const ordered = prepareTranslation(python, 32)
   assert.equal(ordered.restore(text.replace("Read", "阅读")), text.replace("Read", "阅读"))
   assert.throws(() => ordered.restore("阅读 " + long), /marker-mismatch/u, "A containing fragment cannot also supply the missing shorter fragment.")
   assert.throws(() => ordered.restore("阅读 " + long + " and " + short), /structure-invalid/u)
@@ -86,7 +86,7 @@ test("response boundaries preserve native CRLF syntax inside each item and retai
   assert.deepEqual(splitTranslations("%%\r\n" + first, "%%", 2), ["", first])
   assert.deepEqual(splitTranslations(first + "\r\n%%\r\n", "%%", 2), [first, ""])
   const unit = inputOf(parseMarkdown("Keep `sourceId` unchanged.")).units[0]
-  const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
+  const prepared = prepareTranslation(unit, 32)
   const restored = prepared.restore("\r\n" + prepared.text + "\r\n")
   assert.equal(validateTranslation(unit, restored), undefined, "Boundary CRLF shifted a native code span during validation.")
 })
@@ -96,7 +96,7 @@ test("copy-only fragments cross the length threshold without masking ordinary na
     const url = "https://example.com/" + "a".repeat(size - 20)
     assert.equal(url.length, size)
     const unit = inputOf(parseMarkdown("Read **sourceId** at [guide](" + url + ").")).units[0]
-    const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
+    const prepared = prepareTranslation(unit, 32)
     assert.equal(prepared.hasMarkers, size >= 32)
     assert.ok(prepared.text.includes("**sourceId**"))
     assert.ok(prepared.text.includes(size >= 32 ? "[guide](<CTP0>)" : "[guide](" + url + ")"))
@@ -111,7 +111,7 @@ test("copy-only fragments cross the length threshold without masking ordinary na
   }
   const name = "example_catalog_snapshot_".repeat(20)
   const unit = { id: "name", text: "Read <" + name + "> and sourceId.", start: 0, end: name.length + 22, format: "text" as const, kind: "string" as const }
-  const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
+  const prepared = prepareTranslation(unit, 32)
   assert.equal(prepared.hasMarkers, false)
   assert.equal(prepared.restore("阅读 <示例目录快照> 和 来源标识。"), "阅读 <示例目录快照> 和 来源标识。")
 })
@@ -128,13 +128,13 @@ test("long numeric and mixed data stay exact without an address or hash type reg
   ]) {
     const text = "Read " + value + " now."
     const unit = { id: "data", text, start: 0, end: text.length, format: "text" as const, kind: "string" as const }
-    const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
+    const prepared = prepareTranslation(unit, 32)
     assert.equal(prepared.text, "Read <CTP0> now.", value)
     assert.equal(prepared.restore("阅读 <CTP0> now."), "阅读 " + value + " now.")
   }
   for (const value of ["::1", "2001:db8::1", "sourceId", "example_catalog_snapshot", "word1", "a1"]) {
     const text = "Read " + value + " now."
-    assert.equal(prepareTranslation({ id: "short", text, start: 0, end: text.length, format: "text", kind: "string" }, emptyPreserveTerms, 32).text, text)
+    assert.equal(prepareTranslation({ id: "short", text, start: 0, end: text.length, format: "text", kind: "string" }, 32).text, text)
   }
 })
 
@@ -165,7 +165,7 @@ test("configured marker thresholds isolate cached and in-flight translations and
   for (const minimumMarkerCharacters of [0, -1, 1.5, NaN, Infinity, 200001])
     assert.throws(() => validateService({ ...fixture.settings, minimumMarkerCharacters }), /service-settings-incomplete/u)
   const short = { ...input.units[0], text: "Read 0933.0sf0....ds now." }
-  assert.equal(prepareTranslation(short, emptyPreserveTerms, 1).hasMarkers, false, "Lowering the threshold bypassed the minimum copying benefit.")
+  assert.equal(prepareTranslation(short, 1).hasMarkers, false, "Lowering the threshold bypassed the minimum copying benefit.")
 })
 
 test("decoded JSON content translates labels without exposing serialization escapes or hiding This", async (t) => {
@@ -173,7 +173,7 @@ test("decoded JSON content translates labels without exposing serialization esca
     "<example_catalog_snapshot>\nThis is a sample museum catalog prepared for the spring exhibition.\n<sample_location>\nEurope/London\n</sample_location>\n<catalog_date>2031-04-12</catalog_date>\n</example_catalog_snapshot>"
   const text = JSON.stringify(content)
   const unit = { id: "json", text, content, start: 0, end: text.length, format: "text" as const, kind: "string" as const, language: "json" }
-  const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
+  const prepared = prepareTranslation(unit, 32)
   assert.equal(prepared.hasMarkers, false)
   assert.ok(prepared.text.includes("This is"))
   assert.ok(!prepared.text.includes("\\n"))

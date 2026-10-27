@@ -4,7 +4,7 @@ import { resolve } from "node:path"
 import { hashText } from "./verify.mjs"
 
 const modulePath = process.env.CTP_TERMS_BENCH_MODULE
-const { parsePreserveTerms, prepareTranslation } = modulePath ? createRequire(import.meta.url)(resolve(modulePath)) : await import("../artifacts/core/documents/terms.mjs")
+const { parsePreserveTerms, isPreservedTerm } = modulePath ? createRequire(import.meta.url)(resolve(modulePath)) : await import("../artifacts/core/documents/terms.mjs")
 const entries = [...Array.from({ length: 5000 }, (_, index) => "Product" + index), { pattern: "HTTP(?:S)?", flags: "i" }]
 const compiled = parsePreserveTerms(entries)
 const units = Array.from({ length: 1000 }, (_, index) => {
@@ -20,7 +20,7 @@ export default {
     {
       id: "prepare-1000-units-5000-literals-one-regex",
       run() {
-        for (const [index, unit] of units.entries()) assert.equal(prepareTranslation(unit, compiled, 32).needsTranslation, index % 3 === 1)
+        for (const [index, unit] of units.entries()) assert.equal(!isPreservedTerm(unit, compiled), index % 3 === 1)
       }
     }
   ]

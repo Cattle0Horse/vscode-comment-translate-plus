@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import { prepareSelection } from "../src/documents/selection.ts"
-import { emptyPreserveTerms, prepareTranslation } from "../src/documents/terms.ts"
+import { prepareTranslation } from "../src/documents/terms.ts"
 import { validateTranslation } from "../src/documents/validation.ts"
 
 const policy = [
@@ -37,7 +37,7 @@ test("selected shortcut links use definitions outside the selected range", () =>
     const selected = prepareSelection(source, start, start + text.length, "markdown", "markdown")
     const unit = selected.units[0]
     const output = "阅读 [TITLE   guide] 和 [普通文字]。"
-    const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
+    const prepared = prepareTranslation(unit, 32)
     assert.equal(prepared.restore(output), output)
     assert.equal(selected.restore(new Map([[unit.id, output]])), output)
     assert.ok(validateTranslation(unit, output.replace("TITLE   guide", "标题指南")))
@@ -56,7 +56,7 @@ test("multiline Markdown selections translate list bodies separately and retain 
     const translations = new Map<string, string>()
     for (const unit of selected.units) {
       assert.equal(source.slice(unit.start, unit.end), unit.text)
-      const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
+      const prepared = prepareTranslation(unit, 32)
       assert.doesNotMatch(prepared.text, /[\r\n]|^[-*+] /u)
       assert.throws(() => prepared.restore(prepared.text + "\nAn extra explanation."), /structure-invalid/u)
       const output = unit === selected.units[0] ? "图书馆指南位于 `examples/reading` 和 `examples/shelves`。" : "花园目录按花期与颜色列出花卉。"
@@ -67,7 +67,7 @@ test("multiline Markdown selections translate list bodies separately and retain 
     assert.equal(selected.restore(translations), "- 图书馆指南位于 `examples/reading` 和 `examples/shelves`。" + newline + "- 花园目录按花期与颜色列出花卉。")
     translations.delete(selected.units[1].id)
     assert.equal(selected.restore(translations), "- 图书馆指南位于 `examples/reading` 和 `examples/shelves`。" + newline + policy.slice(5).join(newline))
-    const unchanged = new Map(selected.units.map((unit) => [unit.id, prepareTranslation(unit, emptyPreserveTerms, 32).restore(prepareTranslation(unit, emptyPreserveTerms, 32).text)]))
+    const unchanged = new Map(selected.units.map((unit) => [unit.id, prepareTranslation(unit, 32).restore(prepareTranslation(unit, 32).text)]))
     assert.equal(selected.restore(unchanged), text)
   }
 })
@@ -78,7 +78,7 @@ test("Markdown selection reassembly keeps numbering, nesting, task state, tables
   const selected = prepareSelection(source, 0, source.length, "markdown", "markdown")
   const translations = new Map(
     selected.units.map((unit) => {
-      const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
+      const prepared = prepareTranslation(unit, 32)
       const translated = prepared.restore(
         prepared.text.replaceAll("Read", "阅读").replaceAll("Keep", "保留").replaceAll("Field", "字段").replaceAll("Meaning", "含义").replaceAll("First", "第一")
       )
@@ -108,7 +108,7 @@ test("partial Markdown selections stay inside their captured range and non-Markd
   const translations = new Map(
     selected.units.map((unit) => {
       assert.ok(unit.start >= start && unit.end <= end)
-      const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
+      const prepared = prepareTranslation(unit, 32)
       return [unit.id, prepared.restore(prepared.text.replace("selected words continued words.", "选中的文字。").replace("Next item.", "下一项。"))]
     })
   )
