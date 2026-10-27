@@ -3,17 +3,19 @@ import type { BrowseSnapshot, TranslatedUnit } from "./session.ts"
 import { displayMode } from "../../host/configuration.ts"
 import { translationDisplayText, displayTranslations } from "../../documents/presentation.ts"
 
-function prose(text: string, format: TranslatedUnit["format"], kind?: TranslatedUnit["kind"]): string {
+function prose(text: string, unit: TranslatedUnit): string {
+  const { format, kind, commentPrefix } = unit
   const lines = translationDisplayText(text, format).split(/\r?\n/)
   if (kind === "string") return lines.map((line) => line.trim()).join(" ")
   if (format === "text")
     return lines
-      .map((line) =>
-        line
+      .map((line) => {
+        if (commentPrefix && line.trimStart().startsWith(commentPrefix)) return line.trimStart().slice(commentPrefix.length).trim()
+        return line
           .replace(/^\s*(?:\/\*+\s?|\*\/\s?|\*\s?|\/+\s?|#\s?)/, "")
           .replace(/\s*\*\/$/, "")
           .trim()
-      )
+      })
       .filter(Boolean)
       .join(" ")
   if (format === "yaml") return lines.map((line) => line.trim()).join(" ")
@@ -94,12 +96,12 @@ export class BrowseRenderer implements vscode.Disposable, vscode.CodeLensProvide
       .map((unit) => {
         const position = document.positionAt(unit.start)
         const first = unit.text.split(/\r?\n/, 1)[0]
-        const stripped = unit.format === "yaml" ? first.trimStart() : prose(first, unit.format, unit.kind)
+        const stripped = unit.format === "yaml" ? first.trimStart() : prose(first, unit)
         const index = first.indexOf(stripped)
         const prefix = document.lineAt(position.line).text.slice(0, position.character) + first.slice(0, stripped && index >= 0 ? index : (first.match(/^\s*/)?.[0].length ?? 0))
         const tabSize = Number(vscode.workspace.getConfiguration("editor", document.uri).get("tabSize", 4))
         const column = [...prefix].reduce((column, character) => (character === "\t" ? column + tabSize - (column % tabSize) : column + 1), 0)
-        return { unit, text: prose(unit.translation, unit.format, unit.kind), column, nextLine: document.positionAt(unit.end).line + 1 }
+        return { unit, text: prose(unit.translation, unit), column, nextLine: document.positionAt(unit.end).line + 1 }
       })
       .filter((item) => !!item.text)
   }
@@ -129,6 +131,24 @@ export class BrowseRenderer implements vscode.Disposable, vscode.CodeLensProvide
   render(): void {
     for (const editor of vscode.window.visibleTextEditors) this.paint(editor)
     this.changed.fire()
+  }
+
+  edited(document: vscode.TextDocument, edits: readonly vscode.TextDocumentContentChangeEvent[]): void {
+    const id = document.uri.toString()
+    const previous = this.resolved.get(id)
+    if (!previous) return
+    const lines = new Set<number>()
+    if (previous.version === document.version - 1) {
+      for (const line of previous.lines) {
+        if (edits.some((edit) => edit.range.start.line < line && (edit.range.end.line > line || (edit.range.end.line === line && edit.range.end.character > 0)))) continue
+        let shifted = line
+        for (const edit of edits) {
+          if (edit.range.end.line <= line) shifted += (edit.text.match(/\n/g)?.length ?? 0) - (edit.range.end.line - edit.range.start.line)
+        }
+        lines.add(shifted)
+      }
+    }
+    this.resolved.set(id, { version: document.version, lines })
   }
 
   private paint(editor: vscode.TextEditor): void {

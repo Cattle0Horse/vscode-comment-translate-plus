@@ -57,7 +57,7 @@ export function displayTranslations(source: string, units: readonly (TextUnit & 
     const key = start + ":" + end
     let group = groups.get(key)
     if (!group) {
-      group = { unit: { id: key, start, end, text: source.slice(start, end), format: part.format, kind: part.kind }, parts: [] }
+      group = { unit: { id: key, start, end, text: source.slice(start, end), format: part.format, kind: part.kind, commentPrefix: part.commentPrefix }, parts: [] }
       groups.set(key, group)
     }
     group.parts.push(part)

@@ -50,6 +50,15 @@ export function translationBody(unit: TextUnit) {
       .slice(1, -1)
       .every((line) => !line.trim() || /^[\t ]*\*(?:[\t ]|$)/u.test(line))
   const layout: ProtectedRange[] = []
+  if (unit.commentPrefix) {
+    if (!original.startsWith(unit.commentPrefix)) throw Error("translation-structure-invalid")
+    start = Math.max(start, unit.commentPrefix.length)
+    while (start < end && /[\t ]/u.test(original[start])) start++
+    const prefix = unit.commentPrefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    for (const match of original.matchAll(new RegExp("(?:\\r\\n|[\\r\\n])[\\t ]*" + prefix + "[\\t ]*", "gu"))) {
+      layout.push({ start: match.index, end: match.index + match[0].length, fold: true })
+    }
+  }
   if (block) {
     start = Math.max(start, block[0].length)
     if (original.endsWith("*/")) end = Math.min(end, original.length - 2)

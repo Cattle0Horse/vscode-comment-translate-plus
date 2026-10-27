@@ -1058,11 +1058,13 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   const filtered = await open("filtered-config.ts", "typescript", filteredSource)
   await updateObserved("browse.strings", true)
   const beforeFiltered = (await requests()).length
-  await start(filtered.document, 13)
+  await start(filtered.document, 10)
   const sentItems = (await requests()).slice(beforeFiltered).flatMap((request) => request.itemFingerprints ?? [])
   const expectedItems = await Promise.all(["sampleGroup", "SAMPLE_NOTICE_KEY_5XX", "all", "sample-library", "Read the original document."].map(requestFingerprint))
   assert(JSON.stringify(sentItems.sort()) === JSON.stringify(expectedItems.sort()), "Chinese comments or technical string values reached HTTP, or an ambiguous label was discarded.")
   const filteredState = owner.browse.inspect(filtered.document.uri)!
+  const filteredComments = filteredState.units.filter((unit) => unit.kind === "comment")
+  assert(filteredComments.length === 1 && filteredComments[0].text === filteredSource.split("\n").slice(0, 4).join("\n"), "Consecutive Chinese comments lost paragraph content.")
   assert(
     filteredState.units.filter((unit) => unit.translation !== unit.text).length === 1 && filtered.document.getText() === filteredSource && !filtered.document.isDirty,
     "Request filtering changed technical content, duplicated Chinese prose or edited source."

@@ -320,6 +320,14 @@ export function validateTranslation(unit: TextUnit, translated: string, code = "
         { code, difference: { reason: "模型修改了块注释定界符或其顺序。", expected: expected.join(" "), actual: actual.length ? actual.join(" ") : "（缺失）" } }
       )
   }
+  if (unit.commentPrefix && translated.split(/\r\n|[\r\n]/u).some((line) => !line.trimStart().startsWith(unit.commentPrefix!)))
+    return new ModelRetry(
+      {
+        reason: "The response removed line-comment syntax.",
+        instruction: "Keep the source line-comment delimiter before every translated comment line; do not introduce executable code."
+      },
+      { code, difference: { reason: "译文包含缺少注释前缀的行。", expected: unit.commentPrefix, actual: translated } }
+    )
   if (unit.format === "yaml")
     return new ModelRetry(
       { reason: "The response is not a supported YAML string unit.", instruction: "Translate only the requested YAML string value; do not return a whole YAML document." },

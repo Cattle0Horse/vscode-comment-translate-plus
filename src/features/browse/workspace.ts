@@ -74,8 +74,9 @@ export class BrowseWorkspace implements vscode.Disposable {
     this.overrides.delete(uri.toString())
   }
 
-  invalidate(document: vscode.TextDocument): void {
-    this.sessions.get(document.uri.toString())?.session.invalidate(document.version)
+  invalidate(document: vscode.TextDocument, edits: readonly vscode.TextDocumentContentChangeEvent[]): void {
+    this.renderer.edited(document, edits)
+    this.sessions.get(document.uri.toString())?.session.invalidate(document.version, edits)
   }
 
   async updateDocument(document: vscode.TextDocument): Promise<void> {

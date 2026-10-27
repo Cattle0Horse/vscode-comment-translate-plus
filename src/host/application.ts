@@ -102,7 +102,7 @@ export class Application implements vscode.Disposable {
     this.hover.cancel(document.uri, "document-changed")
     this.replacement.cancel(document.uri, "document-changed")
     if (this.preview.has(document.uri)) this.preview.cancel(document.uri, "document-changed", "源文已变化，正在等待刷新。")
-    this.browse.invalidate(document)
+    this.browse.invalidate(document, event.contentChanges)
     if (pending) clearTimeout(pending.timer)
     this.timers.delete(id)
     if (!this.browse.has(document.uri) && !this.preview.has(document.uri)) return

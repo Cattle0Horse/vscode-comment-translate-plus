@@ -18,6 +18,8 @@ export async function extractCode(source: string, language: string, grammar: IGr
     depth: number
     protected: { start: number; end: number }[]
     complete?: boolean
+    commentPrefix?: string
+    indent?: string
     literals?: { start: number; end: number; protected: { start: number; end: number }[] }[]
   }[] = []
   let depth = 0
@@ -103,7 +105,32 @@ export async function extractCode(source: string, language: string, grammar: IGr
     }
     spans = joined
   }
-  const regions = spans
+  const paragraphs: typeof spans = []
+  for (const span of spans) {
+    if (span.scope.startsWith("comment.line")) {
+      const text = source.slice(span.start, span.end)
+      const delimiter = span.protected.find((range) => range.start === span.start)
+      span.commentPrefix = text.match(/^(?:\/{2,}!?|#+!?|--+|;+|%+|'+|!)/u)?.[0] ?? (delimiter ? source.slice(delimiter.start, delimiter.end).trimEnd() : undefined)
+      if (span.commentPrefix && !text.slice(span.commentPrefix.length).trim()) span.commentPrefix = undefined
+      const leading = source.slice(source.lastIndexOf("\n", span.start - 1) + 1, span.start)
+      if (/^[\t ]*$/u.test(leading)) span.indent = leading
+      const previous = paragraphs.at(-1)
+      if (
+        span.commentPrefix &&
+        span.indent !== undefined &&
+        previous?.scope === span.scope &&
+        previous.commentPrefix === span.commentPrefix &&
+        previous.indent === span.indent &&
+        /^\r?\n[\t ]*$/u.test(source.slice(previous.end, span.start))
+      ) {
+        previous.end = span.end
+        previous.protected.push(...span.protected)
+        continue
+      }
+    }
+    paragraphs.push(span)
+  }
+  const regions = paragraphs
     .filter((span) => /\p{L}/u.test(source.slice(span.start, span.end)))
     .flatMap((span) => {
       const region: CodeRegion = {
@@ -114,6 +141,7 @@ export async function extractCode(source: string, language: string, grammar: IGr
         content: span.kind === "string" && (language === "json" || language === "jsonc") ? (JSON.parse(source.slice(span.start, span.end)) as string) : undefined,
         format: "text" as const,
         kind: span.kind,
+        commentPrefix: span.commentPrefix,
         reference: sourceReferences(source, span, language),
         scope: "code:" + language,
         language,

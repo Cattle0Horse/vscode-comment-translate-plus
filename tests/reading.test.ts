@@ -9,6 +9,107 @@ import type { TranslationInput } from "../src/model/translation.ts"
 import { renderPrompt } from "../src/translation/providers/prompts.ts"
 import { embeddedMarkdown, requestTranslation, source, sessionResponse, sessionFor, waitFor, settled, modelInput, chatFixture, listBatch } from "./support/fixtures.ts"
 
+test("editing keeps completed neighbours visible through debounce and reparsing without loading them again", async () => {
+  let source = "First paragraph.\n\nSecond paragraph.\n\nThird paragraph."
+  const requested: TranslationInput[] = []
+  const snapshots: ReturnType<BrowseSession["inspect"]>[] = []
+  const session = new BrowseSession(
+    async (input) => {
+      requested.push(input)
+      return new Map(input.units.map((unit) => [unit.id, "译文：" + unit.text]))
+    },
+    () => snapshots.push(session.inspect())
+  )
+  session.update(parseMarkdown(source), 1)
+  session.setVisibleRanges([{ start: 0, end: source.length }])
+  await settled(session)
+  snapshots.length = 0
+  for (const [index, edit] of [
+    { rangeOffset: source.indexOf("Second") + 2, rangeLength: 0, text: "x" },
+    { rangeOffset: 0, rangeLength: 0, text: "\n\n" }
+  ].entries()) {
+    // The edit event carries the offsets of its immediately preceding version.
+    session.invalidate(index + 2, [edit])
+    source = source.slice(0, edit.rangeOffset) + edit.text + source.slice(edit.rangeOffset + edit.rangeLength)
+    session.setVisibleRanges([{ start: 0, end: source.length }])
+    assert.deepEqual(
+      session.inspect().units.map((unit) => source.slice(unit.start, unit.end)),
+      ["First paragraph.", "Third paragraph."]
+    )
+    assert.equal(session.inspect().loading.length, 0)
+    assert.equal(requested.length, 1, "Viewport refresh bypassed the edit debounce.")
+  }
+  session.update(parseMarkdown(source), 3)
+  session.setVisibleRanges([{ start: 0, end: source.length }])
+  assert.deepEqual(
+    session.inspect().loading.map((unit) => unit.text),
+    ["Sexcond paragraph."]
+  )
+  assert.ok(
+    snapshots.every((snapshot) => snapshot.units.length >= 2),
+    "An edit or reparse temporarily removed unchanged translation rows."
+  )
+  await settled(session)
+  assert.equal(session.inspect().units.length, 3)
+  session.dispose()
+})
+
+test("editing cancels old work and reparsing rejects retained results whose syntax role changed", async () => {
+  const parsed = parseMarkdown("First paragraph.\n\nSecond paragraph.")
+  let complete!: (result: ReadonlyMap<string, string>) => void
+  let publish!: (item: TranslationItem) => void
+  const session = new BrowseSession(
+    (_input, _signal, _force, completed) =>
+      new Promise((resolve) => {
+        complete = resolve
+        publish = (item) => completed?.(item)
+      }),
+    () => {}
+  )
+  session.update(parsed, 1)
+  session.setVisibleRanges([{ start: 0, end: parsed.source.length }])
+  const [first, second] = parsed.groups.flatMap((group) => group.units)
+  publish({ id: first.id, text: "第一段。" })
+  session.invalidate(2, [{ rangeOffset: parsed.source.length, rangeLength: 0, text: "\n" }])
+  assert.equal(session.inspect().units.length, 1)
+  assert.equal(session.inspect().loading.length, 0)
+  publish({ id: second.id, text: "旧版本迟到结果。" })
+  complete(
+    new Map([
+      [first.id, "第一段。"],
+      [second.id, "旧版本迟到结果。"]
+    ])
+  )
+  await delay(0)
+  assert.equal(session.inspect().units.length, 1)
+  session.update({ ...parsed, groups: [{ start: first.start, end: first.end, units: [{ ...first, kind: "comment" }] }] }, 2)
+  assert.equal(session.inspect().units.length, 0, "Reparsing promoted a result into a different syntax role.")
+  session.dispose()
+})
+
+test("typing at prose boundaries and deleting paragraph separators invalidates affected translations immediately", async () => {
+  const source = "First paragraph.\n\nSecond paragraph."
+  const parsed = parseMarkdown(source)
+  const [first, second] = parsed.groups.flatMap((group) => group.units)
+  for (const edit of [
+    { rangeOffset: first.start, rangeLength: 0, text: "x" },
+    { rangeOffset: first.end, rangeLength: 0, text: "x" },
+    { rangeOffset: first.end, rangeLength: second.start - first.end, text: "" }
+  ]) {
+    const session = sessionFor(async (input) => input.units.map((unit) => ({ id: unit.id, text: "译文：" + unit.text })))
+    session.update(parsed, 1)
+    session.setVisibleRanges([{ start: 0, end: source.length }])
+    await settled(session)
+    session.invalidate(2, [edit])
+    assert.deepEqual(
+      session.inspect().units.map((unit) => unit.text),
+      edit.rangeLength ? [] : [second.text]
+    )
+    assert.equal(session.inspect().loading.length, 0)
+    session.dispose()
+  }
+})
+
 test("block retranslation refreshes only the target, preserves neighbours and caches an unchanged result", async () => {
   const parsed = parseMarkdown("First paragraph.\n\nSecond paragraph.\n\nThird paragraph.")
   const units = parsed.groups.flatMap((group) => group.units)

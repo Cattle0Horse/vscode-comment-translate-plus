@@ -1,6 +1,6 @@
 import { validateTranslations } from "../translation/results.ts"
 import { validateTranslation } from "../documents/validation.ts"
-import { unchangedUnitRanges } from "../documents/edits.ts"
+import { unchangedUnitRanges, unitContentKey } from "../documents/edits.ts"
 import type { SourceEdit } from "../documents/edits.ts"
 import type { PreparedInput, TranslationInput } from "../model/translation.ts"
 import type { TextUnit } from "../model/document.ts"
@@ -23,32 +23,6 @@ interface PendingUnit {
   readonly reject: (error: unknown) => void
   value?: string
   cacheable: boolean
-}
-
-function unitContentKey(unit: TextUnit): readonly unknown[] {
-  return [
-    unit.format,
-    unit.kind,
-    unit.language,
-    unit.text,
-    unit.content,
-    unit.yamlKey === true,
-    unit.protected,
-    unit.linkLabels,
-    unit.display !== undefined,
-    unit.embedding ? [unitContentKey(unit.embedding.unit), unit.embedding.prefixes] : undefined,
-    unit.pythonString
-      ? [
-          unitContentKey(unit.pythonString.unit),
-          unit.pythonString.prefix,
-          unit.pythonString.continuation,
-          unit.pythonString.quote,
-          unit.pythonString.raw,
-          unit.pythonString.formatted,
-          unit.pythonString.expressions
-        ]
-      : undefined
-  ]
 }
 
 function unitKey(identity: string, unit: TextUnit): string {

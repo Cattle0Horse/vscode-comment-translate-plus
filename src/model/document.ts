@@ -9,6 +9,8 @@ export interface TextUnit {
   readonly display?: { readonly start: number; readonly end: number }
   readonly protected?: readonly { readonly start: number; readonly end: number }[]
   readonly kind?: "comment" | "string"
+  /** TextMate-owned line-comment delimiter; continuation layout stays local. */
+  readonly commentPrefix?: string
   readonly reference?: readonly ReferenceBlock[]
   readonly scope?: string
   readonly language?: string

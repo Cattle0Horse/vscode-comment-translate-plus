@@ -4,6 +4,7 @@ import { runHostCases } from "./cases.ts"
 import type { HostCaseResult } from "./cases.ts"
 import { runFeatures } from "./features.ts"
 import { runEditReuse } from "./edits.ts"
+import { runCommentParagraphs } from "./comments.ts"
 
 function assert(value: unknown, message: string): asserts value {
   if (!value) throw Error(message)
@@ -114,7 +115,8 @@ export async function run(): Promise<void> {
 
     const beforeEdit = (await requests()).length
     assert(await editor.edit((builder) => builder.replace(document.lineAt(0).range, "1. Read the complete field.")), "Edit failed.")
-    assert(controller.browse.inspect(uri)!.units.length === 0, "Edit did not invalidate display.")
+    const afterEdit = controller.browse.inspect(uri)!
+    assert(afterEdit.units.length === 1 && afterEdit.units[0].text.includes("sourceId"), "Edit retained the changed unit or removed its unchanged neighbour.")
     const editedHovers = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", uri, new vscode.Position(0, 5))
     assert(
       !editedHovers.some((hover) => hover.contents.some((content) => typeof content !== "string" && content.value.includes("阅读原始文档"))),
@@ -319,6 +321,7 @@ export async function run(): Promise<void> {
     await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
     checks.push("skill files preserve complete YAML fields in the same production chain")
     checks.push(...(await runEditReuse(workspace, controller, test.origin)))
+    checks.push(...(await runCommentParagraphs(workspace, controller, test.origin)))
     cases = await runHostCases(workspace, controller, async () => (await requests()).length)
     checks.push(...cases.map((item) => `${item.id}: host corpus preserves structure, source and cached browse`))
     checks.push(...(await runFeatures(workspace, controller, test.origin)))
