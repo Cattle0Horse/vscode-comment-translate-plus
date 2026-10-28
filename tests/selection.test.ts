@@ -6,7 +6,7 @@ import { validateTranslation } from "../src/documents/validation.ts"
 
 const policy = [
   "- The library opens a small reading room every Saturday morning,",
-  "  with illustrated guides and large maps arranged beside the windows.",
+  "  with illustrated guides and large maps arranged beside the windows;",
   "  A visitor guide lives in `examples/reading`; a shelf map is available",
   "  in `examples/shelves`. Readers can borrow a paper bookmark from the desk",
   "  and return it before the room closes in the afternoon.",
@@ -14,6 +14,48 @@ const policy = [
   "  with a short note on watering each variety. Printed copies are available",
   "  at the front desk for visitors who prefer to read outside."
 ]
+
+test("sentence-ending lines are separate translation items after ignoring trailing whitespace", () => {
+  for (const newline of ["\n", "\r\n"]) {
+    for (const prefix of ["", "> ", "  "]) {
+      const lines = ["Read the catalog.  ", "Keep the ticket.\t ", "Ask the guide?", "Enjoy the gallery!", "Read the next", "section before leaving."]
+      const source = lines.map((line) => prefix + line).join(newline)
+      const selected = prepareSelection(source, 0, source.length, "markdown", "markdown")
+      assert.deepEqual(
+        selected.units.map((unit) => prepareTranslation(unit, 32).text),
+        ["Read the catalog.", "Keep the ticket.", "Ask the guide?", "Enjoy the gallery!", "Read the next section before leaving."]
+      )
+      const unchanged = new Map(selected.units.map((unit) => [unit.id, prepareTranslation(unit, 32).restore(prepareTranslation(unit, 32).text)]))
+      assert.equal(selected.restore(unchanged), source)
+      const translations = new Map(selected.units.map((unit) => [unit.id, prepareTranslation(unit, 32).restore(prepareTranslation(unit, 32).text.replace("Read", "阅读"))]))
+      assert.equal(
+        selected.restore(translations),
+        source.replace("Read the catalog.", "阅读 the catalog.").replace("Read the next" + newline + prefix + "section before leaving.", "阅读 the next section before leaving.")
+      )
+    }
+  }
+})
+
+test("sentence boundaries retain cross-line inline syntax and distinguish Chinese endings from continuation punctuation", () => {
+  for (const newline of ["\n", "\r\n"]) {
+    const lines = ["Read the catalog。  ", "Keep the ticket？\t", "Enjoy the gallery！", "Read the next,", "section;", "before leaving.", "**Read the first.", "Keep the style together.**"]
+    const source = lines.join(newline)
+    const selected = prepareSelection(source, 0, source.length, "markdown", "markdown")
+    assert.deepEqual(
+      selected.units.map((unit) => unit.text),
+      [lines[0].trimEnd(), lines[1].trimEnd(), lines[2], lines.slice(3, 6).join(newline), lines.slice(6).join(newline)]
+    )
+    const translations = new Map(
+      selected.units.map((unit) => {
+        const prepared = prepareTranslation(unit, 32)
+        const translated = prepared.restore(prepared.text.replaceAll("Read", "阅读"))
+        assert.equal(validateTranslation(unit, translated), undefined)
+        return [unit.id, translated]
+      })
+    )
+    assert.ok(selected.restore(translations).includes("**阅读 the first. Keep the style together.**"))
+  }
+})
 
 test("selected shortcut links use definitions outside the selected range", () => {
   for (const newline of ["\n", "\r\n"]) {

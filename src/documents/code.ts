@@ -1,5 +1,6 @@
 import type { TextUnit } from "../model/document.ts"
 import { sourceReferences } from "./references.ts"
+import { endsProseLine } from "./tree.ts"
 import { pythonStringUnits, pythonTokens, joinPythonLiterals } from "./python.ts"
 import type { PythonLiteral } from "./python.ts"
 import { regionToken, sourceTokens } from "./tokenization.ts"
@@ -47,6 +48,7 @@ function commentParagraphs(source: string, spans: readonly CodeSpan[]): CodeSpan
         previous?.scope === span.scope &&
         previous.commentPrefix === span.commentPrefix &&
         previous.indent === span.indent &&
+        !endsProseLine(source.slice(previous.start, previous.end)) &&
         /^\r?\n[\t ]*$/u.test(source.slice(previous.end, span.start))
       ) {
         previous.end = span.end

@@ -41,10 +41,12 @@
         "id": "nested-list-continuations",
         "file": "development/nested-lists.md",
         "languageId": "markdown",
-        "units": 7,
+        "units": 9,
         "contains": [
-            "1. Read the first parent item.\n   Keep the continuation with its parent.",
-            "> Read the quoted paragraph.\n> Keep both quoted lines together."
+            "1. Read the first parent item.",
+            "   Keep the continuation with its parent.",
+            "> Read the quoted paragraph.",
+            "> Keep both quoted lines together."
         ],
         "excludes": [
             "const nestedCode"
@@ -186,10 +188,11 @@
         "id": "python-multiline-strings",
         "file": "development/strings.py",
         "languageId": "python",
-        "units": 3,
+        "units": 4,
         "strings": true,
         "contains": [
-            "Read the original document.\nKeep both lines together."
+            "Read the original document.",
+            "Keep both lines together."
         ],
         "excludes": [
             "message =",

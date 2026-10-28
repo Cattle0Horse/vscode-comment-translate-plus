@@ -57,13 +57,24 @@ test("consecutive standalone line comments form one paragraph with local syntax 
   }
 })
 
+test("sentence endings split adjacent comments after ignoring trailing whitespace", async () => {
+  for (const newline of ["\n", "\r\n"]) {
+    const source = ["// Read the catalog.  ", "// Keep the ticket.\t", "// Read the next", "// section before leaving."].join(newline)
+    const units = await extractCode(source, "fixture", new CodeTokenizer(lineGrammar("//")), () => {})
+    assert.deepEqual(
+      units.map((unit) => prepareTranslation(unit, 32).text),
+      ["Read the catalog.", "Keep the ticket.", "Read the next section before leaving."]
+    )
+  }
+})
+
 test("blank lines, code, inline comments, indentation and marker changes separate comment paragraphs", async () => {
   const lines = ["// First.", "", "// Second.", "const value = 1; // Inline.", "// Third.", "  // Indented.", "// Fourth.", "/// Documentation.", "/// Continuation."]
   const grammar = lineGrammar("//")
   const units = await extractCode(lines.join("\n"), "fixture", new CodeTokenizer(grammar), () => {})
   assert.deepEqual(
     units.map((unit) => prepareTranslation(unit, 32).text),
-    ["First.", "Second.", "Inline.", "Third.", "Indented.", "Fourth.", "Documentation. Continuation."]
+    ["First.", "Second.", "Inline.", "Third.", "Indented.", "Fourth.", "Documentation.", "Continuation."]
   )
   const rust = await extractCode("/// Read the catalog\n/// before entering.", "rust", new CodeTokenizer(lineGrammar("///", false)), () => {})
   assert.equal(rust.length, 1)

@@ -4,6 +4,10 @@ const markdown = parser.configure(GFM)
 
 export type MarkdownNode = ReturnType<typeof markdown.parse>["topNode"]
 
+export function endsProseLine(text: string): boolean {
+  return /[.!?。！？]$/u.test(text.trimEnd())
+}
+
 /** Lezer splits lines at LF; exclude CR from parsing without shifting source offsets. */
 export function markdownTree(source: string): ReturnType<typeof markdown.parse> {
   const ranges: { from: number; to: number }[] = []

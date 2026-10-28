@@ -1,11 +1,11 @@
 import { parseDocument } from "yaml"
 import type { TextUnit, TextGroup, ParsedDocument, EmbeddedCode, ReferenceBlock, ParseDiagnostic } from "../model/document.ts"
 import type { MarkdownNode } from "./tree.ts"
-import { markdownTree, markdownLinkLabels, children, makeUnit } from "./tree.ts"
+import { markdownTree, markdownLinkLabels, children, makeUnit, endsProseLine } from "./tree.ts"
 import { yamlUnits } from "./yaml.ts"
 import { codeBlock, embeddedUnit, embeddedOffset } from "./embedding.ts"
 
-function prose(node: MarkdownNode, source: string): boolean {
+function prose(node: MarkdownNode, source: string, from = node.from, to = node.to): boolean {
   const excluded: MarkdownNode[] = []
 
   function visit(current: MarkdownNode): void {
@@ -14,12 +14,32 @@ function prose(node: MarkdownNode, source: string): boolean {
   }
 
   visit(node)
-  let cursor = node.from
+  let cursor = from
   for (const range of excluded) {
+    if (range.to <= cursor || range.from >= to) continue
     if (/\p{L}/u.test(source.slice(cursor, range.from))) return true
-    cursor = range.to
+    cursor = Math.min(to, range.to)
   }
-  return /\p{L}/u.test(source.slice(cursor, node.to))
+  return /\p{L}/u.test(source.slice(cursor, to))
+}
+
+/** Keep syntax spanning a line intact; sentence boundaries otherwise own separate source ranges. */
+function proseRanges(node: MarkdownNode, source: string): { from: number; to: number }[] {
+  if (node.name !== "Paragraph" && node.name !== "Task") return [node]
+  const ranges: { from: number; to: number }[] = []
+  const inline = children(node).filter((child) => child.name !== "HardBreak" && child.name !== "QuoteMark")
+  let from = node.from
+  for (const match of source.slice(node.from, node.to).matchAll(/[^\n]*\n/gu)) {
+    const lineStart = node.from + match.index
+    const next = lineStart + match[0].length
+    const line = match[0].trimEnd()
+    if (!endsProseLine(line) || inline.some((child) => child.from < next && child.to > next)) continue
+    const to = lineStart + line.length
+    if (prose(node, source, from, to)) ranges.push({ from, to })
+    from = next
+  }
+  if (prose(node, source, from, node.to)) ranges.push({ from, to: node.to })
+  return ranges
 }
 
 function startWithPrefix(source: string, start: number): number {
@@ -126,7 +146,6 @@ export function parseMarkdown(source: string, linkLabels?: readonly string[]): P
       }
       const level = Number(node.name.match(/Heading([1-6])$/)?.[1])
       if ((["Paragraph", "Task", "TableCell"].includes(node.name) || /^(?:ATX|Setext)Heading[1-6]$/.test(node.name)) && prose(node, body)) {
-        const unit = makeUnit(source, startWithPrefix(source, bodyStart + node.from), bodyStart + node.to, "markdown")
         const parents = level ? headingPath.filter((heading) => heading.level < level) : headingPath
         const references: ReferenceBlock[] = []
         const explanation = level ? headingExplanation(node) : undefined
@@ -145,18 +164,18 @@ export function parseMarkdown(source: string, linkLabels?: readonly string[]): P
         if (explanation && prose(explanation, body)) references.push(reference("Section introduction", explanation, bodyStart + (node.parent?.from ?? 0)))
         references.push(...ancestry.slice(parentItems.length))
         const listParent = parentItems.at(-1) ?? (node.parent?.name === "ListItem" ? node.parent.parent : undefined)
-        units.push({
-          ...unit,
-          linkLabels,
-          reference: references,
-          scope:
-            node.name === "TableCell"
-              ? "table:" + (bodyStart + node.parent!.parent!.from)
-              : listParent
-                ? "list:" + (bodyStart + listParent.from)
-                : "markdown:" + (bodyStart + (level ? node.from : (parents.at(-1)?.node.from ?? 0))) + ":" + (bodyStart + (node.parent?.from ?? 0)),
-          ...(node.name === "TableCell" && node.parent ? { display: { start: bodyStart + node.parent.from, end: bodyStart + node.parent.to } } : {})
-        })
+        let scope: string
+        if (node.name === "TableCell") scope = "table:" + (bodyStart + node.parent!.parent!.from)
+        else if (listParent) scope = "list:" + (bodyStart + listParent.from)
+        else scope = "markdown:" + (bodyStart + (level ? node.from : (parents.at(-1)?.node.from ?? 0))) + ":" + (bodyStart + (node.parent?.from ?? 0))
+        for (const range of proseRanges(node, body))
+          units.push({
+            ...makeUnit(source, startWithPrefix(source, bodyStart + range.from), bodyStart + range.to, "markdown"),
+            linkLabels,
+            reference: references,
+            scope,
+            ...(node.name === "TableCell" && node.parent ? { display: { start: bodyStart + node.parent.from, end: bodyStart + node.parent.to } } : {})
+          })
       } else if (!["FencedCode", "CodeBlock", "HTMLBlock", "LinkReference"].includes(node.name)) {
         const childHeadings = headingPath.slice()
         for (const child of children(node)) visit(child, parentItems, childHeadings)

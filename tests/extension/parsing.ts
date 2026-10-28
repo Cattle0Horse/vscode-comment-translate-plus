@@ -4,6 +4,21 @@ import { prepareTranslation } from "../../src/documents/terms.ts"
 
 /** Exercise the real grammar, document events and nested-fence cache through the production reader. */
 export async function runParsing(workspace: vscode.Uri, owner: Application): Promise<string[]> {
+  for (const newline of ["\n", "\r\n"]) {
+    for (const language of ["markdown", "typescript", "python"]) {
+      const lines = ["Read the catalog.  ", "Keep the ticket.\t", "Read the next", "section before leaving."]
+      const source = language === "python" ? '"""' + newline + lines.join(newline) + newline + '"""' : lines.map((line) => (language === "typescript" ? "// " : "") + line).join(newline)
+      const parsed = await owner.documents.parseSource(source, language)
+      const units = parsed.groups.flatMap((group) => group.units)
+      const bodies = units.map((unit) => prepareTranslation(unit, 32).text)
+      if (JSON.stringify(bodies) !== JSON.stringify(["Read the catalog.", "Keep the ticket.", "Read the next section before leaving."]))
+        throw Error("Sentence-ending lines merged or unfinished continuation split: " + language)
+      for (const unit of units) {
+        const prepared = prepareTranslation(unit, 32)
+        if (source.slice(unit.start, unit.end) !== unit.text || prepared.restore(prepared.text) !== unit.text) throw Error("Sentence boundary lost source ownership: " + language)
+      }
+    }
+  }
   const versions = [
     '# Read the catalog.\nnotice = f"""Read the original notice.\n{shelf["name"]}\nKeep the ticket.\n"""\n# Read the final notice.',
     '# Read the catalog.\nnotice = f"""Read the updated notice.\n{shelf["name"]}\nKeep the ticket.\n"""\n# Read the final notice.',
@@ -56,6 +71,7 @@ export async function runParsing(workspace: vscode.Uri, owner: Application): Pro
     if (JSON.stringify(incremental) !== JSON.stringify(fresh)) throw Error("Nested fence tokenization or source mapping diverged after an edit.")
   }
   return [
+    "sentence endings ignore trailing whitespace and split Markdown, real comments and Python docstrings for LF and CRLF",
     "real Python grammar edits preserve incremental/fresh parity and exact unchanged restoration",
     "quoted Markdown fences isolate incremental grammar state and retain exact CRLF source ranges",
     "same-version invalidation rejects pending parsing and permits a fresh read"
