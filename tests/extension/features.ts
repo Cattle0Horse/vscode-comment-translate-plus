@@ -485,9 +485,9 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     ['("Read text.", "Keep text.")', 2],
     ['("Read text." + "Keep text.")', 2],
     ['"Read text."\n"Keep text."', 2],
-    ['"Read text." \\\n"Keep text."', 1],
+    ['"Read text." \\\n"Keep text."', 2],
     ['(f"Read {shelf[\'name\']} before "\n"visiting the gallery.")', 1],
-    ['(f"Read {user.name!r:>10}."\n"Keep text.")', 1]
+    ['(f"Read {user.name!r:>10}."\n"Keep text.")', 2]
   ] as const) {
     const parsed = await owner.documents.parseSource(expression, "python")
     const units = parsed.groups.flatMap((group) => group.units)

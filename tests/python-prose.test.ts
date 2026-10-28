@@ -31,7 +31,30 @@ const grammar = {
   }
 } as IGrammar
 
-test("Python adjacent source lines form one content paragraph until a decoded paragraph break", async (t) => {
+test("Python source literal sentence endings retain independent requests, display rows and replacement ranges", async () => {
+  for (const newline of ["\n", "\r\n"]) {
+    for (const ending of [".", "?", "!", "。", "？", "！"]) {
+      const source = ["notice = (", '    "Read the museum catalog' + ending + ' "', '    "Keep the ticket for "', '    "the next exhibition."', ")"].join(newline)
+      const units = await extractCode(source, "python", new CodeTokenizer(grammar), () => {})
+      const prepared = units.map((unit) => prepareTranslation(unit, 32))
+      assert.deepEqual(
+        prepared.map((item) => item.text),
+        ["Read the museum catalog" + ending, "Keep the ticket for the next exhibition."]
+      )
+      for (const [index, unit] of units.entries()) {
+        assert.equal(source.slice(unit.start, unit.end), unit.text)
+        assert.equal(prepared[index].restore(prepared[index].text), unit.text)
+      }
+      const translated = units.map((unit, index) => ({ ...unit, translation: prepared[index].restore(index === 0 ? "阅读博物馆目录。" : "保留门票供下次展览使用。") }))
+      assert.ok(translated.every((unit) => !validateTranslation(unit, unit.translation)))
+      assert.equal(displayTranslations(source, translated).length, 2)
+      const replacement = source.slice(0, units[0].start) + translated[0].translation + source.slice(units[0].end)
+      assert.ok(replacement.includes('"阅读博物馆目录。 "' + newline + '    "Keep the ticket for "'))
+    }
+  }
+})
+
+test("Python adjacent source lines split completed sentences and preserve decoded paragraph breaks", async (t) => {
   for (const newline of ["\n", "\r\n"]) {
     const source = [
       "@catalog_tool(",
@@ -51,7 +74,10 @@ test("Python adjacent source lines form one content paragraph until a decoded pa
     assert.deepEqual(
       prepared.map((item) => item.text),
       [
-        "Pack/unpack parcels before visiting. Supports +, -, *, /, parentheses. Read the map. Keep the ticket. Compare red/blue labels. Choose the shelf or the documented default.",
+        "Pack/unpack parcels before visiting. Supports +, -, *, /, parentheses.",
+        "Read the map. Keep the ticket.",
+        "Compare red/blue labels.",
+        "Choose the shelf or the documented default.",
         "Reference shelves:"
       ]
     )
@@ -70,7 +96,7 @@ test("Python adjacent source lines form one content paragraph until a decoded pa
     }
     assert.ok(restored.includes("+ render_shelf_catalog()"))
     assert.equal((await extractCode(restored, "python", new CodeTokenizer(grammar), () => {})).length, units.length)
-    const translations = ["参观前打包或拆包包裹。支持加法、减法、乘法、除法和括号。阅读地图并保留门票。比较红色与蓝色标签。选择书架或文档规定的默认项。", "参考书架："]
+    const translations = ["参观前打包或拆包包裹。支持加法、减法、乘法、除法和括号。", "阅读地图并保留门票。", "比较红色与蓝色标签。", "选择书架或文档规定的默认项。", "参考书架："]
     const fixture = await chatFixture(t, (_body, items) => items.map((item) => translations[prepared.findIndex((entry) => entry.text === item)]).join("\n%%\n"))
     const store = new TranslationStore()
     t.after(() => store.clear())
@@ -84,7 +110,7 @@ test("Python adjacent source lines form one content paragraph until a decoded pa
     const result = await run()
     assert.deepEqual(
       units.map((unit) => projectionContent(unit, result.get(unit.id)!)),
-      translations
+      [translations[0] + " ", translations[1] + " ", translations[2] + " ", translations[3], translations[4]]
     )
     const requests = fixture.seen.length
     assert.deepEqual(await run(), result)
@@ -112,7 +138,7 @@ test("Python literal boundaries keep same-line sentences and cross-literal inlin
   }
 })
 
-test("Python content line breaks are independent of source layout and escaped literal text", async () => {
+test("Python source-line sentence boundaries coexist with decoded breaks and escaped literal text", async () => {
   for (const newline of ["\n", "\r\n"]) {
     for (const [parts, expected] of [
       [['"Read the map. "', '"Keep the ticket."'], ["Read the map. Keep the ticket."]],
@@ -128,7 +154,7 @@ test("Python content line breaks are independent of source layout and escaped li
         const units = await extractCode(source, "python", new CodeTokenizer(grammar), () => {})
         assert.deepEqual(
           units.map((unit) => prepareTranslation(unit, 32).text),
-          expected
+          gap.includes("\n") && parts[0] === '"Read the map. "' ? ["Read the map.", "Keep the ticket."] : expected
         )
         for (const unit of units) assert.equal(prepareTranslation(unit, 32).restore(prepareTranslation(unit, 32).text), unit.text)
       }

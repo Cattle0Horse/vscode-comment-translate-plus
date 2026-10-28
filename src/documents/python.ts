@@ -2,6 +2,8 @@ import type { TextUnit } from "../model/document.ts"
 import { parseMarkdown } from "./markdown.ts"
 import { sourceReferences } from "./references.ts"
 import { SourceMap } from "./sourceMap.ts"
+import { endsProseLine, markdownTree, children } from "./tree.ts"
+import type { MarkdownNode } from "./tree.ts"
 import type { CodeSpan, RegionToken, SourceToken } from "./tokenization.ts"
 import { regionToken } from "./tokenization.ts"
 
@@ -241,7 +243,10 @@ export function pythonStringUnits(source: string, region: TextUnit, literals: re
   const protectedRanges: { start: number; end: number }[] = []
   const expressionRanges: { start: number; end: number; text: string }[] = []
   const formats: { quote: string; raw: boolean; formatted: boolean; opener: string }[] = []
-  for (const literal of literals) {
+  const sentenceBoundaries = new Set<number>()
+  for (const [index, literal] of literals.entries()) {
+    const previous = literals[index - 1]
+    if (previous && /[\r\n]/u.test(source.slice(previous.end, literal.start)) && endsProseLine(text)) sentenceBoundaries.add(text.length)
     const original = source.slice(literal.start, literal.end)
     const opening = original.match(/^([rRuUbBfF]*)("""|'''|"|')/u)
     if (!opening || /b/iu.test(opening[1]) || !original.endsWith(opening[2])) return []
@@ -263,8 +268,26 @@ export function pythonStringUnits(source: string, region: TextUnit, literals: re
       positions.append(value.length, start + from, start + to)
     })
   }
-  // Only decoded content supplies line boundaries; gaps between literals are source layout.
-  const blocks = proseBlocks(text, protectedRanges)
+
+  // A source-line boundary can end prose, but cannot cut syntax spanning adjacent literals.
+  function protectInline(node: MarkdownNode): void {
+    if (["InlineCode", "Link", "Image", "Emphasis", "StrongEmphasis", "Strikethrough", "HTMLTag", "FencedCode", "CodeBlock", "HTMLBlock"].includes(node.name)) {
+      for (const boundary of sentenceBoundaries) if (node.from < boundary && node.to > boundary) sentenceBoundaries.delete(boundary)
+    } else for (const child of children(node)) protectInline(child)
+  }
+
+  if (sentenceBoundaries.size) protectInline(markdownTree(text).topNode)
+  const blocks = proseBlocks(text, protectedRanges).flatMap((block) => {
+    const parts: { start: number; end: number }[] = []
+    let start = block.start
+    for (const boundary of sentenceBoundaries) {
+      if (boundary <= start || boundary >= block.end) continue
+      parts.push({ start, end: boundary })
+      start = boundary
+    }
+    parts.push({ start, end: block.end })
+    return parts
+  })
   const units: (TextUnit & { readonly kind: "string" })[] = []
   let previousDecodedEnd = 0
   for (const block of blocks) {

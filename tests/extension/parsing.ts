@@ -23,7 +23,10 @@ export async function runParsing(workspace: vscode.Uri, owner: Application): Pro
     const parsed = await owner.documents.parseSource(source, "python")
     const units = parsed.groups.flatMap((group) => group.units)
     const expected = [
-      "Pack/unpack parcels before visiting. Supports +, -, *, /, parentheses. Read the map. Keep the ticket. Compare red/blue labels. Choose the shelf or the documented default.",
+      "Pack/unpack parcels before visiting. Supports +, -, *, /, parentheses.",
+      "Read the map. Keep the ticket.",
+      "Compare red/blue labels.",
+      "Choose the shelf or the documented default.",
       "Reference shelves:"
     ]
     if (JSON.stringify(units.map((unit) => prepareTranslation(unit, 32).text)) !== JSON.stringify(expected)) throw Error("Adjacent Python literal sentence units drifted.")
@@ -37,7 +40,8 @@ export async function runParsing(workspace: vscode.Uri, owner: Application): Pro
       source,
       units.map((unit) => ({ ...unit, translation: prepareTranslation(unit, 32).restore("阅读目录。") }))
     )
-    if (rows.length !== 1 || rows[0].translation !== "阅读目录。\n\n阅读目录。") throw Error("Same-line Python paragraphs lost their shared display block or decoded separator.")
+    if (JSON.stringify(rows.map((row) => row.translation)) !== JSON.stringify(["阅读目录。 ", "阅读目录。 ", "阅读目录。 ", "阅读目录。\n\n阅读目录。"]))
+      throw Error("Same-line Python paragraphs lost their shared display block or decoded separator.")
   }
   for (const newline of ["\n", "\r\n"]) {
     for (const language of ["markdown", "typescript", "python"]) {
@@ -135,7 +139,7 @@ export async function runParsing(workspace: vscode.Uri, owner: Application): Pro
     if (JSON.stringify(incremental) !== JSON.stringify(fresh)) throw Error("Nested fence tokenization or source mapping diverged after an edit.")
   }
   return [
-    "adjacent Python literals ignore physical source line breaks, split decoded paragraphs and preserve dynamic suffixes for LF and CRLF",
+    "adjacent Python literals split completed source-line sentences and decoded paragraphs while preserving dynamic suffixes for LF and CRLF",
     "sentence endings ignore trailing whitespace and split Markdown, real comments and Python docstrings for LF and CRLF",
     "real Python grammar edits preserve incremental/fresh parity and exact unchanged restoration",
     "quoted Markdown fences isolate incremental grammar state and retain exact CRLF source ranges",
