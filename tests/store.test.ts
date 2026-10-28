@@ -158,7 +158,7 @@ test("table and YAML references merge shared structure without duplicating ances
     const selected = fields.filter((unit) => ["availability", "active", "default_enabled", "read_only"].includes(unit.content!))
     assert.equal(referenceText(selected), ["metadata:", "  availability: active", "  default_enabled: true", "  read_only: false"].join(newline))
     assert.equal(referenceText(fields).replaceAll("\r\n", "\n"), yaml.replaceAll("\r\n", "\n"))
-    const description = fields.find((unit) => unit.content?.includes("Read both lines."))!
+    const description = fields.find((unit) => unit.text.includes("Read both lines."))!
     assert.ok(referenceText([description]).replaceAll("\r\n", "\n").includes("  description: |\n    Read both lines.\n    Keep their meaning."))
   }
   const nested = "metadata:\n  left:\n    label: Same\n  right:\n    label: Same"

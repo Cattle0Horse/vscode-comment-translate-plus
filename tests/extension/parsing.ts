@@ -1,5 +1,7 @@
 import * as vscode from "vscode"
 import type { Application } from "../../src/host/application.ts"
+import { displayTranslations } from "../../src/documents/presentation.ts"
+import { validateTranslation } from "../../src/documents/validation.ts"
 import { prepareTranslation } from "../../src/documents/terms.ts"
 
 /** Exercise the real grammar, document events and nested-fence cache through the production reader. */
@@ -17,6 +19,35 @@ export async function runParsing(workspace: vscode.Uri, owner: Application): Pro
         const prepared = prepareTranslation(unit, 32)
         if (source.slice(unit.start, unit.end) !== unit.text || prepared.restore(prepared.text) !== unit.text) throw Error("Sentence boundary lost source ownership: " + language)
       }
+    }
+  }
+  for (const newline of ["\n", "\r\n"]) {
+    const lines = ["Read the catalog.  ", "Keep the ticket.\t", "Read the next", "section before leaving."]
+    const cases = [
+      { language: "typescript", source: "const notice = `" + newline + lines.join(newline) + newline + "`;" },
+      { language: "typescript", source: ["/**", ...lines.map((line) => " * " + line), " */"].join(newline) },
+      { language: "css", source: ["/*", ...lines, "*/"].join(newline) },
+      ...["|", ">"].map((marker) => ({ language: "yaml", source: ["notice: " + marker, ...lines.map((line) => "  " + line)].join(newline) }))
+    ]
+    for (const { language, source } of cases) {
+      const parsed = await owner.documents.parseSource(source, language)
+      const units = parsed.groups.flatMap((group) => group.units).filter((unit) => prepareTranslation(unit, 32).text !== "notice")
+      const bodies = units.map((unit) => prepareTranslation(unit, 32).text)
+      if (JSON.stringify(bodies) !== JSON.stringify(["Read the catalog.", "Keep the ticket.", "Read the next section before leaving."]))
+        throw Error("Multiline sentence boundaries drifted: " + language + " " + JSON.stringify(bodies))
+      for (const unit of units) {
+        const prepared = prepareTranslation(unit, 32)
+        if (prepared.restore(prepared.text) !== unit.text) throw Error("Multiline sentence restoration drifted: " + language)
+        const translated = prepared.restore(prepared.text.replaceAll("Read", "阅读").replaceAll("Keep", "保留"))
+        if (validateTranslation(unit, translated)) throw Error("Multiline sentence translation rejected: " + language)
+      }
+      if (
+        displayTranslations(
+          source,
+          units.map((unit) => ({ ...unit, translation: prepareTranslation(unit, 32).restore(prepareTranslation(unit, 32).text.replaceAll("Read", "阅读").replaceAll("Keep", "保留")) }))
+        ).length !== 3
+      )
+        throw Error("Multiline translations did not retain independent rows: " + language)
     }
   }
   const versions = [

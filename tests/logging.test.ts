@@ -122,7 +122,7 @@ test("YAML diagnostics retain model responses and raw references without repeati
   const events: TranslationEvent[] = []
   const log = new TranslationLog((entry) => entries.push(entry))
   log.configure("info", true)
-  for (const scalar of [">-\n  Read first.\n  Keep second.", "|-\n  Read first.\n  Keep second.", "|2-\n    Read first.\n    Keep second.", '"Read first.  Keep >- and | literally."']) {
+  for (const scalar of [">-\n  Read first,\n  Keep second.", "|-\n  Read first,\n  Keep second.", "|2-\n    Read first,\n    Keep second.", '"Read first.  Keep >- and | literally."']) {
     const parsed = parseMarkdown("---\n'quoted key': " + scalar + "\n---")
     const value = inputOf(parsed).units[1]
     const input = { units: [value] }

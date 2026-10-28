@@ -271,10 +271,10 @@ test("nested fenced units inherit only their outer headings and list ancestors w
 
 test("YAML context retains raw field syntax while translation still splits key and scalar value", () => {
   const units = parseMarkdown("---\nmetadata:\n  description: |\n    Read both lines.\n    Keep their meaning.\n---").groups.flatMap((group) => group.units)
-  const value = units.find((unit) => unit.content?.includes("Read both lines."))!
+  const value = units.find((unit) => unit.text.includes("Read both lines."))!
   const raw = "metadata:\n  description: |\n    Read both lines.\n    Keep their meaning."
   assert.equal(referenceText([{ ...value, reference: unitReferences(value, 2000) }]), raw)
-  assert.equal(value.content, "Read both lines.\nKeep their meaning.\n")
+  assert.equal(prepareTranslation(value, 32).text, "Read both lines.")
   const key = units.find((unit) => unit.content === "description")!
   const context = referenceText([{ ...key, reference: unitReferences(key, 2000) }])
   assert.equal(context, raw)
@@ -401,8 +401,8 @@ test("frontmatter separates keys and complete string values while non-string dat
   const parsed = parseMarkdown(text)
   assert.deepEqual(parsed.errors, [])
   const fields = parsed.groups[0].units
-  assert.equal(fields.length, 7)
-  assert.ok(fields.some((unit) => unit.text.startsWith(">\n  Translate complete fields.\n") && unit.content?.includes("Translate complete fields.")))
+  assert.equal(fields.length, 8)
+  assert.ok(fields.some((unit) => prepareTranslation(unit, 32).text === "Translate complete fields."))
   assert.ok(fields.some((unit) => unit.text.startsWith('"Read the first line\n')))
   assert.equal(fields.find((unit) => unit.content === "enabled")?.text, "enabled")
   assert.ok(!fields.some((unit) => unit.text === "true" || unit.protected?.length), "Non-string data was sent to the translator.")
@@ -656,7 +656,7 @@ test("standalone YAML uses original scalar ranges across LF/CRLF, BOM, streams a
       assert.deepEqual(parsed.errors, [])
       assert.equal(parsed.groups.length, name.endsWith(".yml") ? 2 : 1)
       const units = parsed.groups.flatMap((group) => group.units)
-      assert.equal(units.length, name.endsWith(".yml") ? 16 : 10)
+      assert.equal(units.length, name.endsWith(".yml") ? 17 : 11)
       const results = units.map((unit) => {
         assert.equal(source.slice(unit.start, unit.end), unit.text)
         assert.ok(!["true", "false", "TRUE", "0x10", "~", "*base"].includes(unit.text))
@@ -750,13 +750,17 @@ test("translated YAML keys and multiline values stay valid for previews while br
     source,
     batch.units.map((unit) => ({ ...unit, translation: result.get(unit.id)! }))
   )
-  assert.equal(views.length, 1)
-  assert.equal(translationDisplayText(views[0].translation, "yaml"), "描述: 阅读完整字段。 保留两行在一起。 ")
-  assert.ok(translatedMarkdown(parsed, result).includes('"描述": "阅读完整字段。 保留两行在一起。 "'))
+  assert.equal(views.length, 3)
+  assert.deepEqual(
+    views.map((view) => view.translation),
+    ['"描述":', "阅读完整字段。", "保留两行在一起。"]
+  )
+  assert.ok(translatedMarkdown(parsed, result).includes('"描述": |\n  阅读完整字段。\n  保留两行在一起。'))
   assert.equal(parsed.source, source)
   assert.equal(fixture.seen[0].items[0], "description")
   assert.ok(
-    fixture.seen[0].items[1].startsWith("Read the complete field. Keep both lines together.") && !fixture.seen[0].items.some((text) => text.includes("description:") || text.includes("|"))
+    fixture.seen[0].items.slice(1).join(" ") === "Read the complete field. Keep both lines together." &&
+      !fixture.seen[0].items.some((text) => text.includes("description:") || text.includes("|"))
   )
 })
 
@@ -777,7 +781,7 @@ test("YAML scalar translation leaves native types and layout local, including fl
   )
   const translated = translatedMarkdown(parsed, translations)
   assert.ok(translated.includes("flags: [true, false, 0x10, ~]") && translated.includes("alias: *base") && translated.includes("next: false # untouched"))
-  assert.ok(translated.includes('"  阅读：文本。 保留文本。"'), "Block indentation became part of source layout instead of the correct scalar value.")
+  assert.ok(translated.includes("|2-\r\n    阅读：文本。\r\n    保留文本。"), "Block indentation became part of source layout instead of the correct scalar value.")
   for (const unit of units) assert.equal(source.slice(unit.start, unit.end), unit.text)
 })
 

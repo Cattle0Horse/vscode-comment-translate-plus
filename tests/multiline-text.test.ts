@@ -104,7 +104,7 @@ test("folded prose and scalars preserve nested Markdown containers without guess
     }
     const translated = translatedMarkdown(parsed, translations)
     assert.ok(translated.includes("> 先阅读。" + newline + ">   Continue reading."))
-    assert.ok(translated.includes('> message: "先阅读。 Continue reading.'))
+    assert.ok(translated.includes("> message: |-" + newline + ">   先阅读。" + newline + ">   Continue reading."))
     assert.equal(parsed.source, source)
   }
 })

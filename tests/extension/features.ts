@@ -1784,17 +1784,17 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   try {
     const scalarSource = new TextDecoder().decode(await vscode.workspace.fs.readFile(vscode.Uri.joinPath(workspace, "examples/development/scalars-and-table.md")))
     const scalarDocument = await open("scalar-display.md", "markdown", scalarSource)
-    await start(scalarDocument.document, 9)
+    await start(scalarDocument.document, 10)
     const scalarUnits = owner.browse.inspect(scalarDocument.document.uri)!.units.filter((unit) => unit.format === "yaml")
     assert(
-      scalarUnits.length === 3 &&
+      scalarUnits.length === 2 &&
         scalarUnits.some((unit) => unit.content === "default_enabled") &&
-        scalarUnits.some((unit) => unit.content === "Read the complete field.\nKeep both lines together."),
+        owner.browse.inspect(scalarDocument.document.uri)!.units.some((unit) => unit.text.trim() === "Read the complete field."),
       "YAML keys and complete values were not independent units."
     )
     assert(!scalarUnits.some((unit) => unit.text === "true" || unit.protected?.length), "YAML native data still used model placeholders.")
     const scalarLenses = await vscode.commands.executeCommand<vscode.CodeLens[]>("vscode.executeCodeLensProvider", scalarDocument.document.uri, 1000)
-    assert(scalarLenses.filter((lens) => lens.command?.title === " ").length === 4, "Split fields or table cells did not share their logical display row.")
+    assert(scalarLenses.filter((lens) => lens.command?.title === " ").length === 6, "Split fields or table cells did not share their logical display row.")
     const scalarRequests = (await requests()).length
     const scalarPreview = await vscode.workspace.openTextDocument(markdownPreviewUri(scalarDocument.document.uri))
     await waitFor(() => scalarPreview.getText().includes('"默认启用": true') && scalarPreview.getText().includes("| 阅读原始文档。 | 保留 text. |"), "scalar/table preview assembly")
@@ -1932,7 +1932,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
       "markdown",
       "---\ndescription: |\n  Read the complete field.\n  Keep both lines together.\n---",
       new vscode.Position(2, 9),
-      '---\ndescription: "阅读完整字段。 保留两行在一起。 "\n---'
+      "---\ndescription: |\n  阅读完整字段。\n  Keep both lines together.\n---"
     ]
   ] as const) {
     const target = await open(file, language, source)
@@ -2346,7 +2346,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     const parsed = await owner.documents.parse(target.document)
     const units = parsed.groups.flatMap((group) => group.units)
     assert(
-      parsed.errors.length === 0 && units.filter((unit) => unit.kind === "comment").length === 5 && !units.some((unit) => unit.kind === "string"),
+      parsed.errors.length === 0 && units.filter((unit) => unit.kind === "comment").length === 6 && !units.some((unit) => unit.kind === "string"),
       "Fenced language aliases lost comments or ignored the default string setting."
     )
     assert(
@@ -2356,7 +2356,9 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     await start(target.document, units.length)
     const snapshot = owner.browse.inspect(target.document.uri)!
     assert(
-      snapshot.units.filter((unit) => unit.kind === "comment").every((unit) => unit.translation.includes("阅读原始文档。")),
+      snapshot.units
+        .filter((unit) => unit.kind === "comment")
+        .every((unit) => unit.translation.includes(unit.text.includes("Read the original document.") ? "阅读原始文档。" : "保留 `sourceId` unchanged.")),
       "Real TextMate grammars did not translate fenced JS/TS, Python, Rust or quoted multiline comments."
     )
     const preview = await vscode.workspace.openTextDocument(markdownPreviewUri(target.document.uri))
@@ -2595,7 +2597,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   checks.push("multiple failed units retry together with the exact assistant response and numbered corrections, retain source and cache the accepted batch")
 
   for (const newline of ["\n", "\r\n"]) {
-    const source = "> Read the original document. \t" + newline + ">   Keep `sourceId` unchanged."
+    const source = "> Read the original \t" + newline + ">   document. Keep `sourceId` unchanged."
     const target = await open(newline === "\n" ? "folded-prose-lf.md" : "folded-prose-crlf.md", "markdown", source)
     const before = (await requests()).length
     await start(target.document, 1)

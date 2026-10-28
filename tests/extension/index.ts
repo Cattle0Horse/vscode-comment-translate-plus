@@ -300,28 +300,22 @@ export async function run(): Promise<void> {
     await vscode.window.showTextDocument(skill, { viewColumn: vscode.ViewColumn.One, preserveFocus: false, preview: false })
     await waitFor(() => vscode.window.activeTextEditor?.document.uri.toString() === skillUri.toString(), "skill focus")
     await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
-    await waitFor(() => controller.browse.inspect(skillUri)?.units.length === 5, "frontmatter translation")
+    await waitFor(() => controller.browse.inspect(skillUri)?.units.length === 6, "frontmatter translation")
     assert(
-      controller.browse.inspect(skillUri)!.units.some((unit) => unit.content === "Read the complete field. Keep its context.\n"),
-      "Multiline scalar was split."
+      controller.browse.inspect(skillUri)!.units.some((unit) => unit.text.trim() === "Read the complete field."),
+      "Sentence-ending scalar line was not independent."
     )
     const fieldHovers = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", skillUri, new vscode.Position(3, 5))
     assert(
       fieldHovers.some(
         (hover) =>
           hover.range?.contains(new vscode.Position(3, 5)) &&
-          hover.contents.some(
-            (content) =>
-              typeof content !== "string" &&
-              !content.value.includes(">") &&
-              content.value.includes("阅读完整字段") &&
-              content.value.includes("保留其上下文") &&
-              content.value.includes("\n")
-          )
+          hover.contents.some((content) => typeof content !== "string" && !content.value.includes(">") && content.value.includes("阅读完整字段") && !content.value.includes("保留其上下文"))
       ),
-      "Full multiline field translation was lost in hover."
+      "Sentence hover lost its translation or included its neighbour: " +
+        JSON.stringify(fieldHovers.map((hover) => hover.contents.map((content) => (typeof content === "string" ? content : content.value))))
     )
-    checks.push("multiline YAML hover keeps the complete translated field")
+    checks.push("multiline YAML hover keeps the targeted sentence independent from its neighbour")
     await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
     checks.push("skill files preserve complete YAML fields in the same production chain")
     checks.push(...(await runEditReuse(workspace, controller, test.origin)))

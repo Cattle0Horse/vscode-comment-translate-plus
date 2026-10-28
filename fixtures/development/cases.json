@@ -29,10 +29,11 @@
         "id": "skill-fields",
         "file": "SKILL.md",
         "languageId": "skill",
-        "units": 9,
+        "units": 10,
         "contains": [
             "description",
-            "Translate complete fields. Keep their context together.",
+            "Translate complete fields.",
+            "Keep their context together.",
             "notes",
             "Read the first line and the second line together."
         ]
@@ -69,10 +70,11 @@
         "id": "nested-yaml-fields",
         "file": "development/nested-frontmatter.md",
         "languageId": "markdown",
-        "units": 14,
+        "units": 15,
         "contains": [
             "description",
-            "Read the complete field.\nKeep both lines together.",
+            "Read the complete field.",
+            "Keep both lines together.",
             "label",
             "Read the nested label.",
             "enabled",
@@ -159,11 +161,12 @@
         "id": "typescript-string-translation",
         "file": "development/strings.ts",
         "languageId": "typescript",
-        "units": 4,
+        "units": 5,
         "strings": true,
         "contains": [
             "${sourceId}\\n",
-            "`Read the original document.\nKeep both lines together.`"
+            "`Read the original document.",
+            "Keep both lines together.`"
         ],
         "excludes": [
             "const message",
@@ -203,10 +206,11 @@
         "id": "yaml-scalars-and-table-rows",
         "file": "development/scalars-and-table.md",
         "languageId": "markdown",
-        "units": 9,
+        "units": 10,
         "contains": [
             "default_enabled",
-            "Read the complete field.\nKeep both lines together.",
+            "Read the complete field.",
+            "Keep both lines together.",
             "Read the original document."
         ]
     },
@@ -214,16 +218,26 @@
         "id": "standalone-yaml-fields",
         "file": "development/yaml-fields.yaml",
         "languageId": "yaml",
-        "units": 11,
-        "contains": ["availability", "default_enabled", "Read the complete field. Keep both lines together.", "# Read the original document."],
+        "units": 12,
+        "contains": [
+            "availability",
+            "default_enabled",
+            "Read the complete field.",
+            "Keep both lines together.",
+            "# Read the original document."
+        ],
         "excludes": ["true", "false"]
     },
     {
         "id": "standalone-yaml-stream",
         "file": "development/yaml-stream.yml",
         "languageId": "yaml",
-        "units": 16,
-        "contains": ["Read the complete field.\nKeep both lines together.", "Keep the second hint together."],
+        "units": 17,
+        "contains": [
+            "Read the complete field.",
+            "Keep both lines together.",
+            "Keep the second hint together."
+        ],
         "excludes": ["TRUE", "0x10", "~", "*base"]
     }
 ]

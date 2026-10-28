@@ -1,6 +1,6 @@
 import type { TextUnit } from "../model/document.ts"
 import { sourceReferences } from "./references.ts"
-import { endsProseLine } from "./tree.ts"
+import { endsProseLine, markdownTree, children } from "./tree.ts"
 import { pythonStringUnits, pythonTokens, joinPythonLiterals } from "./python.ts"
 import type { PythonLiteral } from "./python.ts"
 import { regionToken, sourceTokens } from "./tokenization.ts"
@@ -61,6 +61,52 @@ function commentParagraphs(source: string, spans: readonly CodeSpan[]): CodeSpan
   return paragraphs
 }
 
+/** Split physical prose lines without cutting grammar-owned escapes or interpolations. */
+function sentenceSpans(source: string, span: CodeSpan): CodeSpan[] {
+  const text = source.slice(span.start, span.end)
+  if (!text.includes("\n")) return [span]
+  const spans: CodeSpan[] = []
+  const inline: { start: number; end: number }[] = []
+
+  function visit(node: ReturnType<typeof markdownTree>["topNode"]): void {
+    if (["InlineCode", "Link", "Image", "Emphasis", "StrongEmphasis", "Strikethrough", "HTMLTag"].includes(node.name))
+      inline.push({ start: span.start + node.from, end: span.start + node.to })
+    else for (const child of children(node)) visit(child)
+  }
+
+  if (span.kind === "comment") visit(markdownTree(text).topNode)
+  let start = span.start
+  for (const match of text.matchAll(/[^\n]*\n/gu)) {
+    const next = span.start + match.index + match[0].length
+    const end = span.start + match.index + match[0].trimEnd().length
+    if (
+      !endsProseLine(match[0]) ||
+      span.protected.some((range) => (range.start < next && range.end > next) || (range.start < end && range.end >= end)) ||
+      inline.some((range) => range.start < next && range.end > next)
+    )
+      continue
+    spans.push({ ...span, start, end })
+    start = next
+  }
+  if (!spans.length) return [span]
+  if (start < span.end) spans.push({ ...span, start, end: span.end })
+  const tail = spans.at(-1)!
+  if (spans.length > 1 && !/[\p{L}\p{N}]/u.test(source.slice(tail.start, tail.end))) {
+    spans[spans.length - 2].end = tail.end
+    spans.pop()
+  }
+  return spans.map((part) => {
+    // A block-comment continuation owns its star just as a line comment owns its delimiter.
+    const prefix = span.kind === "comment" && span.scope.startsWith("comment.block") ? source.slice(part.start, part.end).match(/^[\t ]*(\*(?!\/)[\t ]+)/u) : undefined
+    if (prefix) part.start += prefix[0].length - prefix[1].length
+    return {
+      ...part,
+      commentPrefix: prefix ? "*" : part.commentPrefix,
+      protected: span.protected.filter((range) => range.start >= part.start && range.end <= part.end)
+    }
+  })
+}
+
 export async function extractCode(source: string, language: string, tokenizer: CodeTokenizer, checkCurrent: () => void): Promise<readonly CodeRegion[]> {
   const lines = await tokenizer.tokenize(source, language, checkCurrent)
   const raw = sourceTokens(source, lines)
@@ -84,6 +130,7 @@ export async function extractCode(source: string, language: string, tokenizer: C
   const paragraphs = commentParagraphs(source, spans)
   const semantic: readonly (CodeSpan & { readonly literals?: readonly PythonLiteral[] })[] = language === "python" ? joinPythonLiterals(source, paragraphs) : paragraphs
   const regions = semantic
+    .flatMap<CodeSpan & { readonly literals?: readonly PythonLiteral[] }>((span) => (span.literals ? [span] : sentenceSpans(source, span)))
     .filter((span) => /\p{L}/u.test(source.slice(span.start, span.end)))
     .flatMap((span) => {
       const region: CodeRegion = {
