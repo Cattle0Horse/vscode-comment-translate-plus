@@ -1013,31 +1013,29 @@
           "type": "boolean",
           "default": false,
           "scope": "window",
-          "description": "按语言和工作区范围自动开启注释浏览模式；默认关闭"
+          "description": "自动开启工作区内受支持文件的注释浏览模式，遵循 auto.include 和 auto.exclude；默认关闭"
         },
-        "commentTranslatePlus.auto.languages": {
+        "commentTranslatePlus.auto.include": {
           "type": "array",
           "items": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1
           },
           "default": [
-            "markdown",
-            "skill",
-            "prompt",
-            "instructions",
-            "chatagent"
+            "**/*"
           ],
-          "scope": "window",
-          "description": "自动开启注释浏览模式的语言 ID；手动关闭当前文件会覆盖自动策略"
+          "scope": "resource",
+          "description": "自动翻译包含规则，相对文件所属工作区根目录使用 / 分隔的 VS Code glob，例如 **/*.md、docs/**。任意一条命中即可，auto.exclude 优先排除；默认匹配所有文件，空数组不自动开启任何文件，不影响手动翻译。"
         },
-        "commentTranslatePlus.auto.workspaceFolders": {
+        "commentTranslatePlus.auto.exclude": {
           "type": "array",
           "items": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1
           },
           "default": [],
-          "scope": "window",
-          "description": "允许自动开启注释浏览模式的工作区文件夹名称或 URI；空数组允许当前窗口全部工作区，不自动翻译工作区以外文件"
+          "scope": "resource",
+          "description": "自动翻译排除规则，相对文件所属工作区根目录使用 / 分隔的 VS Code glob，例如 **/node_modules/**、**/*.min.js。空数组不排除；只限制自动开启，不影响手动翻译。"
         },
         "commentTranslatePlus.preserveTermsWriteFile": {
           "type": "string",

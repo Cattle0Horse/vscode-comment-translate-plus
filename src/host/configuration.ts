@@ -123,12 +123,9 @@ export function displayMode(uri?: vscode.Uri): "contrast" | "inplace" {
 export function automatic(document: vscode.TextDocument): boolean {
   const config = vscode.workspace.getConfiguration("commentTranslatePlus", document.uri)
   const folder = vscode.workspace.getWorkspaceFolder(document.uri)
-  const languages = config.get<string[]>("auto.languages", ["markdown", "skill", "prompt", "instructions", "chatagent"])
-  const folders = config.get<string[]>("auto.workspaceFolders", [])
-  return (
-    config.get<boolean>("auto.enabled", false) &&
-    !!folder &&
-    languages.includes(document.languageId) &&
-    (!folders.length || folders.includes(folder.name) || folders.includes(folder.uri.toString()))
-  )
+  if (!config.get<boolean>("auto.enabled", false) || !folder) return false
+  const include = config.get<string[]>("auto.include", ["**/*"])
+  const exclude = config.get<string[]>("auto.exclude", [])
+  const matches = (pattern: string) => vscode.languages.match({ pattern: new vscode.RelativePattern(folder, pattern) }, document) > 0
+  return include.some(matches) && !exclude.some(matches)
 }
