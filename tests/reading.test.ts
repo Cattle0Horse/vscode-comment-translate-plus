@@ -9,6 +9,107 @@ import type { TranslationInput } from "../src/model/translation.ts"
 import { renderPrompt } from "../src/translation/providers/prompts.ts"
 import { embeddedMarkdown, requestTranslation, source, sessionResponse, sessionFor, waitFor, settled, modelInput, chatFixture, listBatch } from "./support/fixtures.ts"
 
+test("whole-document translation fills offscreen units and reuses completed and inflight work", async () => {
+  const parsed = parseMarkdown("First paragraph.\n\nSecond paragraph.\n\nThird paragraph.")
+  const units = parsed.groups.flatMap((group) => group.units)
+  const requests: { input: TranslationInput; signal: AbortSignal; finish: () => void }[] = []
+  const session = new BrowseSession(
+    (input, signal) => new Promise((resolve) => requests.push({ input, signal, finish: () => resolve(new Map(input.units.map((unit) => [unit.id, "译文：" + unit.text]))) })),
+    () => {}
+  )
+  try {
+    session.update(parsed, 1)
+    session.setVisibleRanges([units[0]])
+    requests[0].finish()
+    await settled(session)
+    session.setVisibleRanges([units[1]])
+    session.translateAll()
+    session.translateAll()
+    assert.deepEqual(
+      requests.flatMap(({ input }) => input.units.map((unit) => unit.id)),
+      units.map((unit) => unit.id)
+    )
+    assert.ok(requests.every(({ signal }) => !signal.aborted))
+    session.setVisibleRanges([])
+    requests.slice(1).forEach(({ finish }) => finish())
+    await settled(session)
+    assert.equal(session.inspect().units.length, 3)
+    assert.equal(session.inspect().loading.length, 0)
+    session.translateAll()
+    assert.equal(requests.length, 3)
+  } finally {
+    session.dispose()
+  }
+})
+
+test("whole-document translation respects cancellation and rejects results arriving after editing", async () => {
+  const parsed = parseMarkdown("First paragraph.\n\nSecond paragraph.")
+  const requests: { signal: AbortSignal; finish: () => void }[] = []
+  const session = new BrowseSession(
+    (input, signal, _force, completed) =>
+      new Promise((resolve) =>
+        requests.push({
+          signal,
+          finish: () => {
+            const items = input.units.map((unit) => ({ id: unit.id, text: "旧译文：" + unit.text }))
+            items.forEach((item) => completed?.(item))
+            resolve(new Map(items.map((item) => [item.id, item.text])))
+          }
+        })
+      ),
+    () => {}
+  )
+  try {
+    session.update(parsed, 1)
+    session.translateAll()
+    session.cancel()
+    assert.ok(requests[0].signal.aborted)
+    session.setVisibleRanges([{ start: 0, end: parsed.source.length }])
+    assert.equal(requests.length, 1)
+    session.translateAll()
+    session.invalidate(2, [{ rangeOffset: 0, rangeLength: 1, text: "X" }])
+    assert.ok(requests[1].signal.aborted)
+    requests.forEach(({ finish }) => finish())
+    await delay(0)
+    assert.equal(session.inspect().units.length, 0)
+    session.setVisibleRanges([])
+    session.update(parsed, 2)
+    session.setVisibleRanges([])
+    assert.equal(requests.length, 2, "Editing retained a whole-document request for the old version.")
+  } finally {
+    session.dispose()
+  }
+})
+
+test("whole-document command during edit debounce waits for current parsing and prioritizes the viewport", async () => {
+  const parsed = parseMarkdown("First paragraph.\n\nSecond paragraph.\n\nThird paragraph.")
+  const units = parsed.groups.flatMap((group) => group.units)
+  const requested: string[] = []
+  const session = new BrowseSession(
+    async (input) => {
+      requested.push(...input.units.map((unit) => unit.id))
+      return new Map(input.units.map((unit) => [unit.id, unit.text]))
+    },
+    () => {},
+    undefined,
+    "blocks"
+  )
+  try {
+    session.invalidate(2, [])
+    session.setVisibleRanges([units[1]])
+    session.translateAll()
+    assert.equal(requested.length, 0)
+    session.update(parsed, 2)
+    session.setVisibleRanges([units[1]])
+    await settled(session)
+    assert.deepEqual(requested, [units[1].id, units[0].id, units[2].id])
+    assert.equal(session.inspect().scope, "document")
+    assert.equal(session.inspect().units.length, 3)
+  } finally {
+    session.dispose()
+  }
+})
+
 test("editing keeps completed neighbours visible through debounce and reparsing without loading them again", async () => {
   let source = "First paragraph.\n\nSecond paragraph.\n\nThird paragraph."
   const requested: TranslationInput[] = []

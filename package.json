@@ -102,6 +102,12 @@
         "icon": "$(debug-stop)"
       },
       {
+        "command": "commentTranslatePlus.translateAll",
+        "title": "翻译全文",
+        "category": "Comment Translate Plus",
+        "enablement": "commentTranslatePlus.supported"
+      },
+      {
         "command": "commentTranslatePlus.retranslate",
         "title": "重新翻译当前文件",
         "category": "Comment Translate Plus",
@@ -1199,6 +1205,10 @@
         }
       ],
       "commentTranslatePlus.browseMenu": [
+        {
+          "command": "commentTranslatePlus.translateAll",
+          "group": "browse@1"
+        },
         {
           "command": "commentTranslatePlus.toggleDocumentBrowseMode",
           "group": "browse@0"

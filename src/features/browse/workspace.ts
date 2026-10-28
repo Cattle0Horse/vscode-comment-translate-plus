@@ -48,6 +48,14 @@ export class BrowseWorkspace implements vscode.Disposable {
     this.sessions.get(uri.toString())?.session.cancel()
   }
 
+  async translateAll(): Promise<void> {
+    const document = vscode.window.activeTextEditor?.document
+    if (!document) return
+    const version = document.version
+    await this.start(document)
+    if (!this.disposed && !document.isClosed && document.version === version) this.sessions.get(document.uri.toString())?.session.translateAll()
+  }
+
   restart(uri: vscode.Uri, force = false): void {
     this.sessions.get(uri.toString())?.session.restart(force)
   }

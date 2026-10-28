@@ -60,6 +60,8 @@
 
 点击状态栏中的扩展入口可打开操作菜单，也可从编辑器右键菜单进入。所有命令都能在命令面板中搜索到，分类为 `Comment Translate Plus`。
 
+长文档可执行 **Comment Translate Plus: 翻译全文**，提前翻译当前文件中视口外的内容。未开启注释浏览时自动开启，已有译文和在途请求继续复用，当前可见内容优先；进度和取消仍使用原有入口。只处理当前支持的可翻译单元，不修改源文件；编辑后恢复按视口刷新，需要时可再次执行。
+
 快速补充保留词：将 `commentTranslatePlus.preserveTermsWriteFile` 配置为 JSON/JSONC 词表路径（如 `./.vscode/preserve-terms.jsonc`），选中文本后执行 **Comment Translate Plus: 添加保留词**，直接追加选中内容，不弹出词条输入框；文件或父目录不存在时自动创建。也可以直接执行命令后输入；未配置路径时首次选择文件并记住，以后无需再选。写入文件不必在 `commentTranslatePlus.preserveTerms` 中，也不会自动加入该来源列表。已被来源列表引用的词表可执行 **刷新保留词** 立即生效。
 
 ### 对照与占位模式

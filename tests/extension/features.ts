@@ -136,6 +136,23 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   await config.update("hover.strings", true, vscode.ConfigurationTarget.Global)
   await config.update("maxRequestsPerSecond", 100, vscode.ConfigurationTarget.Global)
 
+  const wholeSource = Array.from({ length: 8 }, (_, index) => "Read the original document. Section " + (index + 1) + ".").join("\n".repeat(30))
+  const whole = await open("whole-document.md", "markdown", wholeSource)
+  const wholeUnits = (await owner.documents.parse(whole.document)).groups.flatMap((group) => group.units)
+  assert(!whole.editor.visibleRanges.some((range) => range.contains(whole.document.positionAt(wholeUnits.at(-1)!.start))), "Whole-document fixture must extend beyond the viewport.")
+  await vscode.commands.executeCommand("commentTranslatePlus.translateAll")
+  await waitFor(
+    () => owner.browse.inspect(whole.document.uri)?.status === "ready" && owner.browse.inspect(whole.document.uri)?.units.length === wholeUnits.length,
+    "whole-document translation without scrolling"
+  )
+  assert(whole.document.getText() === wholeSource && !whole.document.isDirty, "Whole-document translation changed source.")
+  const afterWhole = (await requests()).length
+  await vscode.commands.executeCommand("commentTranslatePlus.translateAll")
+  await waitFor(() => owner.browse.inspect(whole.document.uri)?.status === "ready", "cached whole-document translation")
+  assert((await requests()).length === afterWhole, "Repeated whole-document translation bypassed validated cache.")
+  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  checks.push("whole-document command starts browse and completes offscreen units without scrolling, changing source or repeating validated requests")
+
   const code =
     '// Read the original document.\nconst url = "https://example.com";\nconst value = "Read the original document.";\nconst template = `Read the original document. ${sourceId}\\n`;\n/**\n * Keep `sourceId` unchanged.\n */\nconst untouched = 1;'
   const typescript = await open("comments-and-strings.ts", "typescript", code)

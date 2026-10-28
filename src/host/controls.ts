@@ -37,6 +37,7 @@ export class Controls implements vscode.Disposable {
       return vscode.commands.executeCommand("editor.action.hideHover")
     })
     command("retranslate", () => this.retranslate())
+    command("translateAll", () => this.browse.translateAll())
     command("retranslateBlock", () => this.browse.retranslateBlock())
     command("retranslatePreview", (value) => this.preview.retranslate(value))
     command("retry", () => {
@@ -136,6 +137,7 @@ export class Controls implements vscode.Disposable {
     const snapshot = vscode.window.activeTextEditor ? this.browse.inspect(vscode.window.activeTextEditor.document.uri) : undefined
     const items = [
       { label: "切换当前文档注释浏览模式", command: "toggleDocumentBrowseMode" },
+      { label: "翻译全文", command: "translateAll" },
       { label: "重新翻译当前块", command: "retranslateBlock" }
     ]
     if (snapshot)
