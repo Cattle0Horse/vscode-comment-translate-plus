@@ -217,8 +217,14 @@ class TranslationRun {
             reasons.set(item.id, error)
           }
         },
-        request: (url, init = {}, itemId) =>
-          request(
+        request: (url, init = {}, itemId) => {
+          const priority = (): number => {
+            if (itemId !== undefined) return this.priority(itemId)
+            let highest = 2
+            for (const unit of units) if (unit.wanted) highest = Math.min(highest, this.priority(unit.source.id))
+            return highest
+          }
+          return request(
             this.gate,
             url,
             init,
@@ -227,8 +233,9 @@ class TranslationRun {
               sent++
               this.httpRequests++
             },
-            () => (itemId === undefined ? Math.min(...units.filter((unit) => unit.wanted).map((unit) => this.priority(unit.source.id)), 2) : this.priority(itemId))
+            priority
           )
+        }
       })
       requestSignal.throwIfAborted()
       if (outputItems.size !== units.length)

@@ -35,10 +35,10 @@ export class RequestGate {
     return this.enqueue(work, signal, priority, "planning")
   }
 
-  private enqueue<T>(work: () => T, signal: AbortSignal, priority: () => number, kind: "http" | "planning"): Promise<Awaited<T>> {
+  private enqueue<T>(work: () => T | Promise<T>, signal: AbortSignal, priority: () => number, kind: "http" | "planning"): Promise<T> {
     if (this.disposed) return Promise.reject("extension-disposed")
     if (signal.aborted) return Promise.reject(signal.reason)
-    return new Promise<Awaited<T>>((resolve, reject) => {
+    return new Promise<T>((resolve, reject) => {
       const request: WaitingRequest = {
         signal,
         priority,
@@ -49,7 +49,7 @@ export class RequestGate {
             this.active++
             this.starts.push(performance.now())
           }
-          let result: Promise<Awaited<T>>
+          let result: Promise<T>
           try {
             signal.throwIfAborted()
             result = Promise.resolve(work())

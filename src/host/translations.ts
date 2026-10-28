@@ -141,8 +141,8 @@ export class TranslationRuntime implements vscode.Disposable {
   }
 
   refreshPriorities(): void {
-    this.activeDocument = vscode.window.activeTextEditor?.document
     const editor = vscode.window.activeTextEditor
+    this.activeDocument = editor?.document
     this.visibleRanges = editor?.visibleRanges.map((range) => ({ start: editor.document.offsetAt(range.start), end: editor.document.offsetAt(range.end) })) ?? []
   }
 
