@@ -31,8 +31,6 @@ async function fingerprint(text: string): Promise<string> {
 /** Owns loaded, compiled snapshots and scheduled/manual refresh for this application. */
 export class TermFiles implements vscode.Disposable {
   private readonly entries = new Map<string, Entry>()
-  private readonly changes = new vscode.EventEmitter<void>()
-  readonly onDidChange = this.changes.event
   private timer?: ReturnType<typeof setInterval>
   private readonly configuration: vscode.Disposable
   private persistence = Promise.resolve()
@@ -147,13 +145,11 @@ export class TermFiles implements vscode.Disposable {
         const compiled = entry.value && entry.texts?.every((text, index) => text === texts[index]) ? entry.value : await this.compile(snapshot)
         if (this.disposed || entry.released) throw Error("extension-disposed")
         if (revision !== entry.revision) continue
-        const changed = entry.value !== undefined && entry.value.identity !== compiled.identity
         entry.value = entry.value?.identity === compiled.identity ? entry.value : compiled
         entry.loaded = revision
         entry.texts = texts
         entry.failure = undefined
         if (entry.sources.some((source) => /^https?:/u.test(source))) this.save(snapshot)
-        if (changed) this.changes.fire()
         return entry.value
       } catch (error) {
         controller.abort()
@@ -248,6 +244,5 @@ export class TermFiles implements vscode.Disposable {
     this.configuration.dispose()
     for (const entry of this.entries.values()) this.release(entry)
     this.entries.clear()
-    this.changes.dispose()
   }
 }

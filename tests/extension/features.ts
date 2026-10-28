@@ -968,13 +968,31 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   await config.update("preserveTermsRefreshSeconds", 0, vscode.ConfigurationTarget.Global)
   await vscode.workspace.fs.writeFile(regexFile, new TextEncoder().encode("[]"))
   assert((await owner.translations.settings(regexTerms.document.uri)).identity === beforeLocalEdit, "A local edit bypassed the configured refresh policy.")
-  await vscode.commands.executeCommand("commentTranslatePlus.refreshPreserveTerms")
+  const beforeManualRequests = (await requests()).length
+  await control(true)
+  try {
+    regexTerms.editor.selection = new vscode.Selection(6, 0, 6, 0)
+    assert(await owner.browse.retranslateBlock(), "Could not start the pending term refresh probe.")
+    await waitFor(async () => (await requests()).length > beforeManualRequests, "pending translation before term refresh")
+    const beforeManualRefresh = JSON.stringify(owner.browse.inspect(regexTerms.document.uri))
+    await vscode.commands.executeCommand("commentTranslatePlus.refreshPreserveTerms")
+    assert(JSON.stringify(owner.browse.inspect(regexTerms.document.uri)) === beforeManualRefresh, "Manual term refresh cleared browse results or cancelled pending translation.")
+    assert((await requests()).length === beforeManualRequests + 1, "Manual term refresh submitted existing browse results again.")
+  } finally {
+    await control(false)
+  }
+  await waitFor(
+    () => owner.browse.inspect(regexTerms.document.uri)?.status === "ready" && owner.browse.inspect(regexTerms.document.uri)?.units.length === 4,
+    "pending translation survives term refresh"
+  )
+  regexTerms.editor.selection = new vscode.Selection(0, 0, 0, 0)
+  assert(await owner.browse.retranslateBlock(), "Could not retranslate the former preserved term.")
   const removedFingerprint = await requestFingerprint("wIDGET")
   await waitFor(
     async () =>
       owner.browse.inspect(regexTerms.document.uri)?.status === "ready" &&
       (await requests()).slice(beforeRegexTerms).some((request) => request.itemFingerprints?.includes(removedFingerprint)),
-    "manual term refresh invalidates prior local-only results"
+    "new block translation uses the manually refreshed terms"
   )
   const afterRuleRemoval = (await requests()).slice(beforeRegexTerms).flatMap((request) => request.itemFingerprints ?? [])
   assert(afterRuleRemoval.includes(await requestFingerprint("wIDGET")), "Removing a rule reused its previous local-only cache result.")
@@ -1006,6 +1024,9 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   await config.update("preserveTerms", [], vscode.ConfigurationTarget.Global)
   await config.update("preserveTerms", [regexFile.toString(), origin + "/preserve-terms.json"], vscode.ConfigurationTarget.Global)
   assert((await owner.translations.settings(remoteTerms.document.uri)).identity === beforeFailure, "Offline recovery after releasing memory lost the persisted complete snapshot.")
+  await waitFor(() => owner.browse.inspect(remoteTerms.document.uri)?.status === "ready" && owner.browse.inspect(remoteTerms.document.uri)?.units.length === 4, "offline browse recovery")
+  const beforeScheduledRefresh = JSON.stringify(owner.browse.inspect(remoteTerms.document.uri))
+  const beforeScheduledRequests = (await requests()).length
   await setTermFile("[]")
   await config.update("preserveTermsRefreshSeconds", 1, vscode.ConfigurationTarget.Global)
   await waitFor(
@@ -1014,6 +1035,11 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   )
   await config.update("preserveTermsRefreshSeconds", 0, vscode.ConfigurationTarget.Global)
   assert((await owner.translations.settings(remoteTerms.document.uri)).identity !== beforeFailure, "Changed remote content did not isolate prior results.")
+  assert(JSON.stringify(owner.browse.inspect(remoteTerms.document.uri)) === beforeScheduledRefresh, "Scheduled term refresh cleared or changed existing browse results.")
+  assert((await requests()).length === beforeScheduledRequests, "Scheduled term refresh submitted existing browse results again.")
+  remoteTerms.editor.selection = new vscode.Selection(2, 0, 2, 0)
+  assert(await owner.browse.retranslateBlock(), "Could not retranslate the former remote term.")
+  await waitFor(() => owner.browse.inspect(remoteTerms.document.uri)?.status === "ready", "new block translation uses the scheduled terms")
   assert(
     (await requests())
       .slice(beforeRemote)
@@ -1048,7 +1074,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   await config.update("preserveTerms", undefined, vscode.ConfigurationTarget.Global)
   await config.update("preserveTermsRefreshSeconds", undefined, vscode.ConfigurationTarget.Global)
   checks.push(
-    "local JSON/JSONC and remote term files merge compiled full-body rules, refresh only on schedule or manual command, retain last valid snapshots on failure and invalidate removed rules"
+    "local JSON/JSONC and remote term files merge full-body rules; refresh preserves browse results and applies removed rules to new translations, with last valid snapshots retained on failure"
   )
 
   const folder = vscode.workspace.getWorkspaceFolder(workspace)

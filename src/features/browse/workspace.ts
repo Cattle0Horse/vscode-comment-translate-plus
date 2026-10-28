@@ -100,10 +100,10 @@ export class BrowseWorkspace implements vscode.Disposable {
     const start = { document }
     this.starting.set(id, start)
     try {
-      const settings = await this.translations.settings(document.uri)
+      await this.translations.settings(document.uri)
       if (this.disposed || document.isClosed || this.starting.get(id) !== start) return
       const session = new BrowseSession(
-        (batch, signal, force, completed, interests) => this.translations.translate(document, batch, signal, force, completed, settings, interests),
+        (batch, signal, force, completed, interests) => this.translations.translate(document, batch, signal, force, completed, undefined, interests),
         () => this.render(),
         (error) => this.translations.diagnose(error, document.uri),
         scope

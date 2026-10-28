@@ -63,7 +63,6 @@ export class Application implements vscode.Disposable {
     }
     this.subscriptions = [
       vscode.commands.registerCommand("commentTranslatePlus.addPreserveTerm", () => addPreserveTerm(home)),
-      this.translations.terms.onDidChange(() => void this.reconfigure({ affectsConfiguration: (section) => section === "commentTranslatePlus.preserveTerms" })),
       vscode.commands.registerCommand("commentTranslatePlus.refreshPreserveTerms", async () => {
         try {
           const document = vscode.window.activeTextEditor?.document
