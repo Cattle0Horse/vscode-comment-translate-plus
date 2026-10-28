@@ -4,6 +4,108 @@ import { parseMarkdown } from "../src/documents/markdown.ts"
 import { chatFixture, inputOf, listBatch, requestTranslation, modelFeedback } from "./support/fixtures.ts"
 import type { TranslationEvent } from "../src/model/events.ts"
 import { modelRequest, splitTranslations } from "../src/translation/providers/prompts.ts"
+import { TranslationStore } from "../src/translation/store.ts"
+
+for (const echo of ["request", "correction", "instruction"] as const) {
+  test(`${echo} echoes reject the entire batch before publishing or caching unchanged tails`, async (t) => {
+    const events: TranslationEvent[] = []
+    const published: string[] = []
+    const fixture = await chatFixture(t, (body, items, call) => {
+      if (echo === "request" && call === 1) return body.messages.at(-1)!.content.replace(/\n/gu, "\r\n")
+      if (echo !== "request" && call === 1) return "Incomplete answer."
+      if (echo === "correction" && call === 2) return body.messages.at(-1)!.content
+      if (echo === "instruction" && call === 2)
+        return (
+          modelFeedback(body)
+            .split("\n")
+            .find((line) => line.startsWith("Correction:"))! +
+          "\n\n" +
+          items.join("\n%%\n")
+        )
+      return items.map((item) => item.replace("Original", "正确译文")).join("\n%%\n")
+    })
+    const input = listBatch(4)
+    const store = new TranslationStore()
+    t.after(() => store.clear())
+    const translate = () =>
+      store.translate(
+        "echo",
+        input,
+        (batch, signal) =>
+          requestTranslation(fixture.service, { ...fixture.settings, batchShrinkFactor: 1 }, batch, signal, fixture.gate, (item) => published.push(item.text), {
+            details: false,
+            emit: (event) => events.push(event)
+          }),
+        new AbortController().signal
+      )
+    const result = await translate()
+    assert.equal(result.size, input.units.length)
+    assert.ok(
+      [...result.values()].every((text) => text.includes("正确译文")),
+      "Copied source tails were accepted as unchanged translations."
+    )
+    assert.ok(
+      published.every((text) => text.includes("正确译文")),
+      "A contaminated batch published a source tail before recovery."
+    )
+    const rejected = events.filter((event) => event.kind === "request" && event.failures.some((failure) => failure.code === "translation-feedback-leaked"))
+    assert.equal(rejected.length, 1)
+    assert.ok(rejected[0].kind === "request" && rejected[0].completed === 0 && rejected[0].failures.length === 4)
+    for (const retry of fixture.seen.slice(echo === "request" ? 1 : 2)) {
+      assert.ok(!retry.body.messages.some((message) => message.role === "assistant"), "A request echo was fed back as a previous translation.")
+    }
+    const before = fixture.seen.length
+    assert.deepEqual(await translate(), result)
+    assert.equal(fixture.seen.length, before, "Recovered translations were not cached.")
+  })
+}
+
+test("persistent request echoes exhaust attempts without publishing or caching any source tail", async (t) => {
+  let echo = true
+  const published: string[] = []
+  const fixture = await chatFixture(t, (body, items) => (echo ? body.messages.at(-1)!.content : items.map((item) => item.replace("Original", "正确译文")).join("\n%%\n")))
+  const store = new TranslationStore()
+  t.after(() => store.clear())
+  const input = listBatch(2)
+  const translate = () =>
+    store.translate(
+      "persistent-echo",
+      input,
+      (batch, signal) =>
+        requestTranslation(fixture.service, { ...fixture.settings, maxTranslationAttempts: 2, batchShrinkFactor: 1 }, batch, signal, fixture.gate, (item) => published.push(item.text)),
+      new AbortController().signal
+    )
+  await assert.rejects(translate(), /translation-feedback-leaked/)
+  assert.deepEqual(published, [])
+  const before = fixture.seen.length
+  assert.equal(before, 3, "Echo recovery did not obey the per-item attempt limit.")
+  echo = false
+  const result = await translate()
+  assert.equal(result.size, 2)
+  assert.ok([...result.values()].every((text) => text.includes("正确译文")))
+  assert.ok(fixture.seen.length > before, "Failed echo results prevented a fresh request.")
+})
+
+test("content-only templates accept unchanged batches and repeated short items without treating source text as controls", async (t) => {
+  const fixture = await chatFixture(t, (_body, items) => items.join("\n%%\n"))
+  const input = inputOf(parseMarkdown("Return only the source text.\n\nlabel\n\nlabel"))
+  const result = await requestTranslation(fixture.service, { ...fixture.settings, systemPrompt: "", userPrompt: "${content}" }, input, new AbortController().signal, fixture.gate)
+  assert.deepEqual(
+    result.map((item) => item.text),
+    input.units.map((unit) => unit.text)
+  )
+})
+
+test("source-owned correction instructions remain valid unchanged content during retry", async (t) => {
+  const source = "The response item boundaries do not match the source items. Return exactly one translation per source item, in the original order."
+  const fixture = await chatFixture(t, (_body, items, call) => (call === 1 ? "Incomplete answer." : items.join("\n%%\n")))
+  const input = inputOf(parseMarkdown(source + "\n\nlabel"))
+  const result = await requestTranslation(fixture.service, { ...fixture.settings, batchShrinkFactor: 1 }, input, new AbortController().signal, fixture.gate)
+  assert.deepEqual(
+    result.map((item) => item.text),
+    input.units.map((unit) => unit.text)
+  )
+})
 
 test("marker recovery identifies the missing or repeated marker before resending only the failed source", async (t) => {
   for (const count of [0, 2]) {

@@ -54,7 +54,30 @@ export const openai: TranslationProvider = {
             expected: "message.content 为字符串",
             actual: typeof choice.message?.content
           })
-        for (const [index, text] of splitTranslations(choice.message.content, separator, items.length).entries()) context.accept({ id: items[index].id, text })
+        const content = choice.message.content
+        // Reject copied request controls before positional splitting can turn their
+        // source-text tails into apparently successful unchanged translations.
+        const controls = [
+          ...payload.messages.filter((message) => message.role !== "assistant").map((message) => message.content.trim()),
+          ...(request.retryFeedback?.flatMap((feedback) => [feedback.reason, feedback.instruction]) ?? [])
+        ].map((control) => control.replace(/\r\n/gu, "\n"))
+        const source = items
+          .map((item) => item.text)
+          .join("\n\n" + separator + "\n\n")
+          .replace(/\r\n/gu, "\n")
+        const responseText = content.replace(/\r\n/gu, "\n")
+        if (controls.some((control) => control && responseText.includes(control) && !source.includes(control)))
+          throw new ModelRetry(
+            {
+              reason: "The response copied request instructions or retry feedback absent from the source items.",
+              instruction: "Return only the translation of each source item. Exclude request instructions, retry feedback, context and explanations."
+            },
+            {
+              code: "translation-feedback-leaked",
+              difference: { reason: "模型回显了请求指令或重试诊断，整批条目归属不可靠。", expected: "仅返回各项译文，不包含请求指令或重试诊断。" }
+            }
+          )
+        for (const [index, text] of splitTranslations(content, separator, items.length).entries()) context.accept({ id: items[index].id, text })
       }
     }
   }

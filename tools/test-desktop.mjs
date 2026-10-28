@@ -341,6 +341,11 @@ const mock = createServer(async (request, response) => {
       }
       if (text === "Read `sourceId` unchanged. InlineCodeToleranceCase.") content = "阅读 sourceChanged，并标记 `body/html`。"
       if (body.model === "retry-history-fixture" && text.includes("JointRetryHistoryCase.") && !record.retryFeedbackIncluded) content = "第一项丢失了代码。\n%%\n"
+      if (body.model === "request-echo-fixture" && text.includes("RequestEchoCase") && pieces.length > 1) {
+        const attempt = requests.filter((item) => item.model === body.model && item.inputFingerprint === record.inputFingerprint).length
+        if (attempt === 1) content = "Incomplete answer."
+        else if (attempt === 2) content = current
+      }
       response.end(JSON.stringify({ choices: [{ finish_reason: "stop", message: { content } }] }))
     } else response.writeHead(404).end("{}")
   } catch {

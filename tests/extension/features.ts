@@ -2751,6 +2751,41 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
   checks.push("multiple failed units retry together with the exact assistant response and numbered corrections, retain source and cache the accepted batch")
 
+  await config.update(
+    "profiles",
+    [{ id: "request-echo", provider: "openai", apiUrl: origin + "/v1/chat/completions", model: "request-echo-fixture", apiKey: "mock-test" }],
+    vscode.ConfigurationTarget.Global
+  )
+  await config.update("activeProfile", "request-echo", vscode.ConfigurationTarget.Global)
+  await config.update("maxItemsPerRequest", 4, vscode.ConfigurationTarget.Global)
+  await config.update("initialItemsPerRequest", 4, vscode.ConfigurationTarget.Global)
+  const echoSource = Array.from({ length: 4 }, (_, index) => `${index + 1}. Read the original document. RequestEchoCase${index}.`).join("\n")
+  const echoTarget = await open("request-echo.md", "markdown", echoSource)
+  const echoFingerprints = new Set(await Promise.all(Array.from({ length: 4 }, (_, index) => requestFingerprint(`Read the original document. RequestEchoCase${index}.`))))
+  const echoRecords = async () => (await requests()).filter((request) => request.model === "request-echo-fixture" && request.itemFingerprints?.some((item) => echoFingerprints.has(item)))
+  await start(echoTarget.document, 4)
+  const echoUnits = owner.browse.inspect(echoTarget.document.uri)!.units
+  assert(
+    echoUnits.every((unit) => unit.translation.includes("阅读原始文档。")),
+    "Request echo tails were accepted as unchanged results."
+  )
+  const echoRequests = await echoRecords()
+  assert(
+    echoRequests.length === 6 && echoRequests.slice(2).every((request) => !request.previousOutputFingerprint),
+    "Contaminated history survived request echo recovery: " + JSON.stringify(echoRequests.map((request) => ({ count: request.count, previousOutput: request.previousOutputFingerprint })))
+  )
+  const echoPreview = await vscode.workspace.openTextDocument(markdownPreviewUri(echoTarget.document.uri))
+  await waitFor(() => echoPreview.getText().includes("阅读原始文档。"), "request echo preview")
+  assert(!echoPreview.getText().includes("Read the original document."), "Preview retained untranslated request echo tails.")
+  assert(echoTarget.document.getText() === echoSource && !echoTarget.document.isDirty, "Request echo recovery modified source.")
+  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  await start(echoTarget.document, 4)
+  assert((await echoRecords()).length === echoRequests.length, "Recovered echo results were not cached.")
+  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  checks.push("request echoes reject all copied source tails before caching, recover without contaminated history and share complete browse/preview results without source edits")
+  await config.update("initialItemsPerRequest", 2, vscode.ConfigurationTarget.Global)
+  await config.update("maxItemsPerRequest", 2, vscode.ConfigurationTarget.Global)
+
   for (const newline of ["\n", "\r\n"]) {
     const source = "> Read the original \t" + newline + ">   document. Keep `sourceId` unchanged."
     const target = await open(newline === "\n" ? "folded-prose-lf.md" : "folded-prose-crlf.md", "markdown", source)

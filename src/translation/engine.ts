@@ -302,7 +302,11 @@ class TranslationRun {
     }
     record(recovery?.size)
     if (recovery) {
-      const response = lastOutput === undefined ? previous : { units, text: lastOutput, items: outputItems }
+      const response = failed.some((unit) => failureCode(unit.failure) === "translation-feedback-leaked")
+        ? undefined
+        : lastOutput === undefined
+          ? previous
+          : { units, text: lastOutput, items: outputItems }
       for (let index = 0; index < recovery.units.length; index += recovery.size) {
         const next = recovery.units.slice(index, index + recovery.size)
         await this.run(next, undefined, undefined, response)
