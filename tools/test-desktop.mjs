@@ -95,6 +95,7 @@ function dropLastProtection(text) {
 
 const translatedText = (text) =>
   text
+    .replace(/^Open the sample sheet at (<CTP(?:\d+_)?\d+>)\.$/u, "打开示例表格 $1。")
     .replaceAll("example_catalog_snapshot", "示例目录快照")
     .replace("This is a sample museum catalog prepared for the spring exhibition.", "这是为春季展览准备的示例博物馆目录。")
     .replace(/^Read task\/context fields\.$/u, "- 读取任务/上下文字段。")

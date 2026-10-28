@@ -25,7 +25,14 @@ test("numeric prose preserves values while translating sentence punctuation, ran
 })
 
 test("template URLs are indivisible protected fragments including parameters and trailing paths", () => {
-  for (const url of ["https://example.com/sheets/d/<BOOK_ID>/", "https://example.com/sheets/d/<BOOK_ID>/edit?tab=<TAB_ID>#range", "https://example.com/slides/d/<DECK_ID>/..."])
+  for (const url of [
+    "https://example.com/sheets/d/<BOOK_ID>/",
+    "https://example.com/sheets/d/<BOOK_ID>/edit?tab=<TAB_ID>#range",
+    "https://example.com/slides/d/<DECK_ID>/...",
+    "https://example.com/sheets/d/{item}",
+    "https://example.com/sheets/d/${item}",
+    "https://example.com/sheets/d/{item}/edit?tab=${tab}#range"
+  ])
     for (const format of ["text", "markdown"] as const) {
       const source = "Open " + url + " now."
       const unit = { id: "url", start: 0, end: source.length, text: source, format }
@@ -35,7 +42,7 @@ test("template URLs are indivisible protected fragments including parameters and
       assert.equal(prepared.restore("现在打开 <CTP0>。"), expected)
       assert.equal(validateTranslation(unit, expected), undefined)
       assert.equal(prepared.restore(expected), expected)
-      for (const damaged of ["现在打开。", "现在打开 <CTP0><CTP0>。", "现在打开 <CTP9>。", expected.replace("_ID>", "_OTHER>")])
+      for (const damaged of ["现在打开。", "现在打开 <CTP0><CTP0>。", "现在打开 <CTP9>。", expected.replace(/BOOK_ID|DECK_ID|item/u, "other")])
         assert.throws(() => prepared.restore(damaged), /marker-mismatch/u)
     }
 })
@@ -54,6 +61,22 @@ test("template URL recognition preserves containing code and neighbouring HTML o
   const output = htmlPrepared.restore(htmlPrepared.text.replace("important", "重要"))
   assert.equal(output, html.replace("important", "重要"))
   assert.equal(validateTranslation(htmlUnit, output), undefined)
+})
+
+test("Chinese sentence punctuation stays outside bare URLs while explicit targets stay exact", () => {
+  for (const format of ["text", "markdown"] as const) {
+    const url = "https://example.com/a-long-resource"
+    const source = "Open " + url + " now."
+    const unit = { id: "punctuation", start: 0, end: source.length, text: source, format }
+    for (const punctuation of ["，", "。", "！", "？", "；"]) {
+      const output = "打开 " + url + punctuation
+      assert.equal(validateTranslation(unit, prepareTranslation(unit, 32).restore(output)), undefined)
+    }
+    for (const source of ["Open [guide](" + url + "。)", "Open <" + url + "。>"]) {
+      const explicit = { ...unit, text: source, end: source.length }
+      assert.ok(validateTranslation(explicit, source.replace("。", "")), "Sentence punctuation rules must not alter an explicit link destination.")
+    }
+  }
 })
 
 test("an exact URL marker may echo a complete code wrapper without hiding source link syntax", () => {

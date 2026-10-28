@@ -15,6 +15,12 @@ function addressText(text: string, preserveEllipsis = false): string {
   return text
 }
 
+/** Bare GFM URLs may swallow sentence punctuation; explicit destinations own it. */
+export function linkTargetText(node: MarkdownNode, source: string): string {
+  const text = source.slice(node.from, node.to)
+  return node.parent?.name === "Paragraph" ? text.replace(/[，。！？；]+$/u, "") : text
+}
+
 /** Shortcut candidates are prose without a definition; collapsed references always use their label as the target. */
 export function linkReferenceKind(node: MarkdownNode, source: string, labels: readonly string[] = []): "prose" | "label" | undefined {
   if (node.name !== "Link" && node.name !== "Image") return
@@ -77,6 +83,7 @@ export function protectedFragments(unit: TextUnit, tree?: MarkdownNode): readonl
     ) {
       let start = original(node.from)
       let end = original(node.to)
+      if (node.name === "URL") end = original(node.from + linkTargetText(node, input).length)
       // Reference brackets remain native syntax; only their lookup key needs a marker.
       if (node.name === "LinkLabel") {
         start++
@@ -96,8 +103,8 @@ export function protectedFragments(unit: TextUnit, tree?: MarkdownNode): readonl
   // Markdown splits a template URL at its angle-bracket parameter. Preserve the
   // complete address, but never replace a containing code span or link target.
   for (const match of unit.text.matchAll(/https?:\/\/(?:[^\s<>"'\x60，。！？；]|<[A-Za-z_][A-Za-z\d_]*>)+/giu)) {
-    const parameters = match[0].match(/<[^>]+>/gu)
-    if (!parameters?.length || parameters.some((parameter) => !/^<[A-Z_][A-Z\d_]*>$/u.test(parameter))) continue
+    const parameters = match[0].match(/<[^>]+>|\$?\{[A-Za-z_$][\w$]*\}/gu)
+    if (!parameters?.length || parameters.some((parameter) => parameter.startsWith("<") && !/^<[A-Z_][A-Z\d_]*>$/u.test(parameter))) continue
     const text = addressText(match[0], true)
     const start = match.index
     const end = start + text.length

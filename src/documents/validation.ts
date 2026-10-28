@@ -4,7 +4,7 @@ import type { TextUnit } from "../model/document.ts"
 import type { MarkdownNode } from "./tree.ts"
 import { children, markdownTree, markdownLinkLabels, standalone } from "./tree.ts"
 import { yamlShape } from "./yaml.ts"
-import { fragmentContents, linkReferenceKind } from "./protection.ts"
+import { fragmentContents, linkReferenceKind, linkTargetText } from "./protection.ts"
 import { projectionContent } from "./projection.ts"
 import { translationBody } from "./body.ts"
 
@@ -280,7 +280,8 @@ function markdownShape(node: MarkdownNode, source: string, embedded = false, lin
         .filter((child) => ["CodeMark", "CodeInfo"].includes(child.name))
         .map((child) => [child.name, source.slice(child.from, child.to)])
     ]
-  if (["FencedCode", "CodeBlock", "HTMLTag", "HTMLBlock", "URL", "LinkLabel", "ListMark", "TaskMarker", "Escape"].includes(node.name)) return [node.name, source.slice(node.from, node.to)]
+  if (node.name === "URL") return [node.name, linkTargetText(node, source)]
+  if (["FencedCode", "CodeBlock", "HTMLTag", "HTMLBlock", "LinkLabel", "ListMark", "TaskMarker", "Escape"].includes(node.name)) return [node.name, source.slice(node.from, node.to)]
   const content: MarkdownNode[] = []
 
   function append(child: MarkdownNode): void {
