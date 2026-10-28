@@ -45,12 +45,13 @@ export async function addPreserveTerm(home?: string): Promise<void> {
   const editor = vscode.window.activeTextEditor
   const resource = editor?.document.uri
   const selected = editor && !editor.selection.isEmpty ? editor.document.getText(editor.selection) : ""
-  const term = await vscode.window.showInputBox({
-    title: "添加保留词",
-    prompt: "添加一条区分大小写的字面保留词，仅完整正文匹配时保留。",
-    value: selected,
-    validateInput: (value) => (value.trim() ? undefined : "请输入非空保留词。")
-  })
+  const term =
+    selected ||
+    (await vscode.window.showInputBox({
+      title: "添加保留词",
+      prompt: "添加一条忽略大小写匹配的字面保留词，仅完整正文匹配时保留。",
+      validateInput: (value) => (value.trim() ? undefined : "请输入非空保留词。")
+    }))
   if (term === undefined) return
   try {
     const config = vscode.workspace.getConfiguration("commentTranslatePlus", resource)

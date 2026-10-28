@@ -19,7 +19,7 @@ export async function runEditReuse(workspace: vscode.Uri, owner: Application, or
   const checks: string[] = []
   const records = async () => ((await (await fetch(origin + "/state")).json()) as { requests: { count: number }[] }).requests
   const uri = vscode.Uri.joinPath(workspace, "incremental-preview.md")
-  const source = "Read the original document.\n\nKeep its context."
+  const source = "Read the original document.\n\nKeep its context.\n"
   await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(source))
   const document = await vscode.workspace.openTextDocument(uri)
   const editor = await vscode.window.showTextDocument(document, { preview: false })
@@ -37,6 +37,19 @@ export async function runEditReuse(workspace: vscode.Uri, owner: Application, or
 
   await owner.browse.start(document)
   await waitFor(() => owner.browse.inspect(uri)?.units.length === 2 && owner.browse.inspect(uri)?.status === "ready", "browse joins preview cache")
+  const shifted = (await records()).length
+  assert(await editor.edit((builder) => builder.insert(new vscode.Position(0, 0), "\n")), "Browse-only range shift failed.")
+  assert(owner.browse.inspect(uri)?.units.length === 2 && owner.browse.inspect(uri)?.loading.length === 0, "An unrelated newline cleared completed translations.")
+  const shiftedLenses = await vscode.commands.executeCommand<vscode.CodeLens[]>("vscode.executeCodeLensProvider", uri)
+  assert(
+    shiftedLenses?.some((lens) => lens.range.start.line === document.lineCount - 1),
+    "The translated neighbour lost its row after a newline insertion."
+  )
+  assert(await editor.edit((builder) => builder.delete(new vscode.Range(0, 0, 1, 0))), "Browse-only range shift restoration failed.")
+  await new Promise((resolve) => setTimeout(resolve, 1200))
+  assert(owner.browse.inspect(uri)?.units.length === 2 && owner.browse.inspect(uri)?.loading.length === 0, "Reparsing an unrelated edit lost completed translations.")
+  assert((await records()).length === shifted, "An unrelated edit requested completed translations again.")
+  checks.push("unrelated edits preserve translated rows immediately, follow line shifts and remain offline after reparsing")
   const typing = (await records()).length
   for (const text of ["Read", "Read the original", "Read the original document. Read the complete field."]) {
     assert(await editor.edit((builder) => builder.replace(document.lineAt(2).range, text)), "Typing edit failed.")
@@ -44,7 +57,14 @@ export async function runEditReuse(workspace: vscode.Uri, owner: Application, or
     await vscode.commands.executeCommand("vscode.executeHoverProvider", uri, new vscode.Position(2, 1))
     await new Promise((resolve) => setTimeout(resolve, 350))
     assert((await records()).length === typing, "Continuous typing or hover sent an intermediate translation request.")
-    assert(owner.browse.inspect(uri)?.units.length === 0, "Typing retained stale translations.")
+    const retained = owner.browse.inspect(uri)
+    assert(retained?.units.length === 1 && retained.units[0].text === "Keep its context.", "Typing removed an unchanged translation or retained the edited unit.")
+    assert(retained.loading.length === 0, "Typing marked unchanged neighbours as loading.")
+    const lenses = await vscode.commands.executeCommand<vscode.CodeLens[]>("vscode.executeCodeLensProvider", uri)
+    assert(
+      lenses?.some((lens) => lens.range.start.line === document.lineCount - 1),
+      "Typing removed the unchanged translation row."
+    )
   }
   await waitFor(
     async () => owner.browse.inspect(uri)?.units.length === 2 && owner.browse.inspect(uri)?.status === "ready" && (await previewText()).includes("阅读原始文档。 阅读完整字段。"),
@@ -79,7 +99,7 @@ export async function runEditReuse(workspace: vscode.Uri, owner: Application, or
     "shared edit completion"
   )
   assert((await records()).slice(shared).reduce((sum, record) => sum + record.count, 0) === 1, "Browse and preview duplicated or expanded edited-unit work.")
-  assert(document.getText() === "\n\nKeep both lines together.\n\nKeep its context.", "Translation wrote to the edited source.")
+  assert(document.getText() === "\n\nKeep both lines together.\n\nKeep its context.\n", "Translation wrote to the edited source.")
   checks.push("browse and preview share only the changed unit after editing without writing source")
 
   const forced = (await records()).length

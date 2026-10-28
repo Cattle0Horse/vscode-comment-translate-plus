@@ -4,6 +4,10 @@ const markdown = parser.configure(GFM)
 
 export type MarkdownNode = ReturnType<typeof markdown.parse>["topNode"]
 
+export function endsProseLine(text: string): boolean {
+  return /[.!?。！？]$/u.test(text.trimEnd())
+}
+
 /** Lezer splits lines at LF; exclude CR from parsing without shifting source offsets. */
 export function markdownTree(source: string): ReturnType<typeof markdown.parse> {
   const ranges: { from: number; to: number }[] = []
@@ -21,6 +25,25 @@ export function children(node: MarkdownNode): MarkdownNode[] {
   const values: MarkdownNode[] = []
   for (let child = node.firstChild; child; child = child.nextSibling) values.push(child)
   return values
+}
+
+export function normalizeLinkLabel(label: string): string {
+  return label.trim().replace(/\s+/gu, " ").toUpperCase()
+}
+
+/** Definitions can live outside a translated paragraph or selection. */
+export function markdownLinkLabels(source: string, tree = markdownTree(source).topNode): readonly string[] {
+  const labels = new Set<string>()
+
+  function visit(node: MarkdownNode): void {
+    if (node.name === "LinkReference") {
+      const label = children(node).find((child) => child.name === "LinkLabel")
+      if (label) labels.add(normalizeLinkLabel(source.slice(label.from + 1, label.to - 1)))
+    } else for (const child of children(node)) visit(child)
+  }
+
+  visit(tree)
+  return [...labels].sort()
 }
 
 export function standalone(text: string): string {

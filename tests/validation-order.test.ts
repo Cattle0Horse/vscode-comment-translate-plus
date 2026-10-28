@@ -4,7 +4,7 @@ import type { TextUnit } from "../src/model/document.ts"
 import type { TranslationEvent } from "../src/model/events.ts"
 import { ModelRetry } from "../src/model/diagnostics.ts"
 import { parseMarkdown } from "../src/documents/markdown.ts"
-import { emptyPreserveTerms, prepareTranslation } from "../src/documents/terms.ts"
+import { prepareTranslation } from "../src/documents/terms.ts"
 import { validateTranslation } from "../src/documents/validation.ts"
 import { TranslationStore } from "../src/translation/store.ts"
 import { chatFixture, inputOf, modelFeedback, requestTranslation } from "./support/fixtures.ts"
@@ -12,7 +12,7 @@ import { chatFixture, inputOf, modelFeedback, requestTranslation } from "./suppo
 test("item bounds and internal line breaks precede marker and native syntax damage", () => {
   const source = "Read [Guide](./guide.md) and `sourceId_abcdefghijklmnopqrstuvwxyz_123456789`."
   const unit = inputOf(parseMarkdown(source)).units[0]
-  const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
+  const prepared = prepareTranslation(unit, 32)
   assert.throws(() => prepared.restore(" \r\n "), /translation-item-invalid/)
   assert.throws(
     () => prepared.restore("X".repeat(200001) + "\n<context>"),
@@ -35,7 +35,7 @@ test("item bounds and internal line breaks precede marker and native syntax dama
 
 test("marker syntax precedes marker counts and native content counts precede string order", () => {
   const source = "Read `sourceId_abcdefghijklmnopqrstuvwxyz_123456789`."
-  const prepared = prepareTranslation(inputOf(parseMarkdown(source)).units[0], emptyPreserveTerms, 32)
+  const prepared = prepareTranslation(inputOf(parseMarkdown(source)).units[0], 32)
   for (const output of ["阅读 <CTP99>。", "阅读 <CTPbroken>。"]) {
     assert.throws(
       () => prepared.restore(output),
@@ -53,7 +53,7 @@ test("marker syntax precedes marker counts and native content counts precede str
     format: "text",
     protected: [...text.matchAll(/\{\w+\}/gu)].map((match) => ({ start: match.index, end: match.index + match[0].length }))
   }
-  const string = prepareTranslation(unit, emptyPreserveTerms, 32)
+  const string = prepareTranslation(unit, 32)
   assert.throws(
     () => string.restore("阅读 {second}。"),
     (error) => error instanceof ModelRetry && /native source fragment/.test(error.feedback.reason)
@@ -78,11 +78,11 @@ test("specific protected data damage precedes incidental brackets and follows a 
     }
 })
 
-test("logged context-only output retries the source with line-break feedback and caches only the repaired item", async (t) => {
-  const source = "Cookies and state files are sensitive. Follow [Trust Boundaries](../SKILL.md#trust-boundaries)."
-  const reference = "# Command Reference\n\nThis is the retained general-purpose command surface.\n\n## Storage And State"
-  const wrong = "<context>\n# 命令参考\n\n这是保留的通用命令界面。\n\n## 存储与状态信息\n</context>"
-  const fixed = "Cookie 和状态文件属于敏感信息。请遵循[信任边界](../SKILL.md#trust-boundaries)。"
+test("synthetic context-only output retries the source with line-break feedback and caches only the repaired item", async (t) => {
+  const source = "Printed maps are available at the desk. See the [Visitor Guide](../guide.md#reading-room)."
+  const reference = "# Museum Catalog\n\nThis fictional collection includes maps and pottery.\n\n## Reading Room"
+  const wrong = "<context>\n# 博物馆目录\n\n这个虚构的馆藏包括地图与陶器。\n\n## 阅览室\n</context>"
+  const fixed = "服务台备有纸质地图。请参阅[游客指南](../guide.md#reading-room)。"
   const fixture = await chatFixture(t, (_body, _items, call) => (call === 1 ? "正确邻项。\n%%\n" + wrong : fixed))
   const parsed = inputOf(parseMarkdown("Read the neighbouring rule.\n\n" + source))
   const input = { units: [parsed.units[0], { ...parsed.units[1], reference: [{ kind: "Section", text: reference }] }] }

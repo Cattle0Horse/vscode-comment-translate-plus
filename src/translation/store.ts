@@ -1,11 +1,12 @@
 import { validateTranslations } from "../translation/results.ts"
 import { validateTranslation } from "../documents/validation.ts"
-import { unchangedUnitRanges } from "../documents/edits.ts"
+import { unchangedUnitRanges, unitContentKey } from "../documents/edits.ts"
 import type { SourceEdit } from "../documents/edits.ts"
 import type { PreparedInput, TranslationInput } from "../model/translation.ts"
 import type { TextUnit } from "../model/document.ts"
 import type { CancellationReason } from "../model/diagnostics.ts"
 import type { TranslationItem } from "../model/translation.ts"
+import type { PersistentTranslations } from "../model/translation.ts"
 
 interface RequestGroup {
   readonly controller: AbortController
@@ -25,23 +26,9 @@ interface PendingUnit {
   cacheable: boolean
 }
 
-function unitContentKey(unit: TextUnit): readonly unknown[] {
-  return [
-    unit.format,
-    unit.kind,
-    unit.language,
-    unit.text,
-    unit.content,
-    unit.yamlKey === true,
-    unit.protected,
-    unit.display !== undefined,
-    unit.embedding ? [unitContentKey(unit.embedding.unit), unit.embedding.prefixes] : undefined
-  ]
-}
-
 function unitKey(identity: string, unit: TextUnit): string {
   const references = unit.reference?.map(({ kind, text }) => ({ kind, text })) ?? []
-  return JSON.stringify([identity, unitContentKey(unit), references])
+  return JSON.stringify([identity, unitContentKey(unit), references, "preserved" in unit && unit.preserved === true])
 }
 
 export class TranslationStore {
@@ -49,6 +36,8 @@ export class TranslationStore {
   private readonly pending = new Map<string, PendingUnit>()
   private readonly groups = new Set<RequestGroup>()
   private size = 0
+
+  constructor(private readonly persistent?: PersistentTranslations) {}
 
   translate(
     identity: string,
@@ -72,6 +61,7 @@ export class TranslationStore {
       const key = unitKey(identity, unit)
       const value = this.cache.get(key)
       if (value !== undefined) {
+        this.persistent?.touch(key)
         this.cache.delete(key)
         this.cache.set(key, value)
         values.set(unit.id, value)
@@ -120,9 +110,8 @@ export class TranslationStore {
     if (created.units.size) {
       this.groups.add(created)
       const units = [...created.units]
-      const missing: PreparedInput = { units: units.map((task) => task.unit) }
       const byId = new Map(units.map((task) => [task.unit.id, task]))
-      const accept = (item: TranslationItem): void => {
+      const accept = (item: TranslationItem, persist = true): void => {
         created.controller.signal.throwIfAborted()
         const task = byId.get(item.id)
         if (task?.interest.signal.aborted) return
@@ -130,17 +119,37 @@ export class TranslationStore {
         const failure = validateTranslation(task.unit, item.text)
         if (failure) throw failure
         if (task.value !== undefined) return
-        if (task.cacheable) this.remember(task.key, item.text)
+        if (task.cacheable) this.remember(task.key, item.text, persist)
         for (const notify of task.consumers.values()) notify(item.text)
         task.value = item.text
         task.resolve(item.text)
       }
       void Promise.resolve()
-        .then(() => action(missing, created.controller.signal, accept, new Map(units.map((task) => [task.unit.id, task.interest.signal]))))
-        .then((content) => {
+        .then(async () => {
+          let restored = 0
+          if (this.persistent)
+            await Promise.all(
+              units.map(async (task) => {
+                const text = await this.persistent!.get(task.key)
+                if (text === undefined || !task.cacheable || task.interest.signal.aborted || created.controller.signal.aborted) return
+                if (validateTranslation(task.unit, text)) {
+                  this.persistent!.remove(task.key)
+                  return
+                }
+                accept({ id: task.unit.id, text }, false)
+                restored++
+              })
+            )
+          created.controller.signal.throwIfAborted()
+          if (restored) reused?.({ kind: "cache", count: cached + restored, total: input.units.length })
+          const remaining = {
+            units: units.filter((task) => task.value === undefined && !task.interest.signal.aborted).map((task) => task.unit)
+          }
+          if (!remaining.units.length) return
+          const content = await action(remaining, created.controller.signal, accept, new Map(units.map((task) => [task.unit.id, task.interest.signal])))
           created.controller.signal.throwIfAborted()
           if (units.every((task) => task.value !== undefined || task.interest.signal.aborted)) return
-          for (const [id, text] of validateTranslations(missing, content)) accept({ id, text })
+          for (const [id, text] of validateTranslations(remaining, content)) accept({ id, text })
         })
         .catch((error) => {
           for (const task of units) if (task.value === undefined) task.reject(error)
@@ -226,15 +235,17 @@ export class TranslationStore {
     })
   }
 
-  clear(reason: CancellationReason = "extension-disposed"): void {
+  clear(reason: CancellationReason = "extension-disposed", keepCache = false): void {
     for (const group of this.groups) {
       for (const task of group.units) task.cacheable = false
       group.controller.abort(reason)
     }
     this.groups.clear()
     this.pending.clear()
-    this.cache.clear()
-    this.size = 0
+    if (!keepCache) {
+      this.cache.clear()
+      this.size = 0
+    }
   }
 
   invalidate(identity: string, inputs: readonly TranslationInput[]): void {
@@ -242,6 +253,7 @@ export class TranslationStore {
       for (const unit of input.units) {
         const key = unitKey(identity, unit)
         this.remove(key)
+        this.persistent?.remove(key)
         const task = this.pending.get(key)
         if (task) task.cacheable = false
       }
@@ -265,7 +277,8 @@ export class TranslationStore {
     this.cache.delete(key)
   }
 
-  private remember(key: string, text: string): void {
+  private remember(key: string, text: string, persist = true): void {
+    if (persist) this.persistent?.set(key, text)
     const size = key.length + text.length
     if (size > 1_000_000) return
     this.remove(key)

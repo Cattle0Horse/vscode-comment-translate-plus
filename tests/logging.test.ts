@@ -1,4 +1,4 @@
-import { emptyPreserveTerms, prepareTranslation } from "../src/documents/terms.ts"
+import { prepareTranslation } from "../src/documents/terms.ts"
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import { parseMarkdown } from "../src/documents/markdown.ts"
@@ -143,7 +143,7 @@ test("YAML diagnostics retain model responses and raw references without repeati
         assert.equal(result, mode === "unchanged" ? value.text : JSON.stringify(value.content!.replace(/[\t ]*(?:\r\n|[\r\n])[\t \r\n]*/gu, " ").replace("Read", "阅读")))
       }
       assert.ok(!/[\r\n]/u.test(modelInput(fixture.seen.at(-1)!.body)))
-      assert.equal(prepareTranslation(value, emptyPreserveTerms, 32).restore(modelInput(fixture.seen.at(-1)!.body)), value.text)
+      assert.equal(prepareTranslation(value, 32).restore(modelInput(fixture.seen.at(-1)!.body)), value.text)
       assert.ok(modelContext(fixture.seen.at(-1)!.body).includes(scalar), "Reference lost the original YAML syntax.")
       const request = events.find((event) => event.kind === "request")!
       assert.equal(request.kind, "request")

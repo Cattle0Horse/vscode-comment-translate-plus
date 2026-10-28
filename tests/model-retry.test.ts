@@ -192,13 +192,12 @@ test("added internal line breaks in single-line source retry without publishing 
 
 test("context continuation after an internal line break is rejected, regenerated and cached without the continuation", async (t) => {
   const source =
-    "- Use `get_artifact` or `read` to verify unsupported detailed claims. Before substantial delivery, check question coverage, key facts, constraints, and resources; repair affected content and disclose unresolved gaps or unperformed checks. Skip rereading when metadata/summary suffices or merely presenting a simple image."
+    "- Use `open_sample` or `read` to view the museum catalog. The north gallery contains maps and travel diaries, while the courtyard displays handmade pottery. Printed labels describe the year and place of each object, and visitors may borrow a magnifying glass from the front desk."
   const reference =
-    '- For final audio from `run_command`, save it under `/memory`, resolve its URL with `get_public_url`, then `report_artifacts` with `source="command"` and highlight the audio artifact.'
+    "- The sample pottery list is available through `sample_task`; its shelf map is stored in `/examples`, and `sample_link` opens the illustrated index for the courtyard collection."
   const output =
-    '使用 `get_artifact` 或 `read` 来验证那些不受支持的详细信息。在正式交付之前，需检查问题的覆盖范围、关键事实、约束条件及资源情况；修复受影响的内容，并揭示未解决的缺陷或未进行的检查。当元数据/摘要已经足够时，或者只需要展示简单的图像时，则无需重新阅读。\n\n对于来自 `run_command` 的最终音频文件，将其保存在 `/memory` 目录下，使用 `get_public_url` 获取其 URL，然后以 `source="command"` 形式调用 `report_artifacts`，同时突出显示该音频文件。'
-  const translation =
-    "使用 `get_artifact` 或 `read` 验证未经支持的具体论断。交付前检查覆盖范围、关键事实、约束及资源，修复问题并披露未完成的检查。元数据或摘要足够时，或仅展示简单图片时，无需重读。"
+    "使用 `open_sample` 或 `read` 查看博物馆目录。北侧画廊收藏地图与旅行日记，庭院则陈列手工陶器。纸质标签介绍每件展品的年代与产地，游客还可在服务台借用放大镜。\n\n通过 `sample_task` 查看示例陶器清单；书架地图保存在 `/examples` 中，`sample_link` 可打开庭院藏品的插图索引。"
+  const translation = "使用 `open_sample` 或 `read` 查看博物馆目录。北侧画廊收藏地图与旅行日记，庭院陈列手工陶器。纸质标签介绍展品年代与产地，游客可在服务台借用放大镜。"
   for (const recover of [true, false]) {
     const events: TranslationEvent[] = []
     const published: string[] = []
@@ -213,7 +212,7 @@ test("context continuation after an internal line break is rejected, regenerated
       const result = await run()
       assert.equal(result.size, 1)
       assert.equal(fixture.seen.length, 2)
-      assert.ok(published.every((text) => !text.includes("run_command")))
+      assert.ok(published.every((text) => !text.includes("sample_task")))
       const before = fixture.seen.length
       assert.deepEqual(await run(), result)
       assert.equal(fixture.seen.length, before, "The validated recovery was not cached.")
@@ -224,7 +223,7 @@ test("context continuation after an internal line break is rejected, regenerated
       await assert.rejects(run(), /translation-structure-invalid/)
       assert.equal(fixture.seen.length, 6, "A contaminated result entered the translation cache.")
     }
-    assert.ok(modelContext(fixture.seen[0].body).includes("run_command"), "The replay omitted the neighbouring reference that contaminated the logged output.")
+    assert.ok(modelContext(fixture.seen[0].body).includes("sample_task"), "The replay omitted the neighbouring reference that contaminated the synthetic output.")
     assert.deepEqual(
       fixture.seen[1].body.messages.slice(0, fixture.seen[0].body.messages.length),
       fixture.seen[0].body.messages,
@@ -240,7 +239,7 @@ test("context continuation after an internal line break is rejected, regenerated
     )
     assert.match(hint, /(?:do not|without|exclude|omit)[^.\n]*reference/i, "Recovery did not explicitly exclude reference content.")
     assert.match(hint, /preceding or following blocks/i)
-    assert.ok(!hint.includes("run_command") && !hint.includes("translation-structure-invalid"), "Raw source fragments or diagnostic codes leaked into recovery instructions.")
+    assert.ok(!hint.includes("sample_task") && !hint.includes("translation-structure-invalid"), "Raw source fragments or diagnostic codes leaked into recovery instructions.")
     const failure = events.find((event) => event.kind === "request" && event.failures.length)
     assert.ok(failure?.kind === "request" && failure.failures[0].difference.reason.includes("内部换行"))
     assert.equal(failure.failures[0].difference.actual, "包含内部换行")
@@ -395,6 +394,45 @@ test("network recovery respects a one-attempt limit and explicit cancellation", 
     const finish = events.find((event) => event.kind === "finish")!
     assert.ok(finish.kind === "finish" && finish.status === (cancelled ? "cancelled" : "failed"))
   }
+})
+
+test("incomplete code boundaries take priority over apparent HTML damage and recover without publishing or caching the broken item", async (t) => {
+  const source = "Compare `<north field>`, `<south field>`, and `<west field>`."
+  const broken = "比较 `<north field>`、`<south field>》和 `<west field>`。"
+  const fixed = "比较 `<north field>`、`<south field>` 和 `<west field>`。"
+  const neighbour = "阅读相邻内容。"
+  const published: string[] = []
+  const events: TranslationEvent[] = []
+  const fixture = await chatFixture(t, (_body, _items, call) => {
+    if (call === 1) return broken + "\n%%\n" + neighbour
+    assert.deepEqual(published, [neighbour], "The incomplete code span was published or the valid neighbour was discarded.")
+    return fixed
+  })
+  const input = inputOf(parseMarkdown(source + "\n\nRead the neighbour."))
+  const store = new TranslationStore()
+  t.after(() => store.clear())
+  const run = () =>
+    store.translate(
+      "code-boundary-recovery",
+      input,
+      (request, signal) =>
+        requestTranslation(fixture.service, fixture.settings, request, signal, fixture.gate, (item) => published.push(item.text), {
+          details: false,
+          emit: (event) => events.push(event)
+        }),
+      new AbortController().signal
+    )
+  const result = await run()
+  assert.deepEqual([...result.values()], [fixed, neighbour])
+  assert.deepEqual(published, [neighbour, fixed])
+  assert.equal(fixture.seen.length, 2)
+  assert.deepEqual(fixture.seen[1].items, [source])
+  const failure = events.flatMap((event) => (event.kind === "request" ? event.failures : []))[0]
+  assert.equal(failure.difference.actual, "`")
+  assert.ok(failure.difference.modelReason)
+  assert.ok(modelFeedback(fixture.seen[1].body).includes(failure.difference.modelReason), "The retry did not carry the diagnosed cause into the model request.")
+  assert.deepEqual(await run(), result)
+  assert.equal(fixture.seen.length, 2, "The validated recovery was not cached.")
 })
 
 test("known structural errors send the matching correction and recover only the rejected item", async (t) => {

@@ -10,25 +10,46 @@ export interface SourceEdit {
 export function unchangedUnitRanges(units: readonly TextUnit[], edits: readonly (readonly SourceEdit[])[]): ReadonlyMap<string, TextUnit> {
   const result = new Map<string, TextUnit>()
   for (const unit of units) {
-    let { start, end } = unit
-    let unchanged = true
-    for (const batch of edits) {
-      let shift = 0
-      for (const edit of batch) {
-        if (!edit.rangeLength && !edit.text.length) continue
-        const from = edit.rangeOffset
-        const to = from + edit.rangeLength
-        if (from < end && (edit.rangeLength ? to > start : from > start)) {
-          unchanged = false
-          break
-        }
-        if (to <= start) shift += edit.text.length - edit.rangeLength
-      }
-      if (!unchanged) break
-      start += shift
-      end += shift
-    }
-    if (unchanged) result.set(start + ":" + end, unit)
+    const range = unchangedRange(unit, edits)
+    if (range) result.set(range.start + ":" + range.end, unit)
   }
   return result
+}
+
+export function unchangedRange(range: { readonly start: number; readonly end: number }, edits: readonly (readonly SourceEdit[])[]): { start: number; end: number } | undefined {
+  let { start, end } = range
+  for (const batch of edits) {
+    let shift = 0
+    for (const edit of batch) {
+      if (!edit.rangeLength && !edit.text.length) continue
+      const from = edit.rangeOffset
+      const to = from + edit.rangeLength
+      if (from < end && (edit.rangeLength ? to > start : from > start)) {
+        return
+      }
+      if (to <= start) shift += edit.text.length - edit.rangeLength
+    }
+    start += shift
+    end += shift
+  }
+  return { start, end }
+}
+
+/** Content and syntax identity, independent of source position and neighbouring references. */
+export function unitContentKey(unit: TextUnit): readonly unknown[] {
+  return [
+    unit.format,
+    unit.kind,
+    unit.commentPrefix,
+    unit.language,
+    unit.text,
+    unit.content,
+    unit.yamlKey === true,
+    unit.protected,
+    unit.linkLabels,
+    unit.display !== undefined,
+    unit.projection
+      ? [unit.projection.kind, unitContentKey(unit.projection.unit), unit.projection.kind === "container" ? unit.projection.prefixes : unit.projection.codec.identity]
+      : undefined
+  ]
 }

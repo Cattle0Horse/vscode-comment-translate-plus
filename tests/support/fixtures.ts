@@ -64,7 +64,7 @@ export function inputOf(parsed: ParsedDocument): TranslationInput {
 }
 
 export function referenceText(units: TranslationInput["units"]): string {
-  return mergeReferences(units.map((source) => ({ source, hasMarkers: prepareTranslation(source, emptyPreserveTerms, 32).hasMarkers })))
+  return mergeReferences(units.map((source) => ({ source, hasMarkers: prepareTranslation(source, 32).hasMarkers })))
 }
 
 export function unitReferences(unit: TranslationInput["units"][number], budget: number) {

@@ -58,13 +58,21 @@ export function yamlUnits(source: string, contentStart: number, yaml: Document.P
 
 export function parseYaml(source: string): ParsedDocument {
   try {
-    const groups = parseAllDocuments(source, { strict: true }).flatMap((document) => {
+    const documents = parseAllDocuments(source, { strict: true })
+    const error = documents.flatMap((document) => document.errors)[0]
+    if (error)
+      return {
+        source,
+        groups: [],
+        errors: [{ code: "yaml-invalid", kind: "syntax", language: "yaml", range: { start: Math.min(source.length, error.pos[0]), end: Math.min(source.length, error.pos[1]) } }]
+      }
+    const groups = documents.flatMap((document) => {
       const units = yamlUnits(source, 0, document)
       return units.length ? [{ start: document.range[0], end: document.range[2], units }] : []
     })
     return { source, groups, errors: [] }
   } catch {
-    return { source, groups: [], errors: ["yaml-invalid"] }
+    return { source, groups: [], errors: [{ code: "yaml-invalid", kind: "syntax", language: "yaml", range: { start: 0, end: source.length } }] }
   }
 }
 

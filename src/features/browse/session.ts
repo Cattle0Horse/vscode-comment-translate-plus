@@ -1,7 +1,10 @@
 import type { TranslationInput } from "../../model/translation.ts"
 import type { TranslationItem } from "../../model/translation.ts"
 import type { ParsedDocument, TextUnit } from "../../model/document.ts"
+import { ParseFailure } from "../../model/diagnostics.ts"
 import type { CancellationReason } from "../../model/diagnostics.ts"
+import { unchangedRange, unitContentKey } from "../../documents/edits.ts"
+import type { SourceEdit } from "../../documents/edits.ts"
 
 export interface VisibleRange {
   readonly start: number
@@ -47,6 +50,7 @@ export class BrowseSession {
   private paused = false
   private ranges: readonly VisibleRange[] = []
   private version = 0
+  private editing = false
 
   constructor(
     private readonly translate: Translate,
@@ -56,27 +60,56 @@ export class BrowseSession {
   ) {}
 
   update(document: ParsedDocument, version: number): void {
-    this.invalidate(version)
+    const retained = this.editing && this.version === version ? new Map([...this.translations.values()].map((unit) => [unit.start + ":" + unit.end, unit])) : undefined
+    this.reset(version)
     this.units = document.groups.flatMap((group) => group.units)
-    this.planningErrors = document.errors
-    for (const code of document.errors) this.failed?.(Error(code))
+    for (const unit of this.units) {
+      const before = retained?.get(unit.start + ":" + unit.end)
+      if (before && JSON.stringify(unitContentKey(before)) === JSON.stringify(unitContentKey(unit))) this.translations.set(unit.id, { ...unit, translation: before.translation })
+    }
+    this.planningErrors = document.errors.map((error) => error.code)
+    for (const diagnostic of document.errors) this.failed?.(new ParseFailure(diagnostic))
     this.changed()
   }
 
-  invalidate(version: number): void {
+  reject(version: number, code: string): void {
+    this.reset(version)
+    this.planningErrors = [code]
+    this.changed()
+  }
+
+  invalidate(version: number, edits?: readonly SourceEdit[]): void {
+    const retained = edits && this.scope === "document" ? [...this.translations.values()] : []
+    this.reset(version)
+    this.editing = edits !== undefined
+    edits ??= []
+    const batches = [edits]
+    for (const unit of retained) {
+      const bounds = unit.display ?? unit
+      // A boundary edit can extend prose or merge it with its neighbour. Only
+      // inserted line separators can safely leave the old body visible.
+      if (edits.some((edit) => (edit.rangeOffset === bounds.end || edit.rangeOffset + edit.rangeLength === bounds.start) && (edit.rangeLength > 0 || /[^\r\n]/.test(edit.text)))) continue
+      const range = unchangedRange(unit, batches)
+      const display = unit.display && unchangedRange(unit.display, batches)
+      if (range && (!unit.display || display)) this.translations.set(unit.id, { ...unit, ...range, ...(display ? { display } : {}) })
+    }
+    this.changed()
+  }
+
+  private reset(version: number): void {
     this.stopRequests("document-changed")
     this.version = version
+    this.editing = false
     this.translations.clear()
     this.failures.clear()
     this.selected.clear()
     this.units = []
     this.planningErrors = []
-    this.changed()
   }
 
   setVisibleRanges(ranges: readonly VisibleRange[], force = false): void {
     this.ranges = ranges
-    if (this.paused) return
+    if (this.paused || this.editing) return
     const selected = this.units.filter(
       (unit) =>
         (this.scope === "document" || this.selected.has(unit.id)) &&
@@ -90,6 +123,7 @@ export class BrowseSession {
   }
 
   retranslate(range: VisibleRange): boolean {
+    if (this.editing) return false
     const units = this.units.filter((unit) => {
       const display = unit.display ?? unit
       return range.start === range.end ? display.start <= range.start && range.start < display.end : display.start < range.end && range.start < display.end

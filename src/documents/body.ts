@@ -3,8 +3,20 @@ import type { TextUnit } from "../model/document.ts"
 import type { MarkdownNode } from "./tree.ts"
 import { children, markdownTree } from "./tree.ts"
 
-/** Resolve source-owned shells, protected fragments and continuation decoration in source coordinates. */
+const analyses = new WeakMap<TextUnit, ReturnType<typeof analyzeTranslationBody>>()
+
+/** Source facts belong to the immutable unit, never to a candidate translation or configuration. */
 export function translationBody(unit: TextUnit) {
+  let analysis = analyses.get(unit)
+  if (!analysis) {
+    analysis = analyzeTranslationBody(unit)
+    analyses.set(unit, analysis)
+  }
+  return analysis
+}
+
+/** Resolve source-owned shells, protected fragments and continuation decoration in source coordinates. */
+function analyzeTranslationBody(unit: TextUnit) {
   const original = unit.content ?? unit.text
   const natural = unit.content === undefined ? unit : { ...unit, text: original, format: "text" as const, protected: undefined }
 
@@ -50,6 +62,15 @@ export function translationBody(unit: TextUnit) {
       .slice(1, -1)
       .every((line) => !line.trim() || /^[\t ]*\*(?:[\t ]|$)/u.test(line))
   const layout: ProtectedRange[] = []
+  if (unit.commentPrefix) {
+    if (!original.startsWith(unit.commentPrefix)) throw Error("translation-structure-invalid")
+    start = Math.max(start, unit.commentPrefix.length)
+    while (start < end && /[\t ]/u.test(original[start])) start++
+    const prefix = unit.commentPrefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    for (const match of original.matchAll(new RegExp("(?:\\r\\n|[\\r\\n])[\\t ]*" + prefix + "[\\t ]*", "gu"))) {
+      layout.push({ start: match.index, end: match.index + match[0].length, fold: true })
+    }
+  }
   if (block) {
     start = Math.max(start, block[0].length)
     if (original.endsWith("*/")) end = Math.min(end, original.length - 2)
@@ -152,12 +173,15 @@ export function translationBody(unit: TextUnit) {
     }
     protectedRanges.push(range)
   }
-  return { original, source, start, end, ranges: protectedRanges, echoedPrefix }
+  return { original, source, start, end, ranges: protectedRanges as readonly Readonly<ProtectedRange>[], echoedPrefix }
 }
 
 /** Identify surviving source breaks before folding prose; embedding prefixes follow these exact source positions. */
 export function translationLineBreaks(unit: TextUnit): readonly boolean[] {
-  if (unit.embedding) return translationLineBreaks(unit.embedding.unit)
+  if (unit.projection?.kind === "container") return translationLineBreaks(unit.projection.unit)
+  if (unit.projection?.kind === "literal") {
+    return [...unit.text.matchAll(/\r?\n/gu)].map(({ index }) => unit.protected?.some((range) => range.start <= index && range.end > index) ?? false)
+  }
   const { original, start, end, ranges } = translationBody(unit)
   return [...original.matchAll(/\r\n|[\r\n]/gu)].map(
     ({ index }) => index < start || index >= end || ranges.some((range) => !range.fold && range.start <= index - start && range.end > index - start)

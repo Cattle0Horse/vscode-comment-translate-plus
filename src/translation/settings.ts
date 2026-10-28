@@ -56,10 +56,9 @@ export function serviceIdentity(settings: ServiceSettings): string {
     settings.model,
     settings.systemPrompt,
     settings.userPrompt,
-    settings.languageNames,
+    [settings.languageNames[settings.sourceLanguage.trim() || "auto"], settings.languageNames[settings.targetLanguage]],
     settings.sourceLanguage.trim() || "auto",
     settings.targetLanguage,
-    settings.preserveTerms.identity,
     settings.skipSameLanguage,
     settings.minimumMarkerCharacters
   ])
@@ -81,5 +80,5 @@ export function validateService(settings: ServiceSettings): void {
 
 /** Scheduling changes start fresh learning and invalidate captured replacement actions. */
 export function requestPolicyIdentity(settings: ServiceSettings): string {
-  return JSON.stringify([serviceIdentity(settings), ...Object.keys(requestPolicySchema).map((key) => settings[key as keyof RequestPolicy])])
+  return JSON.stringify([serviceIdentity(settings), settings.preserveTerms.identity, ...Object.keys(requestPolicySchema).map((key) => settings[key as keyof RequestPolicy])])
 }

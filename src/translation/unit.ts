@@ -36,10 +36,14 @@ export class TranslationUnit {
   }
 
   prepare(collisions: string): void {
-    if (this.settings.skipSameLanguage && isTargetLanguage(this.source, this.settings.targetLanguage)) {
+    if (this.source.preserved) {
+      const failure = validateTranslation(this.source, this.source.text)
+      if (failure) throw failure
+      this.translation = this.source.text
+    } else if (this.settings.skipSameLanguage && isTargetLanguage(this.source, this.settings.targetLanguage)) {
       this.skipped = true
       this.translation = this.source.text
-    } else this.prepared = prepareTranslation(this.source, this.settings.preserveTerms, this.settings.minimumMarkerCharacters, collisions)
+    } else this.prepared = prepareTranslation(this.source, this.settings.minimumMarkerCharacters, collisions)
   }
 
   beginAttempt(): void {
@@ -81,10 +85,13 @@ export class TranslationUnit {
     if (unchanged && (this.languageReviewed || this.attempts >= this.settings.maxTranslationAttempts)) return
     const evidence = unlikelyTargetLanguage(text, this.settings.targetLanguage)
     if (!evidence) return
+    const names = new Intl.DisplayNames(["en"], { type: "language" })
+    const languageName = (code: string): string => (Object.hasOwn(this.settings.languageNames, code) ? this.settings.languageNames[code] : names.of(code)!)
+    const targetLanguage = languageName(this.settings.targetLanguage.trim())
     const review = new ModelRetry(
       {
-        reason: `The response may be in ${evidence.language} instead of ${this.settings.targetLanguage}.`,
-        instruction: `Translate the source into ${this.settings.targetLanguage}, not a paraphrase in another language. Preserve wording only where translation is unnecessary.`
+        reason: `The response may be in ${languageName(evidence.language)} instead of ${targetLanguage}.`,
+        instruction: `Translate the source into ${targetLanguage}. Preserve wording only where translation is unnecessary.`
       },
       {
         code: unchanged ? "translation-language-review" : "translation-language-mismatch",

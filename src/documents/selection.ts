@@ -8,7 +8,7 @@ export function prepareSelection(source: string, start: number, end: number, for
   const target: TextUnit = { id: "selection", start, end, text: source.slice(start, end), format }
   const parsed =
     format === "markdown"
-      ? parseMarkdown(target.text)
+      ? parseMarkdown(target.text, parseMarkdown(source).linkLabels)
       : { source: target.text, groups: [{ start: 0, end: target.text.length, units: [{ ...target, start: 0, end: target.text.length }] }], errors: [] }
   const units = parsed.groups.flatMap((group) => group.units)
   const input = units.map((unit) => {

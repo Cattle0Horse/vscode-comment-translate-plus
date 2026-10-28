@@ -70,7 +70,7 @@ test("fenced Markdown and YAML reuse scalar and prose translation while preservi
       const translations = new Map<string, string>()
       for (const unit of units) {
         assert.equal(source.slice(unit.start, unit.end), unit.text)
-        const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
+        const prepared = prepareTranslation(unit, 32)
         assert.equal(prepared.restore(prepared.text), unit.text, "No-change translations must retain original YAML syntax and every container prefix.")
         const translated = prepared.restore(prepared.text.replaceAll("Read", "阅读"))
         assert.equal(validateTranslation(unit, translated), undefined)
@@ -94,7 +94,7 @@ test("moving an embedded document reuses validated per-unit cache without retain
   const action: Parameters<TranslationStore["translate"]>[2] = async (input) => {
     calls++
     return input.units.map((unit) => {
-      const prepared = prepareTranslation(unit, emptyPreserveTerms, 32)
+      const prepared = prepareTranslation(unit, 32)
       return { id: unit.id, text: prepared.restore(prepared.text.replace("Read", "阅读")) }
     })
   }
@@ -118,7 +118,7 @@ test("custom preserved terms complete and cache only as whole units while mixed 
   const translate = () =>
     store.translate(
       serviceIdentity(settings),
-      local,
+      prepareInput(settings, local),
       (input, signal, completed, interests) =>
         fixture.service.request(settings, prepareInput(settings, input), signal, fixture.gate, completed, { details: false, emit: (event) => events.push(event) }, interests),
       new AbortController().signal
@@ -140,7 +140,7 @@ test("custom preserved terms complete and cache only as whole units while mixed 
   const changedSettings = { ...settings, preserveTerms: emptyPreserveTerms }
   const afterChange = await store.translate(
     serviceIdentity(changedSettings),
-    local,
+    prepareInput(changedSettings, local),
     (input, signal) => requestTranslation(fixture.service, changedSettings, input, signal, fixture.gate),
     new AbortController().signal
   )
@@ -149,7 +149,7 @@ test("custom preserved terms complete and cache only as whole units while mixed 
 })
 
 test("table and YAML references merge shared structure without duplicating ancestors or complete parent collections", () => {
-  const table = "| Signal | Mode |\n| --- | --- |\n| Event | Hotspot |\n| Market | Industry |"
+  const table = "| Signal | Mode |\n| --- | --- |\n| Event | Garden |\n| Market | Industry |"
   const cells = inputOf(parseMarkdown(table)).units
   assert.equal(referenceText(cells), table)
   for (const newline of ["\n", "\r\n"]) {
@@ -508,7 +508,7 @@ test("a superseded unit cannot invalidate newer cached or in-flight results when
 
 test("parser reference positions never enter the cache identity after moving an unchanged table", async () => {
   const store = new TranslationStore()
-  const table = "| Signal | Mode |\n| --- | --- |\n| Event | Hotspot |"
+  const table = "| Signal | Mode |\n| --- | --- |\n| Event | Garden |"
   let calls = 0
   const action: Parameters<TranslationStore["translate"]>[2] = async (input) => {
     calls++
@@ -663,7 +663,7 @@ test("translated retry diagnostics are rejected per unit and never cached as sou
   const input: TranslationInput = {
     units: [
       { id: "neighbour", text: "Read the neighbouring rule.", start: 0, end: 26, format: "text" },
-      { id: "target", text: "If a target agent lacks a prerequisite capability, perform that step directly.", start: 27, end: 103, format: "text" }
+      { id: "target", text: "If a reading room has no spare maps, collect a printed guide at the front desk.", start: 27, end: 103, format: "text" }
     ]
   }
   const events: TranslationEvent[] = []
@@ -760,42 +760,42 @@ test("invalid units exhaust a finite budget while verified neighbours survive fa
 
 test("Chinese script evidence handles short configuration comments without treating shared Han or mixed languages as Chinese", () => {
   const unit = (text: string) => ({ id: "language", text, start: 0, end: text.length, format: "text" as const })
-  for (const text of ["默认支持 多网站结构日志", "页面速度监控 单位毫秒", "请求监控状态码", "请求监控方法", "请求方法", "页面监控 HTTP/2"])
+  for (const text of ["默认展示 图书分类说明", "借阅时间统计 单位分钟", "图书借阅状态码", "图书借阅方式", "图书查询", "图书借阅 HTTP/2"])
     assert.equal(isTargetLanguage(unit(text), "zh-CN"), true, text)
   for (const text of [
-    "页面监控 API",
-    "页面监控 HTTP(S)",
+    "图书借阅 API",
+    "图书借阅 HTTP(S)",
     "你好",
     "使用方法",
     "設定項目",
     "将来計画",
     "与信管理",
-    "页面监控 dashboard",
-    "页面监控。設定項目",
-    "页面监控。これは日本語です。",
-    "页面监控 한국어"
+    "图书借阅 dashboard",
+    "图书借阅。設定項目",
+    "图书借阅。これは日本語です。",
+    "图书借阅 한국어"
   ])
     assert.equal(isTargetLanguage(unit(text), "zh-CN"), false, text)
-  assert.equal(isTargetLanguage(unit("请求监控方法"), "en"), false)
+  assert.equal(isTargetLanguage(unit("图书借阅方式"), "en"), false)
 })
 
 test("technical code values complete locally while ambiguous names remain translatable and cached results preserve the exact source", async (t) => {
   const fixture = await chatFixture(t, (_body, items) => items.map((item) => (item === "all" ? "全部" : item)).join("\n%%\n"))
   const values = [
-    "页面速度监控 单位毫秒",
-    "请求监控状态码",
-    "请求监控方法",
+    "借阅时间统计 单位分钟",
+    "图书借阅状态码",
+    "图书借阅方式",
     "12345678-1234-5678-9abc-123456789abc",
     "https://example.com/a?x=1&y=two",
-    "hostnameGroup",
-    "QIYE_WX_KEY_5XX",
+    "sampleGroup",
+    "SAMPLE_NOTICE_KEY_5XX",
     "GET",
     "POST",
     "4xx",
     "5xx",
     "all",
-    "wecom",
-    "ai-collection",
+    "sampleword",
+    "sample-library",
     "Read the original document."
   ]
   const input: TranslationInput = {
@@ -831,7 +831,7 @@ test("technical code values complete locally while ambiguous names remain transl
   await taskFinished
   assert.deepEqual(
     fixture.seen.flatMap((request) => request.items),
-    [...values.slice(5, 7), ...values.slice(11)]
+    values.slice(11)
   )
   assert.deepEqual(
     input.units.map((unit) => result.get(unit.id)),
@@ -995,19 +995,24 @@ test("joining partially completed work reports shared progress rather than repea
   store.clear()
 })
 
-test("changing a preserve regex or its flags isolates cached local completion", async (t) => {
+test("changing preserve regex matching isolates local completion while equivalent nonmatches reuse translations", async (t) => {
   const fixture = await chatFixture(t, (_body, items) => items.map((item) => (item === "HTTP" ? "协议" : item)).join("\n%%\n"))
   const input = inputOf(parseMarkdown("HTTP"))
   const store = new TranslationStore()
   t.after(() => store.clear())
   const translate = (pattern: string, flags: string) => {
     const settings = { ...fixture.settings, preserveTerms: parsePreserveTerms([{ pattern, flags }]), skipSameLanguage: false }
-    return store.translate(serviceIdentity(settings), input, (batch, signal) => requestTranslation(fixture.service, settings, batch, signal, fixture.gate), new AbortController().signal)
+    return store.translate(
+      serviceIdentity(settings),
+      prepareInput(settings, input),
+      (batch, signal) => requestTranslation(fixture.service, settings, batch, signal, fixture.gate),
+      new AbortController().signal
+    )
   }
   assert.equal((await translate("http", "i")).get(input.units[0].id), "HTTP")
   assert.equal((await translate("HTTP", "")).get(input.units[0].id), "HTTP")
   assert.equal(fixture.seen.length, 0)
   assert.equal((await translate("http", "")).get(input.units[0].id), "协议")
   assert.equal((await translate("https", "i")).get(input.units[0].id), "协议")
-  assert.equal(fixture.seen.length, 2, "A regex pattern or flags change reused a previous identity.")
+  assert.equal(fixture.seen.length, 1, "Equivalent nonmatching regex rules discarded a valid translation.")
 })

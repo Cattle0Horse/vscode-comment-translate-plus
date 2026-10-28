@@ -1,21 +1,30 @@
 import type { TextUnit, ProtectedFragment } from "../model/document.ts"
 import type { MarkdownNode } from "./tree.ts"
-import { children, markdownTree, standalone } from "./tree.ts"
+import { children, markdownTree, markdownLinkLabels, normalizeLinkLabel, standalone } from "./tree.ts"
 
-/** Shortcut/collapsed references derive their lookup target from the visible label. */
-export function labelReference(node: MarkdownNode, source: string): boolean {
-  return (
-    (node.name === "Link" || node.name === "Image") &&
-    !children(node).some(
+/** Shortcut candidates are prose without a definition; collapsed references always use their label as the target. */
+export function linkReferenceKind(node: MarkdownNode, source: string, labels: readonly string[] = []): "prose" | "label" | undefined {
+  if (node.name !== "Link" && node.name !== "Image") return
+  const parts = children(node)
+  if (
+    parts.some(
       (child) =>
         child.name === "URL" || (child.name === "LinkMark" && source.slice(child.from, child.to) === "(") || (child.name === "LinkLabel" && source.slice(child.from, child.to) !== "[]")
     )
   )
+    return
+  if (parts.some((child) => child.name === "LinkLabel")) return "label"
+  const first = parts[0]
+  const last = parts.at(-1)
+  if (!first || !last) return "label"
+  return labels.includes(normalizeLinkLabel(source.slice(first.to, last.from))) ? "label" : "prose"
 }
 
 export function protectedFragments(unit: TextUnit, tree?: MarkdownNode): readonly ProtectedFragment[] {
   if (unit.format === "yaml") return []
   const input = standalone(unit.text)
+  const root = tree ?? markdownTree(input).topNode
+  const labels = unit.linkLabels ?? markdownLinkLabels(input, root)
   let fragments: ProtectedFragment[] = []
   const lines: { input: number; source: number }[] = []
   if (input !== unit.text) {
@@ -43,9 +52,14 @@ export function protectedFragments(unit: TextUnit, tree?: MarkdownNode): readonl
   }
 
   function visit(node: MarkdownNode): void {
+    const reference = linkReferenceKind(node, input, labels)
+    if (reference === "prose") {
+      for (const child of children(node)) if (child.name !== "LinkMark") visit(child)
+      return
+    }
     if (
       ["InlineCode", "URL", "LinkLabel", "Autolink", "HTMLTag", "Escape"].includes(node.name) ||
-      labelReference(node, input) ||
+      reference === "label" ||
       (unit.format === "markdown" && (["HTMLBlock", "FencedCode", "CodeBlock", "TaskMarker"].includes(node.name) || node.name.endsWith("Mark")))
     ) {
       let start = original(node.from)
@@ -65,7 +79,7 @@ export function protectedFragments(unit: TextUnit, tree?: MarkdownNode): readonl
     } else for (const child of children(node)) visit(child)
   }
 
-  if (unit.kind !== "string") visit(tree ?? markdownTree(input).topNode)
+  if (unit.kind !== "string") visit(root)
   fragments.sort((a, b) => a.start - b.start || b.end - a.end)
   const data = /[A-Za-z\d][A-Za-z\d._~:+/%=-]*/gu
   const patterns = [

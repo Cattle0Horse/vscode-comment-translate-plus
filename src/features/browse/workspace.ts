@@ -74,8 +74,9 @@ export class BrowseWorkspace implements vscode.Disposable {
     this.overrides.delete(uri.toString())
   }
 
-  invalidate(document: vscode.TextDocument): void {
-    this.sessions.get(document.uri.toString())?.session.invalidate(document.version)
+  invalidate(document: vscode.TextDocument, edits: readonly vscode.TextDocumentContentChangeEvent[]): void {
+    this.renderer.edited(document, edits)
+    this.sessions.get(document.uri.toString())?.session.invalidate(document.version, edits)
   }
 
   async updateDocument(document: vscode.TextDocument): Promise<void> {
@@ -99,10 +100,10 @@ export class BrowseWorkspace implements vscode.Disposable {
     const start = { document }
     this.starting.set(id, start)
     try {
-      const settings = await this.translations.settings(document.uri)
+      await this.translations.settings(document.uri)
       if (this.disposed || document.isClosed || this.starting.get(id) !== start) return
       const session = new BrowseSession(
-        (batch, signal, force, completed, interests) => this.translations.translate(document, batch, signal, force, completed, settings, interests),
+        (batch, signal, force, completed, interests) => this.translations.translate(document, batch, signal, force, completed, undefined, interests),
         () => this.render(),
         (error) => this.translations.diagnose(error, document.uri),
         scope
@@ -132,7 +133,7 @@ export class BrowseWorkspace implements vscode.Disposable {
     } catch (error) {
       if (this.disposed || this.sessions.get(document.uri.toString()) !== documentSession || document.isClosed || document.version !== version) return
       const code = this.translations.diagnose(error, document.uri)
-      documentSession.session.update({ source: document.getText(), groups: [], errors: [code] }, version)
+      documentSession.session.reject(version, code)
     }
   }
 

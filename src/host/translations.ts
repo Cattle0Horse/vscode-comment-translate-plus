@@ -12,21 +12,53 @@ import type { SourceEdit } from "../documents/edits.ts"
 import type { PreparedInput, TranslationInput } from "../model/translation.ts"
 import type { TranslationItem } from "../model/translation.ts"
 import type { PreserveTerms } from "../model/translation.ts"
-import { describeError, TranslationFailure } from "../model/diagnostics.ts"
+import { describeError, TranslationFailure, ParseFailure } from "../model/diagnostics.ts"
 import { TermFiles } from "./termFiles.ts"
 import type { prepareSelection } from "../documents/selection.ts"
+import { PersistentCache } from "./persistentCache.ts"
+import { join } from "node:path"
 
 export class TranslationRuntime implements vscode.Disposable {
   readonly terms: TermFiles
   private readonly gate = new RequestGate(2, 2)
-  private readonly store = new TranslationStore()
+  private readonly persistent: PersistentCache
+  private readonly store: TranslationStore
   private readonly service = new TranslationService()
   private readonly output = vscode.window.createOutputChannel("注释翻译+")
   private readonly log = new TranslationLog((entry) => this.output.appendLine(entry))
   private disposed = false
   constructor(context: vscode.ExtensionContext, home?: string) {
+    this.persistent = new PersistentCache(join(context.globalStorageUri.fsPath, "translation-cache.sqlite"), () => {
+      this.log.write("warning", "持久化翻译缓存读写失败或数据损坏，未命中项将继续正常翻译。")
+      if (!this.disposed) void vscode.window.showWarningMessage("持久化翻译缓存读写失败或数据损坏，未命中项将继续正常翻译。")
+    })
+    this.store = new TranslationStore(this.persistent)
     this.terms = new TermFiles(context, home)
     this.configureLog()
+    void this.configureCache()
+  }
+
+  configureCache(): Promise<void> {
+    if (this.disposed) return Promise.resolve()
+    const config = vscode.workspace.getConfiguration("commentTranslatePlus")
+    const enabled = config.get<unknown>("persistentCache", false)
+    const maxEntries = config.get<unknown>("persistentCacheMaxEntries", 10000)
+    const maxSize = config.get<unknown>("persistentCacheMaxSizeMB", 20)
+    if (
+      typeof enabled !== "boolean" ||
+      typeof maxEntries !== "number" ||
+      !Number.isInteger(maxEntries) ||
+      maxEntries < 1 ||
+      maxEntries > 1000000 ||
+      typeof maxSize !== "number" ||
+      !Number.isInteger(maxSize) ||
+      maxSize < 1 ||
+      maxSize > 1024
+    ) {
+      this.log.write("warning", "持久化缓存配置无效，继续使用上次有效配置（初始为关闭）。")
+      return Promise.resolve()
+    }
+    return this.persistent.configure({ enabled, maxEntries, maxBytes: maxSize * 1024 * 1024 })
   }
 
   async settings(uri?: vscode.Uri): Promise<TranslationSettings> {
@@ -148,15 +180,20 @@ export class TranslationRuntime implements vscode.Disposable {
   }
 
   reset(): void {
-    this.store.clear("configuration-changed")
+    this.store.clear("configuration-changed", true)
     this.service.clear()
   }
 
   diagnose(error: unknown, uri?: vscode.Uri): string {
     const message = error instanceof Error ? error.message : ""
     const code = /^[a-z][a-z0-9-]+$/.test(message) ? message : "translation-failed"
-    if (!(error instanceof TranslationFailure && error.reported))
-      this.log.write("error", (uri ? vscode.workspace.asRelativePath(uri, false) + "：" : "") + describeError(code) + "（" + code + "）")
+    let location = uri ? vscode.workspace.asRelativePath(uri, false) : ""
+    if (uri && error instanceof ParseFailure) {
+      const document = vscode.workspace.textDocuments.find((document) => document.uri.toString() === uri.toString())
+      const position = document?.positionAt(error.diagnostic.range.start)
+      if (position) location += ":" + (position.line + 1) + ":" + (position.character + 1)
+    }
+    if (!(error instanceof TranslationFailure && error.reported)) this.log.write("error", (location ? location + "：" : "") + describeError(code) + "（" + code + "）")
     return code
   }
 
@@ -190,13 +227,14 @@ export class TranslationRuntime implements vscode.Disposable {
     })
   }
 
-  dispose(): void {
+  async dispose(): Promise<void> {
     this.disposed = true
     this.terms.dispose()
     this.store.clear()
     this.service.clear()
     this.log.resetReferences()
     this.gate.dispose()
+    await this.persistent.close()
     this.output.dispose()
   }
 }
