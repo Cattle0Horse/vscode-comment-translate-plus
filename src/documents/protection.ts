@@ -2,6 +2,19 @@ import type { TextUnit, ProtectedFragment } from "../model/document.ts"
 import type { MarkdownNode } from "./tree.ts"
 import { children, markdownTree, markdownLinkLabels, normalizeLinkLabel, standalone } from "./tree.ts"
 
+function addressText(text: string, preserveEllipsis = false): string {
+  text = text.replace(/[.,!?;:]+$/u, (tail) => (preserveEllipsis && /^\.{2,}$/u.test(tail) ? tail : ""))
+  for (const [open, close] of [
+    ["(", ")"],
+    ["[", "]"],
+    ["{", "}"],
+    ["（", "）"],
+    ["【", "】"]
+  ])
+    while (text.endsWith(close) && text.split(close).length > text.split(open).length) text = text.slice(0, -1)
+  return text
+}
+
 /** Shortcut candidates are prose without a definition; collapsed references always use their label as the target. */
 export function linkReferenceKind(node: MarkdownNode, source: string, labels: readonly string[] = []): "prose" | "label" | undefined {
   if (node.name !== "Link" && node.name !== "Image") return
@@ -80,6 +93,19 @@ export function protectedFragments(unit: TextUnit, tree?: MarkdownNode): readonl
   }
 
   if (unit.kind !== "string") visit(root)
+  // Markdown splits a template URL at its angle-bracket parameter. Preserve the
+  // complete address, but never replace a containing code span or link target.
+  for (const match of unit.text.matchAll(/https?:\/\/(?:[^\s<>"'\x60，。！？；]|<[A-Za-z_][A-Za-z\d_]*>)+/giu)) {
+    const parameters = match[0].match(/<[^>]+>/gu)
+    if (!parameters?.length || parameters.some((parameter) => !/^<[A-Z_][A-Z\d_]*>$/u.test(parameter))) continue
+    const text = addressText(match[0], true)
+    const start = match.index
+    const end = start + text.length
+    if (unit.protected?.some((range) => range.start < end && range.end > start)) continue
+    if (fragments.some((fragment) => fragment.start < end && fragment.end > start && (fragment.start < start || fragment.end > end))) continue
+    fragments = fragments.filter((fragment) => fragment.start < start || fragment.end > end)
+    fragments.push({ kind: "Technical", text, start, end })
+  }
   fragments.sort((a, b) => a.start - b.start || b.end - a.end)
   const data = /[A-Za-z\d][A-Za-z\d._~:+/%=-]*/gu
   const path = /(?<![\p{L}\p{N}\p{M}_/\\<])(?:[A-Za-z]:[\\/]|\.{1,2}[\\/]|\/(?!\/))[^\s<>"'\x60，。！？；]+/gu
@@ -105,6 +131,7 @@ export function protectedFragments(unit: TextUnit, tree?: MarkdownNode): readonl
         // Classify data by its shape, not by an exhaustive list of address/hash types.
         // Custom tag names remain prose even when they contain digits.
         if (unit.text.lastIndexOf("<", match.index) > unit.text.lastIndexOf(">", match.index)) continue
+        text = text.replace(/[.,!?;]+$/u, "")
         const digits = text.match(/\d/gu)?.length ?? 0
         const hex = text.replace(/[.:_+-]/gu, "")
         const numeric = digits >= 4 && !/[A-Za-z]/u.test(text)
@@ -112,15 +139,7 @@ export function protectedFragments(unit: TextUnit, tree?: MarkdownNode): readonl
         if (!(/^[\da-f]{32,}$/iu.test(hex) || numeric || mixed)) continue
       }
       if ((/^https?:\/\//iu.test(text) || /^[A-Za-z]:[\\/]|^\.{0,2}[\\/]/u.test(text)) && unit.kind !== "string") {
-        text = text.replace(/[.,!?;:]+$/u, (tail) => (pattern === path && /^\.{2,}$/u.test(tail) ? tail : ""))
-        for (const [open, close] of [
-          ["(", ")"],
-          ["[", "]"],
-          ["{", "}"],
-          ["（", "）"],
-          ["【", "】"]
-        ])
-          while (text.endsWith(close) && text.split(close).length > text.split(open).length) text = text.slice(0, -1)
+        text = addressText(text, pattern === path)
       }
       // A path prefix followed only by punctuation is an operator or prose, not a filename.
       if (pattern === path && !/[^.,!?;:()[\]{}\\/]/u.test(text.replace(/^(?:[A-Za-z]:[\\/]|\.{1,2}[\\/]|\/)/u, ""))) continue
@@ -130,6 +149,12 @@ export function protectedFragments(unit: TextUnit, tree?: MarkdownNode): readonl
       if (unit.protected?.some((range) => range.start < end && range.end > start)) continue
       while (occupied < fragments.length && fragments[occupied].end <= start) occupied++
       if (occupied < fragments.length && fragments[occupied].start < end) continue
+      // A prose range or hyphenated unit owns its words and separator; only the
+      // numeric values are data. Dates and multi-part technical data stay whole.
+      if (pattern === data && /^\d+-(?:\d+|[A-Za-z]+)$/u.test(text)) {
+        for (const number of text.matchAll(/\d{4,}/gu)) accepted.push({ kind: "Technical", text: number[0], start: start + number.index, end: start + number.index + number[0].length })
+        continue
+      }
       accepted.push({ kind: "Technical", text, start, end })
     }
     if (!accepted.length) continue

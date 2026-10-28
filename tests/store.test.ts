@@ -923,8 +923,8 @@ test("YAML keys and values with identical text keep separate pending work and ca
   assert.equal(fixture.seen.length, before, "Validated normalized results were requested again.")
 })
 
-test("an aligned empty response retries only its missing item and caches the valid neighbour", async (t) => {
-  const fixture = await chatFixture(t, (_body, items, call) => (call === 1 ? "\n%%\n" + items[1] : items.join("\n%%\n")))
+test("a trailing empty response retries only its missing item and caches the valid prefix", async (t) => {
+  const fixture = await chatFixture(t, (_body, items, call) => (call === 1 ? items[0] + "\n%%\n" : items.join("\n%%\n")))
   const input = listBatch(2)
   const store = new TranslationStore()
   const action = (batch: TranslationInput, signal: AbortSignal, completed: (item: { id: string; text: string }) => void) =>
@@ -936,7 +936,7 @@ test("an aligned empty response retries only its missing item and caches the val
     fixture.seen.map((call) => call.items.length),
     [2, 1]
   )
-  assert.equal(published[0], input.units[1].id)
+  assert.equal(published[0], input.units[0].id)
   await store.translate("aligned-empty", input, action, new AbortController().signal)
   assert.equal(fixture.seen.length, 2)
   store.clear()

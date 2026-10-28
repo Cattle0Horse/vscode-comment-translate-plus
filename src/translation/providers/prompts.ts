@@ -112,8 +112,8 @@ export function splitTranslations(content: string, separator: string, count: num
   // Keep each line's original terminator: native string syntax may contain CRLF.
   let lines = content.split(/(?<=\n)/u)
   let boundaries = lines.flatMap((line, index) => (line.trim() === separator ? [index] : []))
-  // Only redundant outer delimiters are disposable. An aligned empty item remains
-  // an empty item, and an ambiguous internal count must still fail alignment.
+  // Only redundant outer delimiters are disposable. Trailing empty items remain
+  // empty, and an ambiguous internal count must still fail alignment.
   if (boundaries.length > count - 1) {
     let start = 0
     let end = lines.length
@@ -143,7 +143,7 @@ export function splitTranslations(content: string, separator: string, count: num
       }
     )
   let start = 0
-  return [...boundaries, lines.length].map((end) => {
+  const translations = [...boundaries, lines.length].map((end) => {
     let text = lines.slice(start, end).join("")
     if (end < lines.length) text = text.replace(/\r?\n$/u, "")
     if (start > 0) text = text.replace(/^\r?\n/u, "")
@@ -151,4 +151,17 @@ export function splitTranslations(content: string, separator: string, count: num
     start = end + 1
     return text
   })
+  const firstEmpty = translations.findIndex((text) => !text.trim())
+  if (firstEmpty >= 0 && translations.slice(firstEmpty + 1).some((text) => text.trim()))
+    throw new ModelRetry(
+      {
+        reason: "An empty slot precedes non-empty translations; their source ownership is ambiguous.",
+        instruction: "Translate every source item in its original order. Do not shift translations into empty slots or omit items."
+      },
+      {
+        code: "translation-items-mismatch",
+        difference: { reason: "空项之后仍有译文，无法可靠确认条目归属。", expected: count + " 项按原序逐项对应", actual: "第 " + (firstEmpty + 1) + " 项为空，后续项非空" }
+      }
+    )
+  return translations
 }

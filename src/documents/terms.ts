@@ -153,11 +153,6 @@ export function prepareTranslation(
       if (echoedPrefix) translated = translated.replace(echoedPrefix, "")
       // A key's field separator stays local; values and source-owned punctuation remain text.
       if (unit.yamlKey && !/[:：]\s*$/u.test(original)) translated = translated.replace(/([^:：\s])[:：](?=\s*$)/u, "$1")
-      // An inline-code marker already owns its delimiters; remove only an exact echoed wrapper.
-      translated = translated.replace(new RegExp("(?<!`)(`+)(" + pattern.source + ")\\1(?!`)", "g"), (match, ticks: string, marker: string) => {
-        const value = markers.get(marker)
-        return value?.inlineCode && value.value.match(/^`+/u)?.[0] === ticks ? marker : match
-      })
       const matches = translated.match(pattern) ?? []
       const counts = new Map<string, number>()
       for (const marker of matches) {
@@ -172,6 +167,12 @@ export function prepareTranslation(
           counts.set(marker, (counts.get(marker) ?? 0) + 1)
           return marker
         })
+      // Code owns its delimiters; URL data owns its original link syntax. A code
+      // wrapper around exactly one such marker is representation, not new content.
+      translated = translated.replace(new RegExp("(?<!`)(`+)(" + pattern.source + ")\\1(?!`)", "g"), (match, ticks: string, marker: string) => {
+        const value = markers.get(marker)
+        return value && ((value.inlineCode && value.value.match(/^`+/u)?.[0] === ticks) || /^https?:\/\//iu.test(value.value)) ? marker : match
+      })
       // Native emphasis delimiters need no IDs. Repair only their immediate inner
       // whitespace when the complete restored document still has the source shape.
       const styles = protectedRanges.filter((range) => range.side)

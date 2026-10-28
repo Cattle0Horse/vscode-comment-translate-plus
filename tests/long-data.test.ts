@@ -78,12 +78,12 @@ test("expanded source data stays literal across namespace collisions, overlappin
   assert.throws(() => ordered.restore("阅读 " + long + " and " + short), /structure-invalid/u)
 })
 
-test("response boundaries preserve native CRLF syntax inside each item and retain aligned empty items", () => {
+test("response boundaries preserve native CRLF syntax inside each item and retain trailing empty items", () => {
   const first = 'Skill {name} in this "\r\n        "session.'
   const second = "Read `first\r\nsecond`."
   assert.deepEqual(splitTranslations(first, "%%", 1), [first])
   assert.deepEqual(splitTranslations(first + "\r\n\r\n%%\r\n\r\n" + second, "%%", 2), [first, second])
-  assert.deepEqual(splitTranslations("%%\r\n" + first, "%%", 2), ["", first])
+  assert.throws(() => splitTranslations("%%\r\n" + first, "%%", 2), /items-mismatch/u)
   assert.deepEqual(splitTranslations(first + "\r\n%%\r\n", "%%", 2), [first, ""])
   const unit = inputOf(parseMarkdown("Keep `sourceId` unchanged.")).units[0]
   const prepared = prepareTranslation(unit, 32)

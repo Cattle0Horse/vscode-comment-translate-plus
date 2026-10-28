@@ -245,7 +245,7 @@ test("default request scopes keep paragraph, table and fenced-string references 
 test("redundant outer separators are tolerated without guessing ambiguous or explicitly empty items", () => {
   assert.deepEqual(splitTranslations("%%\n译文 A\n%%\n译文 B\n%%\n", "%%", 2), ["译文 A", "译文 B"])
   assert.deepEqual(splitTranslations("\n%%\n译文\n%%\n", "%%", 1), ["译文"])
-  assert.deepEqual(splitTranslations("%%\n译文 B", "%%", 2), ["", "译文 B"])
+  assert.throws(() => splitTranslations("%%\n译文 B", "%%", 2), /items-mismatch/u)
   assert.deepEqual(splitTranslations("译文 A\n%%\n", "%%", 2), ["译文 A", ""])
   assert.throws(() => splitTranslations("%%\n只有一项\n%%", "%%", 2), /items-mismatch/)
   assert.throws(() => splitTranslations("A\n%%\nB\n%%\nC", "%%", 2), /items-mismatch/)

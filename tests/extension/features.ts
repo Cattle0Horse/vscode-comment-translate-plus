@@ -2709,5 +2709,31 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     "real Shell grammar preserves commands, options and placeholders while translating comments and quoted strings in files and fenced previews under LF/CRLF without source edits"
   )
 
+  {
+    const url = "https://example.com/sheets/d/<BOOK_ID>/"
+    const source = "Read the original document. " + url
+    const expected = "阅读原始文档。 " + url
+    const target = await open("template-url.md", "markdown", source)
+    const before = (await requests()).length
+    await start(target.document, 1)
+    assert(owner.browse.inspect(target.document.uri)!.units[0].translation === expected, "Template URL did not restore as a complete address.")
+    const fingerprint = await requestFingerprint("Read the original document. <CTP0>")
+    assert(
+      (await requests()).slice(before).some((request) => request.itemFingerprints?.includes(fingerprint)),
+      "Template URL was split into separate URL and parameter fragments."
+    )
+    const preview = await vscode.workspace.openTextDocument(markdownPreviewUri(target.document.uri))
+    await waitFor(() => preview.getText() === expected, "complete template URL in native preview")
+    const hovers = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", target.document.uri, new vscode.Position(0, 3))
+    assert(values(hovers ?? []).includes(url), "Source hover lost the complete template URL.")
+    assert(target.document.getText() === source && !target.document.isDirty, "Template URL reading wrote to source.")
+    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    const cached = (await requests()).length
+    await start(target.document, 1)
+    assert((await requests()).length === cached, "Template URL result was not shared with the reading cache.")
+    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    owner.preview.close(preview.uri)
+    checks.push("template URL parameters and trailing paths use one CTP and restore exactly across reading, source hover, native preview and cache without source edits")
+  }
   return checks
 }
