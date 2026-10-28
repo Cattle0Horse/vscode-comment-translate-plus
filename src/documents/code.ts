@@ -65,7 +65,7 @@ function commentParagraphs(source: string, spans: readonly CodeSpan[]): CodeSpan
 function sentenceSpans(source: string, span: CodeSpan): CodeSpan[] {
   const text = source.slice(span.start, span.end)
   if (!text.includes("\n")) return [span]
-  const spans: CodeSpan[] = []
+  const ranges: { start: number; end: number }[] = []
   const inline: { start: number; end: number }[] = []
 
   function visit(node: ReturnType<typeof markdownTree>["topNode"]): void {
@@ -85,23 +85,24 @@ function sentenceSpans(source: string, span: CodeSpan): CodeSpan[] {
       inline.some((range) => range.start < next && range.end > next)
     )
       continue
-    spans.push({ ...span, start, end })
+    ranges.push({ start, end })
     start = next
   }
-  if (!spans.length) return [span]
-  if (start < span.end) spans.push({ ...span, start, end: span.end })
-  const tail = spans.at(-1)!
-  if (spans.length > 1 && !/[\p{L}\p{N}]/u.test(source.slice(tail.start, tail.end))) {
-    spans[spans.length - 2].end = tail.end
-    spans.pop()
+  if (!ranges.length) return [span]
+  if (start < span.end) ranges.push({ start, end: span.end })
+  const tail = ranges.at(-1)!
+  if (ranges.length > 1 && !/[\p{L}\p{N}]/u.test(source.slice(tail.start, tail.end))) {
+    ranges[ranges.length - 2].end = tail.end
+    ranges.pop()
   }
-  return spans.map((part) => {
+  return ranges.map((part) => {
     // A block-comment continuation owns its star just as a line comment owns its delimiter.
     const prefix = span.kind === "comment" && span.scope.startsWith("comment.block") ? source.slice(part.start, part.end).match(/^[\t ]*(\*(?!\/)[\t ]+)/u) : undefined
     if (prefix) part.start += prefix[0].length - prefix[1].length
     return {
+      ...span,
       ...part,
-      commentPrefix: prefix ? "*" : part.commentPrefix,
+      commentPrefix: prefix ? "*" : span.commentPrefix,
       protected: span.protected.filter((range) => range.start >= part.start && range.end <= part.end)
     }
   })

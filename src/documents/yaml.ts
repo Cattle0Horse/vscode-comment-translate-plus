@@ -23,8 +23,8 @@ export function yamlUnits(source: string, contentStart: number, yaml: Document.P
     if (!isScalar(node) || typeof node.value !== "string" || !node.range || node.range[0] === node.range[1] || !node.value.trim()) return
     const unit = makeUnit(source, contentStart + node.range[0], contentStart + node.range[1], "yaml")
     const header = unit.text.match(/^[|>][^\n]*\n/u)
+    const ranges: { start: number; end: number }[] = []
     if (header && !yamlKey) {
-      const ranges: { start: number; end: number }[] = []
       let start = header[0].length
       for (const match of unit.text.slice(start).matchAll(/[^\n]*(?:\n|$)/gu)) {
         const end = header[0].length + match.index + match[0].trimEnd().length
@@ -35,41 +35,41 @@ export function yamlUnits(source: string, contentStart: number, yaml: Document.P
       }
       const end = unit.text.trimEnd().length
       if (end > start) ranges.push({ start, end })
-      if (ranges.length > 1) {
-        for (const range of ranges) {
-          const part = makeUnit(source, unit.start + range.start, unit.start + range.end, "text")
-          const inner: TextUnit = { ...part, kind: "string" }
-
-          function content(text: string): string {
-            assertYamlStructure(unit.text, unit.text.slice(0, range.start) + text + unit.text.slice(range.end))
-            return text
-          }
-
-          units.push({
-            ...part,
-            reference,
-            scope,
-            projection: {
-              kind: "literal",
-              unit: inner,
-              codec: {
-                identity: unit.text,
-                invalid: {
-                  reason: "The response changed YAML block scalar syntax.",
-                  instruction: "Translate only this prose item; preserve YAML indentation and block boundaries.",
-                  difference: { reason: "译文破坏了 YAML 多行值的语法。" }
-                },
-                restore: content,
-                content,
-                display: (text) => content(text).trim()
-              }
-            }
-          })
-        }
-        return
-      }
     }
-    units.push({ ...unit, content: node.value, yamlKey, display: view ?? display(node.range[0], node.range[1]), reference, scope })
+    if (ranges.length <= 1) {
+      units.push({ ...unit, content: node.value, yamlKey, display: view ?? display(node.range[0], node.range[1]), reference, scope })
+      return
+    }
+    for (const range of ranges) {
+      const part = makeUnit(source, unit.start + range.start, unit.start + range.end, "text")
+      const inner: TextUnit = { ...part, kind: "string" }
+
+      function content(text: string): string {
+        assertYamlStructure(unit.text, unit.text.slice(0, range.start) + text + unit.text.slice(range.end))
+        return text
+      }
+
+      units.push({
+        ...part,
+        reference,
+        scope,
+        projection: {
+          kind: "literal",
+          unit: inner,
+          codec: {
+            identity: unit.text,
+            invalid: {
+              reason: "The response changed YAML block scalar syntax.",
+              instruction: "Translate only this prose item; preserve YAML indentation and block boundaries.",
+              difference: { reason: "译文破坏了 YAML 多行值的语法。" }
+            },
+            restore: content,
+            content,
+            display: (text) => content(text).trim()
+          }
+        }
+      })
+    }
   }
 
   function visit(node: unknown, view?: TextUnit["display"], parents: readonly ReferenceBlock[] = [], scope = "yaml"): void {
