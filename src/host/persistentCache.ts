@@ -49,9 +49,7 @@ export class PersistentCache {
     this.cancelTimer()
     try {
       if (!options.enabled) {
-        this.changes.clear()
-        this.touches.clear()
-        this.buffered = 0
+        this.clearPending()
         // Clear through SQLite so another connection cannot retain a deleted database inode.
         const database = this.database ?? this.open(false)
         database?.exec("DELETE FROM translations; PRAGMA wal_checkpoint(TRUNCATE)")
@@ -118,9 +116,7 @@ export class PersistentCache {
     this.closed = true
     await this.flush()
     this.release()
-    this.changes.clear()
-    this.touches.clear()
-    this.buffered = 0
+    this.clearPending()
   }
 
   private get active(): boolean {
@@ -199,9 +195,7 @@ export class PersistentCache {
         }
       }
       database.exec("COMMIT")
-      this.changes.clear()
-      this.touches.clear()
-      this.buffered = 0
+      this.clearPending()
     } catch (error) {
       database.exec("ROLLBACK")
       throw error
@@ -217,12 +211,16 @@ export class PersistentCache {
     this.database = undefined
   }
 
-  private fail(): void {
-    this.failed = true
-    this.cancelTimer()
+  private clearPending(): void {
     this.changes.clear()
     this.touches.clear()
     this.buffered = 0
+  }
+
+  private fail(): void {
+    this.failed = true
+    this.cancelTimer()
+    this.clearPending()
     this.release()
     if (this.warned) return
     this.warned = true

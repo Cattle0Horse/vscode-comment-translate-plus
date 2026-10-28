@@ -110,7 +110,6 @@ export class TranslationStore {
     if (created.units.size) {
       this.groups.add(created)
       const units = [...created.units]
-      const missing: PreparedInput = { units: units.map((task) => task.unit) }
       const byId = new Map(units.map((task) => [task.unit.id, task]))
       const accept = (item: TranslationItem, persist = true): void => {
         created.controller.signal.throwIfAborted()
@@ -144,10 +143,7 @@ export class TranslationStore {
           created.controller.signal.throwIfAborted()
           if (restored) reused?.({ kind: "cache", count: cached + restored, total: input.units.length })
           const remaining = {
-            units: missing.units.filter((unit) => {
-              const task = byId.get(unit.id)!
-              return task.value === undefined && !task.interest.signal.aborted
-            })
+            units: units.filter((task) => task.value === undefined && !task.interest.signal.aborted).map((task) => task.unit)
           }
           if (!remaining.units.length) return
           const content = await action(remaining, created.controller.signal, accept, new Map(units.map((task) => [task.unit.id, task.interest.signal])))
