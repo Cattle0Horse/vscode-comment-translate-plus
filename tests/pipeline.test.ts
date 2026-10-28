@@ -253,7 +253,7 @@ test("redundant outer separators are tolerated without guessing ambiguous or exp
 
 test("actual HTTP references merge table rows and YAML fields and retries retain only the failed row", async (t) => {
   const fixture = await chatFixture(t, (_body, items, call) => items.map((item) => (call === 1 && item.includes("Keep") ? item + "\n\nExtra paragraph." : item)).join("\n%%\n"))
-  const settings = { ...fixture.settings, initialItemsPerRequest: 20, adaptiveBatching: false }
+  const settings = { ...fixture.settings, preserveTerms: emptyPreserveTerms, initialItemsPerRequest: 20, adaptiveBatching: false }
   const table = "| Signal | Action |\n| --- | --- |\n| Event | Keep `sourceId`. |\n| Market | Read the catalog. |"
   const input = inputOf(parseMarkdown(table))
   const result = await requestTranslation(fixture.service, settings, input, new AbortController().signal, fixture.gate)

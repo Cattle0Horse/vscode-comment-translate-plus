@@ -104,7 +104,7 @@ export function getTranslationSettings(uri: vscode.Uri | undefined, preserveTerm
   }
   return {
     ...settings,
-    identity: JSON.stringify([profile.id, serviceIdentity(settings)])
+    identity: serviceIdentity(settings)
   }
 }
 

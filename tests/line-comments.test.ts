@@ -10,7 +10,7 @@ import { parseMarkdownWithCode } from "../src/documents/markdown.ts"
 import { BrowseSession } from "../src/features/browse/session.ts"
 import { settled } from "./support/fixtures.ts"
 
-// Exercise TextMate's public line-token boundary; the Web suite uses installed grammars.
+// Exercise TextMate's public line-token boundary; the desktop suite uses installed grammars.
 function lineGrammar(marker: string, punctuation = true): IGrammar {
   return {
     tokenizeLine(line: string, state: typeof INITIAL) {

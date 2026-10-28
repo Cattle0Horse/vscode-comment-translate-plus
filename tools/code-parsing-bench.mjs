@@ -13,7 +13,7 @@ for await (const path of glob(".vscode-test/**/extensions/python/syntaxes/MagicP
   grammarPath = path
   break
 }
-assert.ok(grammarPath, "Run the official Web host once to download its Python grammar before benchmarking.")
+assert.ok(grammarPath, "Run the official desktop host once to download its Python grammar before benchmarking.")
 const grammarSource = await readFile(grammarPath, "utf8")
 
 export const grammarFingerprint = hashText(grammarSource)

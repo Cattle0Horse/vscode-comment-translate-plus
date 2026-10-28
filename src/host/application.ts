@@ -30,6 +30,7 @@ export class Application implements vscode.Disposable {
   private readonly subscriptions: vscode.Disposable[]
   private readonly timers = new Map<string, PendingEdit>()
   private disposed = false
+  private disposal: Promise<void> | undefined
   constructor(context: vscode.ExtensionContext, home?: string) {
     this.translations = new TranslationRuntime(context, home)
     this.documents = new DocumentReader(context.extensionUri, "extension-output-" + context.extension.id + "-")
@@ -147,6 +148,10 @@ export class Application implements vscode.Disposable {
   }
 
   private async reconfigure(event: vscode.ConfigurationChangeEvent): Promise<void> {
+    if (this.disposed) return
+    if (["persistentCache", "persistentCacheMaxEntries", "persistentCacheMaxSizeMB"].some((key) => event.affectsConfiguration("commentTranslatePlus." + key)))
+      await this.translations.configureCache()
+    if (this.disposed) return
     if (event.affectsConfiguration("commentTranslatePlus.logLevel") || event.affectsConfiguration("commentTranslatePlus.logDetails")) this.translations.configureLog()
     if (event.affectsConfiguration("commentTranslatePlus.browse")) this.documents.clear()
     if (event.affectsConfiguration("commentTranslatePlus.profiles")) this.translations.reset()
@@ -173,7 +178,12 @@ export class Application implements vscode.Disposable {
     this.browse.render()
   }
 
-  dispose(): void {
+  dispose(): Promise<void> {
+    this.disposal ??= this.release()
+    return this.disposal
+  }
+
+  private async release(): Promise<void> {
     this.disposed = true
     for (const subscription of this.subscriptions) subscription.dispose()
     for (const timer of this.timers.values()) clearTimeout(timer.timer)
@@ -184,7 +194,7 @@ export class Application implements vscode.Disposable {
     this.replacement.dispose()
     this.preview.dispose()
     this.documents.dispose()
-    this.translations.dispose()
+    await this.translations.dispose()
     void vscode.commands.executeCommand("setContext", "commentTranslatePlus.supported", false)
     void vscode.commands.executeCommand("setContext", "commentTranslatePlus.browse", false)
   }

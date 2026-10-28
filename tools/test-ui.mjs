@@ -90,15 +90,15 @@ async function loadingIcons(page) {
   )
 }
 
-export async function runUiChecks({ debugPort, port, origin, packaged }) {
+export async function runUiChecks({ debugPort, origin, packaged }) {
   const browser = await chromium.connectOverCDP(`http://127.0.0.1:${debugPort}`)
   const page = browser
     .contexts()[0]
     .pages()
-    .find((page) => page.url().startsWith(`http://localhost:${port}`))
+    .find((page) => page.url().startsWith("vscode-file://"))
   await mkdir("artifacts/ui", { recursive: true })
   try {
-    if (!page) throw Error("Official Web host page not found.")
+    if (!page) throw Error("Official desktop host page not found.")
     await page.setViewportSize({ width: 1365, height: 900 })
     const screenshotPrefix = packaged ? "package-" : ""
     const screenshots = []
@@ -560,9 +560,9 @@ export async function runUiChecks({ debugPort, port, origin, packaged }) {
     )
     await capture("ordinary-preview")
     checks.push("ordinary Markdown preview keeps its original content and exposes no translation refresh icon")
-    console.log(`Official Web UI: ${checks.length} checks passed; screenshots in artifacts/ui/.`)
+    console.log(`Official desktop UI: ${checks.length} checks passed; screenshots in artifacts/ui/.`)
     return {
-      host: "vscode-test-web",
+      host: "vscode-test-electron",
       mode: packaged ? "package" : "development",
       checks,
       screenshots,

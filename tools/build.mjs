@@ -13,15 +13,15 @@ for (const arg of args) {
 if (args.has("--production") && (args.has("--watch") || args.has("--tests"))) throw Error("Production, watch and test builds must run separately.")
 
 const options = {
-  entryPoints: ["src/extension.ts", "src/desktop.ts"],
+  entryPoints: ["src/extension.ts"],
   outdir: "dist",
   outExtension: { ".js": ".cjs" },
   bundle: true,
-  platform: "browser",
+  platform: "node",
   mainFields: ["module", "main"],
   target: "es2022",
   format: "cjs",
-  external: ["vscode", "node:os"],
+  external: ["vscode"],
   sourcemap: !args.has("--production"),
   minify: args.has("--production"),
   metafile: true,
@@ -124,6 +124,7 @@ if (args.has("--watch")) {
       ],
       format: "esm",
       splitting: true,
+      banner: { js: 'import { createRequire as createNodeRequire } from "node:module"; const require = createNodeRequire(import.meta.url);' },
       outdir: "artifacts/core",
       outfile: undefined,
       outExtension: { ".js": ".mjs" }

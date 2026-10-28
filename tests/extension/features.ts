@@ -708,7 +708,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   const linkFingerprint = await requestFingerprint("Keep `sourceId` and [guide](https://example.com) and ![cover](./cover.svg).")
   assert(
     (await requests()).slice(beforeLinks).some((request) => request.itemFingerprints?.includes(linkFingerprint)),
-    "The Web host masked short code or link targets."
+    "The desktop host masked short code or link targets."
   )
   checks.push("short code, links and images reach HTTP in native syntax without CTP markers")
   const beforeSwitch = (await requests()).length
@@ -738,7 +738,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
       provider + " changed protected content."
     )
   }
-  checks.push("Google and Bing use their own HTTP protocols and preserve code/link placeholders in the Web host")
+  checks.push("Google and Bing use their own HTTP protocols and preserve code/link placeholders in the desktop host")
   const beforeMode = (await requests()).length
   await config.update("displayMode", "inplace", vscode.ConfigurationTarget.Global)
   const lenses = await vscode.commands.executeCommand<vscode.CodeLens[]>("vscode.executeCodeLensProvider", profile.document.uri)
@@ -964,10 +964,10 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   )
   assert(regexTerms.document.getText() === "wIDGET\n\nproject.lock\n\nHtTp\n\nRead HTTP with Widget." && !regexTerms.document.isDirty, "Regex matching edited source.")
   // Changes remain on the last valid snapshot until scheduled or manual refresh.
-  const beforeLocalEdit = (await owner.translations.settings(regexTerms.document.uri)).identity
+  const beforeLocalEdit = (await owner.translations.settings(regexTerms.document.uri)).preserveTerms.identity
   await config.update("preserveTermsRefreshSeconds", 0, vscode.ConfigurationTarget.Global)
   await vscode.workspace.fs.writeFile(regexFile, new TextEncoder().encode("[]"))
-  assert((await owner.translations.settings(regexTerms.document.uri)).identity === beforeLocalEdit, "A local edit bypassed the configured refresh policy.")
+  assert((await owner.translations.settings(regexTerms.document.uri)).preserveTerms.identity === beforeLocalEdit, "A local edit bypassed the configured refresh policy.")
   const beforeManualRequests = (await requests()).length
   await control(true)
   try {
@@ -999,7 +999,10 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   const validSettings = await owner.translations.settings(regexTerms.document.uri)
   await vscode.workspace.fs.writeFile(regexFile, new TextEncoder().encode('[{"pattern":"["}]'))
   await vscode.commands.executeCommand("commentTranslatePlus.refreshPreserveTerms")
-  assert((await owner.translations.settings(regexTerms.document.uri)).identity === validSettings.identity, "An invalid saved file replaced the last valid rule set.")
+  assert(
+    (await owner.translations.settings(regexTerms.document.uri)).preserveTerms.identity === validSettings.preserveTerms.identity,
+    "An invalid saved file replaced the last valid rule set."
+  )
   await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
   await vscode.workspace.fs.writeFile(regexFile, new TextEncoder().encode('["Widget"]'))
   const setTermFile = async (termFile: string | null) => {
@@ -1015,26 +1018,30 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     JSON.stringify((await requests()).slice(beforeRemote).flatMap((request) => request.itemFingerprints ?? [])) === JSON.stringify([await requestFingerprint("Read Widget.")]),
     "Local and remote term files were not merged with full-body matching."
   )
-  const beforeFailure = (await owner.translations.settings(remoteTerms.document.uri)).identity
+  const beforeFailure = (await owner.translations.settings(remoteTerms.document.uri)).preserveTerms.identity
   await setTermFile(null)
   await vscode.workspace.fs.writeFile(regexFile, new TextEncoder().encode("[]"))
   await vscode.commands.executeCommand("commentTranslatePlus.refreshPreserveTerms")
-  assert((await owner.translations.settings(remoteTerms.document.uri)).identity === beforeFailure, "A failed remote refresh discarded the last valid compiled snapshot.")
+  assert((await owner.translations.settings(remoteTerms.document.uri)).preserveTerms.identity === beforeFailure, "A failed remote refresh discarded the last valid compiled snapshot.")
   // Native configuration changes release the in-memory snapshot; recovery now needs persisted, revalidated data.
   await config.update("preserveTerms", [], vscode.ConfigurationTarget.Global)
   await config.update("preserveTerms", [regexFile.toString(), origin + "/preserve-terms.json"], vscode.ConfigurationTarget.Global)
-  assert((await owner.translations.settings(remoteTerms.document.uri)).identity === beforeFailure, "Offline recovery after releasing memory lost the persisted complete snapshot.")
+  assert(
+    (await owner.translations.settings(remoteTerms.document.uri)).preserveTerms.identity === beforeFailure,
+    "Offline recovery after releasing memory lost the persisted complete snapshot."
+  )
   await waitFor(() => owner.browse.inspect(remoteTerms.document.uri)?.status === "ready" && owner.browse.inspect(remoteTerms.document.uri)?.units.length === 4, "offline browse recovery")
   const beforeScheduledRefresh = JSON.stringify(owner.browse.inspect(remoteTerms.document.uri))
   const beforeScheduledRequests = (await requests()).length
   await setTermFile("[]")
   await config.update("preserveTermsRefreshSeconds", 1, vscode.ConfigurationTarget.Global)
   await waitFor(
-    async () => (await owner.translations.settings(remoteTerms.document.uri)).identity !== beforeFailure && owner.browse.inspect(remoteTerms.document.uri)?.status === "ready",
+    async () =>
+      (await owner.translations.settings(remoteTerms.document.uri)).preserveTerms.identity !== beforeFailure && owner.browse.inspect(remoteTerms.document.uri)?.status === "ready",
     "scheduled term refresh"
   )
   await config.update("preserveTermsRefreshSeconds", 0, vscode.ConfigurationTarget.Global)
-  assert((await owner.translations.settings(remoteTerms.document.uri)).identity !== beforeFailure, "Changed remote content did not isolate prior results.")
+  assert((await owner.translations.settings(remoteTerms.document.uri)).preserveTerms.identity !== beforeFailure, "Changed remote content did not refresh preservation rules.")
   assert(JSON.stringify(owner.browse.inspect(remoteTerms.document.uri)) === beforeScheduledRefresh, "Scheduled term refresh cleared or changed existing browse results.")
   assert((await requests()).length === beforeScheduledRequests, "Scheduled term refresh submitted existing browse results again.")
   remoteTerms.editor.selection = new vscode.Selection(2, 0, 2, 0)
@@ -1167,7 +1174,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   const beforeFiltered = (await requests()).length
   await start(filtered.document, 10)
   const sentItems = (await requests()).slice(beforeFiltered).flatMap((request) => request.itemFingerprints ?? [])
-  const expectedItems = await Promise.all(["sampleGroup", "SAMPLE_NOTICE_KEY_5XX", "all", "sample-library", "Read the original document."].map(requestFingerprint))
+  const expectedItems = await Promise.all(["all", "sample-library", "Read the original document."].map(requestFingerprint))
   assert(JSON.stringify(sentItems.sort()) === JSON.stringify(expectedItems.sort()), "Chinese comments or technical string values reached HTTP, or an ambiguous label was discarded.")
   const filteredState = owner.browse.inspect(filtered.document.uri)!
   const filteredComments = filteredState.units.filter((unit) => unit.kind === "comment")
@@ -1186,7 +1193,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   )
   await updateObserved("browse.strings", false)
   checks.push(
-    "native TypeScript grammar filters short Chinese comments, URLs, UUIDs, identifiers, methods and status codes while preserving ambiguous labels, cached hover and unchanged source"
+    "native TypeScript grammar and default terms skip Chinese, technical values and camelCase/snake_case identifiers while requesting ambiguous labels and preserving cached hover and source"
   )
 
   const identifierSource = [
@@ -1218,7 +1225,11 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   const beforeIdentifiers = (await requests()).length
   await start(identifiers.document, identifierCount)
   const identifierItems = (await requests()).slice(beforeIdentifiers).flatMap((request) => request.itemFingerprints ?? [])
-  assert(identifierItems.length === 4, "Standalone Markdown identifiers, paths, addresses, versions or hashes reached HTTP.")
+  assert(
+    JSON.stringify(identifierItems.sort()) ===
+      JSON.stringify((await Promise.all(["${targetLang}", "Read the original document. Keep sourceId and source_id."].map(requestFingerprint))).sort()),
+    "Standalone Markdown identifiers, paths, addresses, versions or hashes reached HTTP."
+  )
   assert(owner.browse.inspect(identifiers.document.uri)!.units.filter((unit) => unit.translation !== unit.text).length === 1, "Identifier filtering hid the natural-language translation.")
   const identifierPreview = await vscode.workspace.openTextDocument(markdownPreviewUri(identifiers.document.uri))
   await waitFor(
@@ -1236,12 +1247,12 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   const beforeIdentifierYaml = (await requests()).length
   await start(identifierYaml.document, yamlIdentifierCount)
   const yamlIdentifierItems = (await requests()).slice(beforeIdentifierYaml).flatMap((request) => request.itemFingerprints ?? [])
-  const expectedYamlIdentifierItems = await Promise.all(["read_only", "sourceId", "endpoint", "version"].map(requestFingerprint))
+  const expectedYamlIdentifierItems = await Promise.all(["endpoint", "version"].map(requestFingerprint))
   assert(JSON.stringify(yamlIdentifierItems.sort()) === JSON.stringify(expectedYamlIdentifierItems.sort()), "YAML keys stopped translating or technical values reached HTTP.")
   assert(identifierYaml.document.getText() === identifierYamlSource && !identifierYaml.document.isDirty, "Identifier filtering edited YAML source.")
   await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
   checks.push(
-    "language-independent identifiers, paths, addresses, versions and hashes complete locally in Markdown and YAML values while prose and YAML keys translate; preview, hover and source stay consistent"
+    "default terms preserve whole Markdown/YAML identifiers while technical values complete locally and prose and unmatched YAML keys translate; preview, hover and source stay consistent"
   )
 
   const mixed = await open("mixed-languages.ts", "typescript", "// " + chinese + '\nconst message = "' + chinese + '";\n// Read the original document.\nconst untouched = 1;')
@@ -1768,70 +1779,76 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   checks.push(
     "short placeholders restore reordered code, literal marker text and paired formatting with added inner spaces/tabs across browse, hover and native preview without re-requesting or changing source"
   )
-  const scalarSource = new TextDecoder().decode(await vscode.workspace.fs.readFile(vscode.Uri.joinPath(workspace, "examples/development/scalars-and-table.md")))
-  const scalarDocument = await open("scalar-display.md", "markdown", scalarSource)
-  await start(scalarDocument.document, 9)
-  const scalarUnits = owner.browse.inspect(scalarDocument.document.uri)!.units.filter((unit) => unit.format === "yaml")
-  assert(
-    scalarUnits.length === 3 &&
-      scalarUnits.some((unit) => unit.content === "default_enabled") &&
-      scalarUnits.some((unit) => unit.content === "Read the complete field.\nKeep both lines together."),
-    "YAML keys and complete values were not independent units."
-  )
-  assert(!scalarUnits.some((unit) => unit.text === "true" || unit.protected?.length), "YAML native data still used model placeholders.")
-  const scalarLenses = await vscode.commands.executeCommand<vscode.CodeLens[]>("vscode.executeCodeLensProvider", scalarDocument.document.uri, 1000)
-  assert(scalarLenses.filter((lens) => lens.command?.title === " ").length === 4, "Split fields or table cells did not share their logical display row.")
-  const scalarRequests = (await requests()).length
-  const scalarPreview = await vscode.workspace.openTextDocument(markdownPreviewUri(scalarDocument.document.uri))
-  await waitFor(() => scalarPreview.getText().includes('"默认启用": true') && scalarPreview.getText().includes("| 阅读原始文档。 | 保留 text. |"), "scalar/table preview assembly")
-  assert(
-    (await requests()).length === scalarRequests && scalarDocument.document.getText() === scalarSource && !scalarDocument.document.isDirty,
-    "Scalar/table display changed source or discarded shared cache."
-  )
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
-  checks.push("YAML keys and scalar values translate independently, native values stay local, fields/tables share rows and previews preserve original pipes using shared cache")
+  const beforeScalarTerms = config.inspect<readonly string[]>("preserveTerms")?.globalValue
+  await config.update("preserveTerms", [], vscode.ConfigurationTarget.Global)
+  try {
+    const scalarSource = new TextDecoder().decode(await vscode.workspace.fs.readFile(vscode.Uri.joinPath(workspace, "examples/development/scalars-and-table.md")))
+    const scalarDocument = await open("scalar-display.md", "markdown", scalarSource)
+    await start(scalarDocument.document, 9)
+    const scalarUnits = owner.browse.inspect(scalarDocument.document.uri)!.units.filter((unit) => unit.format === "yaml")
+    assert(
+      scalarUnits.length === 3 &&
+        scalarUnits.some((unit) => unit.content === "default_enabled") &&
+        scalarUnits.some((unit) => unit.content === "Read the complete field.\nKeep both lines together."),
+      "YAML keys and complete values were not independent units."
+    )
+    assert(!scalarUnits.some((unit) => unit.text === "true" || unit.protected?.length), "YAML native data still used model placeholders.")
+    const scalarLenses = await vscode.commands.executeCommand<vscode.CodeLens[]>("vscode.executeCodeLensProvider", scalarDocument.document.uri, 1000)
+    assert(scalarLenses.filter((lens) => lens.command?.title === " ").length === 4, "Split fields or table cells did not share their logical display row.")
+    const scalarRequests = (await requests()).length
+    const scalarPreview = await vscode.workspace.openTextDocument(markdownPreviewUri(scalarDocument.document.uri))
+    await waitFor(() => scalarPreview.getText().includes('"默认启用": true') && scalarPreview.getText().includes("| 阅读原始文档。 | 保留 text. |"), "scalar/table preview assembly")
+    assert(
+      (await requests()).length === scalarRequests && scalarDocument.document.getText() === scalarSource && !scalarDocument.document.isDirty,
+      "Scalar/table display changed source or discarded shared cache."
+    )
+    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    checks.push("YAML keys and scalar values translate independently, native values stay local, fields/tables share rows and previews preserve original pipes using shared cache")
 
-  const yamlFieldsSource = "name: data-analysis\nmetadata:\n  availability: active\n  default_enabled: true\n  read_only: false\n  required: false"
-  const yamlFieldsDocument = await open("yaml-fields.yaml", "yaml", yamlFieldsSource)
-  await start(yamlFieldsDocument.document, 8)
-  const yamlFields = owner.browse.inspect(yamlFieldsDocument.document.uri)!.units
-  const yamlRows = displayTranslations(yamlFieldsSource, yamlFields)
-  assert(
-    JSON.stringify(yamlRows.map((row) => translationDisplayText(row.translation, "yaml").trimEnd())) ===
-      JSON.stringify(["名称: 数据分析", "元数据:", "可用性: 可用的", "默认启用: true", "只读: false", "必需: false"]),
-    "YAML reading rows lost field punctuation, native values or their original field grouping."
-  )
-  const yamlLenses = await vscode.commands.executeCommand<vscode.CodeLens[]>("vscode.executeCodeLensProvider", yamlFieldsDocument.document.uri, 1000)
-  assert(
-    yamlLenses.filter((lens) => lens.command?.title === " ").length === 5,
-    "YAML fields before the final line did not reserve one reading row each; the final field uses the tail attachment."
-  )
-  assert(yamlFieldsDocument.document.getText() === yamlFieldsSource && !yamlFieldsDocument.document.isDirty, "YAML reading changed source.")
-  const beforeYamlBlock = (await requests()).length
-  const preservedYaml = owner.browse.inspect(yamlFieldsDocument.document.uri)!.units.filter((unit) => unit.display?.start !== 0)
-  yamlFieldsDocument.editor.selection = new vscode.Selection(0, 0, 1, 0)
-  assert(await vscode.commands.executeCommand<boolean>("commentTranslatePlus.retranslateBlock"), "YAML block retranslation was not accepted.")
-  await waitFor(() => owner.browse.inspect(yamlFieldsDocument.document.uri)?.status === "ready", "YAML block retranslation")
-  const yamlBlockRequests = (await requests()).slice(beforeYamlBlock)
-  assert(yamlBlockRequests.reduce((sum, request) => sum + (request.count ?? 0), 0) === 2, "YAML block retranslation did not target exactly the field key and value.")
-  assert(
-    preservedYaml.every((preserved) => owner.browse.inspect(yamlFieldsDocument.document.uri)!.units.some((unit) => unit === preserved)),
-    "YAML block selection refreshed a neighbour at its exclusive end."
-  )
-  assert(yamlFieldsDocument.document.getText() === yamlFieldsSource && !yamlFieldsDocument.document.isDirty, "YAML block retranslation changed source.")
-  checks.push("browse selection retranslation refreshes a complete YAML field while excluding the next row and preserving native values")
-  yamlFieldsDocument.editor.selection = new vscode.Selection(0, 2, 0, 2)
-  const yamlRequests = (await requests()).length
-  const yamlHover = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", yamlFieldsDocument.document.uri, new vscode.Position(0, 2))
-  assert(values(yamlHover).includes("名称"), "Standalone YAML hover did not resolve its scalar unit.")
-  yamlFieldsDocument.editor.selection = new vscode.Selection(0, 2, 0, 2)
-  assert(await vscode.commands.executeCommand<boolean>("commentTranslatePlus.translateAndReplace"), "Standalone YAML cursor replacement failed.")
-  assert(yamlFieldsDocument.document.getText() === yamlFieldsSource.replace("name", '"名称"'), "Standalone YAML replacement changed native values or unrelated fields.")
-  assert((await requests()).length === yamlRequests, "Standalone YAML hover or replacement discarded the scalar cache.")
-  await vscode.commands.executeCommand("undo")
-  assert(yamlFieldsDocument.document.getText() === yamlFieldsSource, "Standalone YAML replacement could not be undone.")
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
-  checks.push("standalone YAML reading preserves colons and true/false values; scalar hover and cursor replacement reuse cache and support undo")
+    const yamlFieldsSource = "name: data-analysis\nmetadata:\n  availability: active\n  default_enabled: true\n  read_only: false\n  required: false"
+    const yamlFieldsDocument = await open("yaml-fields.yaml", "yaml", yamlFieldsSource)
+    await start(yamlFieldsDocument.document, 8)
+    const yamlFields = owner.browse.inspect(yamlFieldsDocument.document.uri)!.units
+    const yamlRows = displayTranslations(yamlFieldsSource, yamlFields)
+    assert(
+      JSON.stringify(yamlRows.map((row) => translationDisplayText(row.translation, "yaml").trimEnd())) ===
+        JSON.stringify(["名称: 数据分析", "元数据:", "可用性: 可用的", "默认启用: true", "只读: false", "必需: false"]),
+      "YAML reading rows lost field punctuation, native values or their original field grouping."
+    )
+    const yamlLenses = await vscode.commands.executeCommand<vscode.CodeLens[]>("vscode.executeCodeLensProvider", yamlFieldsDocument.document.uri, 1000)
+    assert(
+      yamlLenses.filter((lens) => lens.command?.title === " ").length === 5,
+      "YAML fields before the final line did not reserve one reading row each; the final field uses the tail attachment."
+    )
+    assert(yamlFieldsDocument.document.getText() === yamlFieldsSource && !yamlFieldsDocument.document.isDirty, "YAML reading changed source.")
+    const beforeYamlBlock = (await requests()).length
+    const preservedYaml = owner.browse.inspect(yamlFieldsDocument.document.uri)!.units.filter((unit) => unit.display?.start !== 0)
+    yamlFieldsDocument.editor.selection = new vscode.Selection(0, 0, 1, 0)
+    assert(await vscode.commands.executeCommand<boolean>("commentTranslatePlus.retranslateBlock"), "YAML block retranslation was not accepted.")
+    await waitFor(() => owner.browse.inspect(yamlFieldsDocument.document.uri)?.status === "ready", "YAML block retranslation")
+    const yamlBlockRequests = (await requests()).slice(beforeYamlBlock)
+    assert(yamlBlockRequests.reduce((sum, request) => sum + (request.count ?? 0), 0) === 2, "YAML block retranslation did not target exactly the field key and value.")
+    assert(
+      preservedYaml.every((preserved) => owner.browse.inspect(yamlFieldsDocument.document.uri)!.units.some((unit) => unit === preserved)),
+      "YAML block selection refreshed a neighbour at its exclusive end."
+    )
+    assert(yamlFieldsDocument.document.getText() === yamlFieldsSource && !yamlFieldsDocument.document.isDirty, "YAML block retranslation changed source.")
+    checks.push("browse selection retranslation refreshes a complete YAML field while excluding the next row and preserving native values")
+    yamlFieldsDocument.editor.selection = new vscode.Selection(0, 2, 0, 2)
+    const yamlRequests = (await requests()).length
+    const yamlHover = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", yamlFieldsDocument.document.uri, new vscode.Position(0, 2))
+    assert(values(yamlHover).includes("名称"), "Standalone YAML hover did not resolve its scalar unit.")
+    yamlFieldsDocument.editor.selection = new vscode.Selection(0, 2, 0, 2)
+    assert(await vscode.commands.executeCommand<boolean>("commentTranslatePlus.translateAndReplace"), "Standalone YAML cursor replacement failed.")
+    assert(yamlFieldsDocument.document.getText() === yamlFieldsSource.replace("name", '"名称"'), "Standalone YAML replacement changed native values or unrelated fields.")
+    assert((await requests()).length === yamlRequests, "Standalone YAML hover or replacement discarded the scalar cache.")
+    await vscode.commands.executeCommand("undo")
+    assert(yamlFieldsDocument.document.getText() === yamlFieldsSource, "Standalone YAML replacement could not be undone.")
+    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    checks.push("standalone YAML reading preserves colons and true/false values; scalar hover and cursor replacement reuse cache and support undo")
+  } finally {
+    await config.update("preserveTerms", beforeScalarTerms, vscode.ConfigurationTarget.Global)
+  }
 
   const invalidYaml = await open("invalid-yaml.yml", "yaml", "name: [invalid")
   const beforeInvalidYaml = (await requests()).length

@@ -118,7 +118,7 @@ test("custom preserved terms complete and cache only as whole units while mixed 
   const translate = () =>
     store.translate(
       serviceIdentity(settings),
-      local,
+      prepareInput(settings, local),
       (input, signal, completed, interests) =>
         fixture.service.request(settings, prepareInput(settings, input), signal, fixture.gate, completed, { details: false, emit: (event) => events.push(event) }, interests),
       new AbortController().signal
@@ -140,7 +140,7 @@ test("custom preserved terms complete and cache only as whole units while mixed 
   const changedSettings = { ...settings, preserveTerms: emptyPreserveTerms }
   const afterChange = await store.translate(
     serviceIdentity(changedSettings),
-    local,
+    prepareInput(changedSettings, local),
     (input, signal) => requestTranslation(fixture.service, changedSettings, input, signal, fixture.gate),
     new AbortController().signal
   )
@@ -831,7 +831,7 @@ test("technical code values complete locally while ambiguous names remain transl
   await taskFinished
   assert.deepEqual(
     fixture.seen.flatMap((request) => request.items),
-    [...values.slice(5, 7), ...values.slice(11)]
+    values.slice(11)
   )
   assert.deepEqual(
     input.units.map((unit) => result.get(unit.id)),
@@ -995,19 +995,24 @@ test("joining partially completed work reports shared progress rather than repea
   store.clear()
 })
 
-test("changing a preserve regex or its flags isolates cached local completion", async (t) => {
+test("changing preserve regex matching isolates local completion while equivalent nonmatches reuse translations", async (t) => {
   const fixture = await chatFixture(t, (_body, items) => items.map((item) => (item === "HTTP" ? "协议" : item)).join("\n%%\n"))
   const input = inputOf(parseMarkdown("HTTP"))
   const store = new TranslationStore()
   t.after(() => store.clear())
   const translate = (pattern: string, flags: string) => {
     const settings = { ...fixture.settings, preserveTerms: parsePreserveTerms([{ pattern, flags }]), skipSameLanguage: false }
-    return store.translate(serviceIdentity(settings), input, (batch, signal) => requestTranslation(fixture.service, settings, batch, signal, fixture.gate), new AbortController().signal)
+    return store.translate(
+      serviceIdentity(settings),
+      prepareInput(settings, input),
+      (batch, signal) => requestTranslation(fixture.service, settings, batch, signal, fixture.gate),
+      new AbortController().signal
+    )
   }
   assert.equal((await translate("http", "i")).get(input.units[0].id), "HTTP")
   assert.equal((await translate("HTTP", "")).get(input.units[0].id), "HTTP")
   assert.equal(fixture.seen.length, 0)
   assert.equal((await translate("http", "")).get(input.units[0].id), "协议")
   assert.equal((await translate("https", "i")).get(input.units[0].id), "协议")
-  assert.equal(fixture.seen.length, 2, "A regex pattern or flags change reused a previous identity.")
+  assert.equal(fixture.seen.length, 1, "Equivalent nonmatching regex rules discarded a valid translation.")
 })

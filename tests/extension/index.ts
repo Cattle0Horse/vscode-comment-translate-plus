@@ -6,6 +6,7 @@ import { runFeatures } from "./features.ts"
 import { runEditReuse } from "./edits.ts"
 import { runCommentParagraphs } from "./comments.ts"
 import { runParsing } from "./parsing.ts"
+import { runPersistentCache } from "./cache.ts"
 
 function assert(value: unknown, message: string): asserts value {
   if (!value) throw Error(message)
@@ -20,10 +21,10 @@ async function waitFor(check: () => boolean | Promise<boolean>, label: string): 
 }
 
 export async function run(): Promise<void> {
-  assert(vscode.env.uiKind === vscode.UIKind.Web, "Tests must run in official VS Code Web.")
+  assert(vscode.env.uiKind === vscode.UIKind.Desktop, "Tests must run in official VS Code Desktop.")
   const workspace = vscode.workspace.workspaceFolders?.[0]?.uri
   assert(workspace, "Missing virtual test workspace.")
-  const configBytes = await vscode.workspace.fs.readFile(vscode.Uri.joinPath(workspace, "web-test.json"))
+  const configBytes = await vscode.workspace.fs.readFile(vscode.Uri.joinPath(workspace, "desktop-test.json"))
   const test = JSON.parse(new TextDecoder().decode(configBytes)) as { origin: string; mode: string; bundleHash: string }
   const checks: string[] = []
   let cases: HostCaseResult[] = []
@@ -47,10 +48,10 @@ export async function run(): Promise<void> {
   await waitFor(() => extension.isActive, "Markdown activation")
   const controller = extension.exports
   assert(!controller.browse.inspect(uri), "Opening the document must not start translation.")
-  checks.push("official Web Worker host activates without automatic service calls")
+  checks.push("official desktop Node host activates without automatic service calls")
   checks.push(...(await runParsing(workspace, controller)))
-  const bytes = await (await fetch(vscode.Uri.joinPath(extension.extensionUri, "dist/extension.cjs").toString())).arrayBuffer()
-  const digest = await crypto.subtle.digest("SHA-256", bytes)
+  const bytes = await vscode.workspace.fs.readFile(vscode.Uri.joinPath(extension.extensionUri, "dist/extension.cjs"))
+  const digest = await crypto.subtle.digest("SHA-256", new Uint8Array(bytes))
   const bundleHash = [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, "0")).join("")
   assert(bundleHash === test.bundleHash, "Loaded bundle differs from the selected build or VSIX.")
   checks.push("loaded bundle matches the selected build or extracted production VSIX")
@@ -70,7 +71,7 @@ export async function run(): Promise<void> {
     await waitFor(() => controller.browse.inspect(uri)?.status === "ready" && controller.browse.inspect(uri)?.units.length === 2, "initial HTTP translation")
     assert(document.getText() === source && !document.isDirty, "Browse changed source.")
     assert(controller.browse.inspect(uri)!.units[0].translation.includes("阅读原始文档"), "Wrong ID mapping.")
-    checks.push("plain-text browser HTTP responses map ordered units without changing the source")
+    checks.push("plain-text desktop HTTP responses map ordered units without changing the source")
     const lenses = await vscode.commands.executeCommand<vscode.CodeLens[]>("vscode.executeCodeLensProvider", uri, 1000)
     const translatedLenses = lenses.filter((lens) => lens.command?.title === " ")
     assert(
@@ -133,7 +134,7 @@ export async function run(): Promise<void> {
     await vscode.commands.executeCommand("undo")
     await waitFor(() => document.getText() === source && controller.browse.inspect(uri)?.units.length === 2, "native undo")
     assert(!document.isDirty, "Translation polluted undo history.")
-    checks.push("browser editor invalidates edits and preserves native undo")
+    checks.push("desktop editor invalidates edits and preserves native undo")
 
     const before = (await requests()).length
     await vscode.commands.executeCommand("commentTranslatePlus.retranslate")
@@ -213,7 +214,7 @@ export async function run(): Promise<void> {
     assert(performance.now() - limitedStart >= 1000, "Rate setting did not throttle actual requests.")
     await config.update("maxRequestsPerSecond", 100, vscode.ConfigurationTarget.Global)
     await waitFor(() => controller.browse.inspect(uri)?.status === "ready" && controller.browse.inspect(uri)?.units.length === 2, "restored test rate")
-    checks.push("rate setting throttles actual browser requests rather than only changing metadata")
+    checks.push("rate setting throttles actual desktop requests rather than only changing metadata")
 
     const otherUri = vscode.Uri.joinPath(workspace, "other.md")
     await vscode.workspace.fs.writeFile(otherUri, new TextEncoder().encode(source))
@@ -225,6 +226,7 @@ export async function run(): Promise<void> {
     await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
     assert(!controller.browse.inspect(otherUri) && controller.browse.inspect(uri), "Browse controls crossed documents.")
     await vscode.window.showTextDocument(document, { viewColumn: vscode.ViewColumn.One, preserveFocus: false, preview: false })
+    await vscode.commands.executeCommand("workbench.action.closeEditorsInOtherGroups")
     await waitFor(() => vscode.window.activeTextEditor?.document.uri.toString() === uri.toString(), "first document focus")
     checks.push("multiple files have independent browse controls")
 
@@ -324,16 +326,29 @@ export async function run(): Promise<void> {
     checks.push("skill files preserve complete YAML fields in the same production chain")
     checks.push(...(await runEditReuse(workspace, controller, test.origin)))
     checks.push(...(await runCommentParagraphs(workspace, controller, test.origin)))
-    cases = await runHostCases(workspace, controller, async () => (await requests()).length)
+    const previousTerms = config.inspect<readonly string[]>("preserveTerms")?.globalValue
+    const previousSkip = config.inspect<boolean>("skipSameLanguage")?.globalValue
+    try {
+      // Corpus checks exercise HTTP alignment; preservation and language skipping have dedicated cases.
+      await config.update("preserveTerms", [], vscode.ConfigurationTarget.Global)
+      await config.update("skipSameLanguage", false, vscode.ConfigurationTarget.Global)
+      cases = await runHostCases(workspace, controller, async () => (await requests()).length)
+    } finally {
+      await config.update("preserveTerms", previousTerms, vscode.ConfigurationTarget.Global)
+      await config.update("skipSameLanguage", previousSkip, vscode.ConfigurationTarget.Global)
+    }
     checks.push(...cases.map((item) => `${item.id}: host corpus preserves structure, source and cached browse`))
     checks.push(...(await runFeatures(workspace, controller, test.origin)))
+    checks.push(...(await runPersistentCache(workspace, controller)))
   } finally {
     await config.update("profiles", [], vscode.ConfigurationTarget.Global)
   }
   const report = {
-    host: "vscode-test-web",
+    host: "vscode-test-electron",
     mode: test.mode,
     vscode: vscode.version,
+    node: process.versions.node,
+    electron: process.versions.electron,
     bundleHash,
     checks,
     cases,
@@ -343,5 +358,5 @@ export async function run(): Promise<void> {
   }
   const sent = await fetch(test.origin + "/report", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(report) })
   assert(sent.ok, "Could not save test report.")
-  console.log(`VS Code Web: ${checks.length} checks passed (${test.mode}).`)
+  console.log(`VS Code Desktop: ${checks.length} checks passed (${test.mode}).`)
 }

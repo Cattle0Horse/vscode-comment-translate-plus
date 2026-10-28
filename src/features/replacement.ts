@@ -23,7 +23,7 @@ export interface SourceReplacement {
 
 export async function replacementIdentity(uri: vscode.Uri, translations: TranslationRuntime): Promise<string> {
   const settings = await translations.settings(uri)
-  return JSON.stringify([settings.identity, requestPolicyIdentity(settings)])
+  return JSON.stringify([settings.profileId, settings.identity, requestPolicyIdentity(settings)])
 }
 
 export class SourceReplacementAction implements vscode.Disposable {

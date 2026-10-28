@@ -2,15 +2,14 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Attach VS Code Web",
-      "type": "pwa-chrome",
+      "name": "Attach Isolated VS Code Desktop",
+      "type": "node",
       "request": "attach",
-      "address": "localhost",
-      "port": 9222,
+      "port": 9229,
       "timeout": 120000,
-      "webRoot": "${workspaceFolder}",
-      "pathMapping": { "/static/devextensions": "${workspaceFolder}" },
-      "preLaunchTask": "web-host"
+      "restart": true,
+      "outFiles": ["${workspaceFolder}/dist/**/*.cjs"],
+      "preLaunchTask": "desktop-host"
     }
   ]
 }

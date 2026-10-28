@@ -9,35 +9,62 @@
       "isBackground": true,
       "problemMatcher": {
         "owner": "esbuild",
-        "pattern": { "regexp": "^(.*):(\\d+):(\\d+): (error|warning): (.*)$", "file": 1, "line": 2, "column": 3, "severity": 4, "message": 5 },
-        "background": { "activeOnStart": true, "beginsPattern": "^\\[watch\\] build started$", "endsPattern": "^\\[watch\\] build finished$" }
+        "pattern": {
+          "regexp": "^(.*):(\\d+):(\\d+): (error|warning): (.*)$",
+          "file": 1,
+          "line": 2,
+          "column": 3,
+          "severity": 4,
+          "message": 5
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "^\\[watch\\] build started$",
+          "endsPattern": "^\\[watch\\] build finished$"
+        }
       },
-      "group": { "kind": "build", "isDefault": true },
-      "presentation": { "reveal": "silent" }
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "presentation": {
+        "reveal": "silent"
+      }
     },
     {
-      "label": "web-host",
+      "label": "desktop-host",
       "type": "process",
       "command": "node",
-      "args": [
-        "node_modules/@vscode/test-web/out/server/index.js",
-        "--browser=chromium",
-        "--waitForDebugger=9222",
-        "--quality=stable",
-        "--host=localhost",
-        "--port=54238",
-        "--extensionDevelopmentPath=.",
-        "--testRunnerDataDir=.vscode-test/web",
-        "fixtures/development"
-      ],
-      "dependsOn": "watch",
+      "args": ["tools/test-desktop.mjs", "--interactive"],
+      "dependsOn": ["build-tests", "watch"],
+      "dependsOrder": "sequence",
       "isBackground": true,
       "problemMatcher": {
-        "owner": "web-host",
-        "pattern": { "regexp": "^(.*):(\\d+):(\\d+): (error|warning): (.*)$", "file": 1, "line": 2, "column": 3, "severity": 4, "message": 5 },
-        "background": { "activeOnStart": true, "beginsPattern": "^(Downloading|Serving)", "endsPattern": "^Listening on http://localhost:54238" }
+        "owner": "desktop-host",
+        "pattern": {
+          "regexp": "^(.*):(\\d+):(\\d+): (error|warning): (.*)$",
+          "file": 1,
+          "line": 2,
+          "column": 3,
+          "severity": 4,
+          "message": 5
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "^(Downloading|Resolving)",
+          "endsPattern": "^Isolated desktop host ready"
+        }
       },
-      "presentation": { "reveal": "silent" }
+      "presentation": {
+        "reveal": "silent"
+      }
+    },
+    {
+      "label": "build-tests",
+      "type": "process",
+      "command": "node",
+      "args": ["tools/build.mjs", "--tests"],
+      "problemMatcher": []
     }
   ]
 }

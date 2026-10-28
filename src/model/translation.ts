@@ -18,3 +18,10 @@ export interface TranslationItem {
   readonly id: string
   readonly text: string
 }
+
+export interface PersistentTranslations {
+  get(key: string): Promise<string | undefined>
+  set(key: string, text: string): void
+  remove(key: string): void
+  touch(key: string): void
+}

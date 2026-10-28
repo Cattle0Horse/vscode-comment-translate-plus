@@ -13,7 +13,7 @@ import type { TextUnit } from "../src/model/document.ts"
 import { parseMarkdownWithCode } from "../src/documents/markdown.ts"
 import { displayTranslations, translatedMarkdown, translationDisplayText } from "../src/documents/presentation.ts"
 
-// The grammar boundary is TextMate's public token protocol; the Web suite also uses the real Python grammar.
+// The grammar boundary is TextMate's public token protocol; the desktop suite also uses the real Python grammar.
 const grammar = {
   tokenizeLine(line: string, state: typeof INITIAL) {
     const tokens: { startIndex: number; endIndex: number; scopes: string[] }[] = []

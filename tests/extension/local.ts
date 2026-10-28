@@ -15,15 +15,15 @@ interface LocalTestConfiguration {
 const sample = "1. Read the original document.\n2. Keep `sourceId` unchanged."
 
 async function fingerprint(uri: vscode.Uri): Promise<string> {
-  const bytes = await (await fetch(vscode.Uri.joinPath(uri, "dist/extension.cjs").toString())).arrayBuffer()
-  const digest = await crypto.subtle.digest("SHA-256", bytes)
+  const bytes = await vscode.workspace.fs.readFile(vscode.Uri.joinPath(uri, "dist/extension.cjs"))
+  const digest = await crypto.subtle.digest("SHA-256", new Uint8Array(bytes))
   return [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, "0")).join("")
 }
 
 async function configuration(): Promise<{ workspace: vscode.Uri; test: LocalTestConfiguration }> {
   const workspace = vscode.workspace.workspaceFolders?.[0]?.uri
   if (!workspace) throw Error("Missing local test workspace.")
-  const bytes = await vscode.workspace.fs.readFile(vscode.Uri.joinPath(workspace, "web-test.json"))
+  const bytes = await vscode.workspace.fs.readFile(vscode.Uri.joinPath(workspace, "desktop-test.json"))
   return { workspace, test: JSON.parse(new TextDecoder().decode(bytes)) as LocalTestConfiguration }
 }
 
@@ -98,7 +98,7 @@ export async function activate(): Promise<void> {
 }
 
 export async function run(): Promise<void> {
-  if (vscode.env.uiKind !== vscode.UIKind.Web) throw Error("Local tests require the official VS Code Web host.")
+  if (vscode.env.uiKind !== vscode.UIKind.Desktop) throw Error("Local tests require the official VS Code Desktop host.")
   const { workspace, test } = await configuration()
   const started = performance.now()
   const extension = vscode.extensions.getExtension<Application>("cattle-horse.vscode-comment-translate-plus")
@@ -125,7 +125,7 @@ export async function run(): Promise<void> {
     const bundleHash = await fingerprint(extension.extensionUri)
     if (bundleHash !== test.bundleHash) throw Error("Local test loaded the wrong product bundle.")
     const report = {
-      host: "vscode-test-web",
+      host: "vscode-test-electron",
       mode: test.mode,
       vscode: vscode.version,
       bundleHash,

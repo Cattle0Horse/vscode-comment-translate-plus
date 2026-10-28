@@ -9,7 +9,8 @@ import { dirname, isAbsolute, relative, resolve } from "node:path"
 import { performance } from "node:perf_hooks"
 import { pipeline } from "node:stream/promises"
 import { setTimeout as delay } from "node:timers/promises"
-import { open, runTests } from "@vscode/test-web"
+import { downloadAndUnzipVSCode, runTests } from "@vscode/test-electron"
+import { spawn, spawnSync } from "node:child_process"
 import yauzl from "yauzl"
 import { localServiceFromEnvironment } from "./local-service.mjs"
 import manifest from "../package.json" with { type: "json" }
@@ -21,18 +22,17 @@ const languageCodes = new Map(
 const flags = new Set(process.argv.slice(2))
 assert.ok(
   flags.size === process.argv.length - 2 && [...flags].every((flag) => ["--package", "--local", "--interactive", "--ui"].includes(flag)),
-  "usage: node tools/test-web.mjs [--package] [--local] [--interactive | --ui]"
+  "usage: node tools/test-desktop.mjs [--package] [--local] [--interactive | --ui]"
 )
 const packaged = flags.has("--package")
 const interactive = flags.has("--interactive")
 const ui = flags.has("--ui")
 assert.ok(!(interactive && ui), "--interactive and --ui must run separately")
 assert.ok(!(ui && flags.has("--local")), "--ui uses deterministic HTTP responses; use --local separately for real-service checks")
-assert.ok(!interactive || flags.has("--local"), "--interactive requires --local")
 const local = flags.has("--local") ? await localServiceFromEnvironment() : undefined
 const runner = local ? "local.cjs" : "index.cjs"
 await mkdir(".vscode-test", { recursive: true })
-const runDirectory = await mkdtemp(resolve(".vscode-test", packaged ? "web-package-" : "web-development-"))
+const runDirectory = await mkdtemp(resolve(".vscode-test", packaged ? "desktop-package-" : "desktop-development-"))
 let extensionRoot = resolve(".")
 
 if (packaged) {
@@ -367,7 +367,7 @@ const bundleHash = createHash("sha256")
   .update(await readFile(resolve(extensionRoot, "dist/extension.cjs")))
   .digest("hex")
 await writeFile(
-  resolve(workspace, "web-test.json"),
+  resolve(workspace, "desktop-test.json"),
   JSON.stringify({
     origin,
     mode: packaged ? "package" : "development",
@@ -375,7 +375,7 @@ await writeFile(
     ui,
     serviceSettings:
       local?.settings ??
-      (ui
+      (ui || interactive
         ? {
             profiles: [{ id: "test", name: "模拟服务", provider: "openai", apiUrl: origin + "/v1/chat/completions", model: "mock-ui" }],
             activeProfile: "test",
@@ -388,12 +388,8 @@ await writeFile(
   })
 )
 
-const probe = createPortProbe()
-await new Promise((done) => probe.listen(0, "localhost", done))
-const port = probe.address().port
-await new Promise((done) => probe.close(done))
 let setup
-if (local || ui) {
+if (local || ui || interactive) {
   setup = resolve(runDirectory, "setup")
   await mkdir(setup, { recursive: true })
   await writeFile(
@@ -403,7 +399,7 @@ if (local || ui) {
       publisher: "cattle-horse",
       version: "0.0.0",
       engines: { vscode: "^1.140.0" },
-      browser: "./index.cjs",
+      main: "./index.cjs",
       activationEvents: ["onStartupFinished"]
     })
   )
@@ -412,60 +408,100 @@ if (local || ui) {
 }
 const reportPath = ui
   ? packaged
-    ? "artifacts/package-ui-web.json"
-    : "artifacts/ui-web.json"
+    ? "artifacts/package-ui-desktop.json"
+    : "artifacts/ui-desktop.json"
   : local
     ? packaged
-      ? "artifacts/local-service-package-web.json"
-      : "artifacts/local-service-web.json"
+      ? "artifacts/local-service-package-desktop.json"
+      : "artifacts/local-service-desktop.json"
     : packaged
-      ? "artifacts/package-web.json"
-      : "artifacts/extension-web.json"
+      ? "artifacts/package-desktop.json"
+      : "artifacts/extension-desktop.json"
 try {
-  const options = {
-    browserType: "chromium",
-    headless: true,
-    quality: "stable",
-    host: "localhost",
-    port,
-    extensionDevelopmentPath: extensionRoot,
-    extensionPaths: setup ? [setup] : undefined,
-    folderPath: workspace,
-    testRunnerDataDir: resolve(".vscode-test/web")
-  }
-  if (ui) {
+  await mkdir(resolve(runDirectory, "user-data/User"), { recursive: true })
+  await writeFile(
+    resolve(runDirectory, "user-data/User/settings.json"),
+    JSON.stringify({ "workbench.startupEditor": "none", "chat.disableAIFeatures": true, "extensions.autoUpdate": false, "update.mode": "none" })
+  )
+  const executable = await downloadAndUnzipVSCode({ version: "stable" })
+  const launchArgs = [
+    workspace,
+    "--user-data-dir=" + resolve(runDirectory, "user-data"),
+    "--extensions-dir=" + resolve(runDirectory, "extensions"),
+    "--disable-extensions",
+    "--disable-workspace-trust",
+    "--skip-welcome",
+    "--skip-release-notes",
+    "--disable-updates",
+    "--disable-telemetry"
+  ]
+  const development = setup ? [extensionRoot, setup] : [extensionRoot]
+  if (ui || interactive) {
     const debugProbe = createPortProbe()
     await new Promise((done) => debugProbe.listen(0, "127.0.0.1", done))
     const debugPort = debugProbe.address().port
     await new Promise((done) => debugProbe.close(done))
-    const host = await open({ ...options, browserOptions: [`--remote-debugging-port=${debugPort}`] })
+    const child = spawn(
+      executable,
+      [...launchArgs, ...development.map((path) => "--extensionDevelopmentPath=" + path), ...(interactive ? ["--inspect-extensions=9229"] : []), "--remote-debugging-port=" + debugPort],
+      {
+        stdio: "inherit",
+        windowsHide: true
+      }
+    )
+    const exited = new Promise((done, fail) => {
+      child.once("error", fail)
+      child.once("exit", done)
+    })
     try {
-      const { runUiChecks } = await import("./test-ui.mjs")
-      const evidence = await runUiChecks({ debugPort, port, origin, packaged })
-      assert.equal(report?.uiKind, 2, "UI checks must run in the Web host.")
-      assert.equal(report?.bundleHash, bundleHash, "UI loaded the wrong bundle.")
-      await writeFile(reportPath, JSON.stringify({ ...evidence, vscode: report.vscode, bundleHash, testedExtensionRoot: extensionRoot }, null, 4) + "\n")
+      if (ui) {
+        const deadline = Date.now() + 60000
+        while (true) {
+          try {
+            if ((await fetch(`http://127.0.0.1:${debugPort}/json/version`)).ok) break
+          } catch {
+            /* The isolated app is still starting. */
+          }
+          if (Date.now() > deadline) throw Error("Desktop debug endpoint did not start.")
+          await delay(100)
+        }
+        const { runUiChecks } = await import("./test-ui.mjs")
+        const evidence = await runUiChecks({ debugPort, origin, packaged })
+        assert.equal(report?.uiKind, 1, "UI checks must run in the desktop host.")
+        assert.equal(report?.bundleHash, bundleHash, "UI loaded the wrong bundle.")
+        await writeFile(reportPath, JSON.stringify({ ...evidence, vscode: report.vscode, bundleHash, testedExtensionRoot: extensionRoot }, null, 4) + "\n")
+      } else {
+        console.log("Isolated desktop host ready. Press Ctrl+C to stop.")
+        await Promise.race([
+          exited,
+          new Promise((done) => {
+            process.once("SIGINT", done)
+            process.once("SIGTERM", done)
+          })
+        ])
+      }
     } finally {
-      host.dispose()
-    }
-  } else if (interactive) {
-    const host = await open({ ...options, headless: false })
-    console.log(`Local service injection enabled: ${local.settings.profiles[0].apiUrl}, model ${local.settings.profiles[0].model}. Press Ctrl+C to stop.`)
-    try {
-      await new Promise((done) => {
-        process.once("SIGINT", done)
-        process.once("SIGTERM", done)
-      })
-    } finally {
-      host.dispose()
+      if (child.exitCode === null && child.signalCode === null && child.pid) {
+        if (process.platform === "win32") {
+          const stopped = spawnSync("taskkill", ["/PID", String(child.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true, timeout: 10000 })
+          if (stopped.error) child.kill()
+        } else child.kill()
+      }
+      await exited
     }
   } else {
-    await runTests({ ...options, extensionTestsPath: packaged ? resolve(extensionRoot, "test/index.cjs") : resolve("artifacts/extension-tests", runner) })
-    assert.ok(report?.checks?.length && report.host === "vscode-test-web", "Web tests did not report success.")
+    await runTests({
+      vscodeExecutablePath: executable,
+      reuseMachineInstall: false,
+      extensionDevelopmentPath: development,
+      launchArgs,
+      extensionTestsPath: packaged ? resolve(extensionRoot, "test/index.cjs") : resolve("artifacts/extension-tests", runner)
+    })
+    assert.ok(report?.checks?.length && report.host === "vscode-test-electron", "Desktop tests did not report success.")
     assert.equal(report.bundleHash, bundleHash)
     if (local) assert.equal(report.liveTranslationVerified, true)
     await writeFile(reportPath, JSON.stringify({ ...report, ...(local ? {} : { requests }), testedExtensionRoot: extensionRoot }, null, 4) + "\n")
-    console.log(`Official VS Code Web: ${report.checks.length} checks passed. Report: ${reportPath}`)
+    console.log(`Official VS Code Desktop: ${report.checks.length} checks passed. Report: ${reportPath}`)
   }
 } catch (error) {
   if (!interactive)
@@ -473,7 +509,7 @@ try {
       reportPath,
       JSON.stringify(
         {
-          host: "vscode-test-web",
+          host: "vscode-test-electron",
           mode: packaged ? "package" : "development",
           status: "failed",
           bundleHash,
