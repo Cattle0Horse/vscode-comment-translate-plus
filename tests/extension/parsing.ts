@@ -7,6 +7,39 @@ import { prepareTranslation } from "../../src/documents/terms.ts"
 /** Exercise the real grammar, document events and nested-fence cache through the production reader. */
 export async function runParsing(workspace: vscode.Uri, owner: Application): Promise<string[]> {
   for (const newline of ["\n", "\r\n"]) {
+    const source = [
+      "@catalog_tool(",
+      "    description=(",
+      '        "Pack/unpack parcels before "',
+      '        "visiting. Supports +, -, *, /, parentheses. "',
+      '        "Read the map. Keep the ticket. "',
+      '        "Compare red/blue labels. "',
+      '        "Choose the shelf or "',
+      '        "the documented default.\\n\\nReference shelves:\\n"',
+      "        + render_shelf_catalog()",
+      "    ),",
+      ")"
+    ].join(newline)
+    const parsed = await owner.documents.parseSource(source, "python")
+    const units = parsed.groups.flatMap((group) => group.units)
+    const expected = [
+      "Pack/unpack parcels before visiting. Supports +, -, *, /, parentheses. Read the map. Keep the ticket. Compare red/blue labels. Choose the shelf or the documented default.",
+      "Reference shelves:"
+    ]
+    if (JSON.stringify(units.map((unit) => prepareTranslation(unit, 32).text)) !== JSON.stringify(expected)) throw Error("Adjacent Python literal sentence units drifted.")
+    for (const unit of units) {
+      const prepared = prepareTranslation(unit, 32)
+      if (source.slice(unit.start, unit.end) !== unit.text || prepared.restore(prepared.text) !== unit.text) throw Error("Adjacent Python literal source mapping drifted.")
+      const translated = prepared.restore("阅读目录。")
+      if (validateTranslation(unit, translated)) throw Error("Adjacent Python literal translation rejected.")
+    }
+    const rows = displayTranslations(
+      source,
+      units.map((unit) => ({ ...unit, translation: prepareTranslation(unit, 32).restore("阅读目录。") }))
+    )
+    if (rows.length !== 1 || rows[0].translation !== "阅读目录。\n\n阅读目录。") throw Error("Same-line Python paragraphs lost their shared display block or decoded separator.")
+  }
+  for (const newline of ["\n", "\r\n"]) {
     for (const language of ["markdown", "typescript", "python"]) {
       const lines = ["Read the catalog.  ", "Keep the ticket.\t", "Read the next", "section before leaving."]
       const source = language === "python" ? '"""' + newline + lines.join(newline) + newline + '"""' : lines.map((line) => (language === "typescript" ? "// " : "") + line).join(newline)
@@ -102,6 +135,7 @@ export async function runParsing(workspace: vscode.Uri, owner: Application): Pro
     if (JSON.stringify(incremental) !== JSON.stringify(fresh)) throw Error("Nested fence tokenization or source mapping diverged after an edit.")
   }
   return [
+    "adjacent Python literals ignore physical source line breaks, split decoded paragraphs and preserve dynamic suffixes for LF and CRLF",
     "sentence endings ignore trailing whitespace and split Markdown, real comments and Python docstrings for LF and CRLF",
     "real Python grammar edits preserve incremental/fresh parity and exact unchanged restoration",
     "quoted Markdown fences isolate incremental grammar state and retain exact CRLF source ranges",

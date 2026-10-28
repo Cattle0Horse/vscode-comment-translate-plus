@@ -70,7 +70,7 @@ export function prepareTranslation(
   while ([unit.text, original, context].some((value) => value.includes(prefix))) prefix = "<CTP" + ++namespace + "_"
   const markers = new Map<string, { value: string; inlineCode?: boolean }>()
   let remaining = ""
-  const nativeLiterals = new Set<string>()
+  const nativeLiterals = new Map<string, { count: number; technical: boolean }>()
   const orderedTokens: string[] | undefined = unit.language === "python" && unit.kind !== "comment" ? [] : undefined
   let text = ""
   let position = 0
@@ -88,7 +88,8 @@ export function prepareTranslation(
     // indivisible fragments when the body saves at least three quarters of its size.
     if (range.side || range.kind === undefined || range.kind === "LineBoundary" || value.length < minimumMarkerCharacters || marker.length * 4 > value.length) {
       if (!range.side && range.kind !== "InlineCode") {
-        nativeLiterals.add(value)
+        const previous = nativeLiterals.get(value)
+        nativeLiterals.set(value, { count: (previous?.count ?? 0) + 1, technical: range.kind === "Technical" && (previous?.technical ?? true) })
         orderedTokens?.push(value)
       }
       return value
@@ -256,9 +257,21 @@ export function prepareTranslation(
       // TextMate ranges have no translated offsets. Verify their exact content and
       // multiplicity before parsing the surrounding translated document.
       const occurrences = (value: string, content: string) => content.split(value).length - 1
-      for (const value of nativeLiterals) {
-        const expected = occurrences(value, text)
-        const actual = occurrences(value, translated)
+      const technicalCounts = new Map<string, number>()
+      if ([...nativeLiterals.values()].some((literal) => literal.technical)) {
+        // Parse complete fragments, including paths newly wrapped in inline code.
+        // Unchanged source-owned code remains optional under the inline-code contract.
+        const candidate = { ...unit, text: translated, format: unit.content === undefined ? unit.format : ("text" as const), content: undefined, protected: undefined }
+        const fragments = protectedFragments(candidate).flatMap((fragment) => {
+          if (fragment.kind !== "InlineCode") return [fragment]
+          if (protectedRanges.some((range) => range.kind === "InlineCode" && source.slice(range.start, range.end) === fragment.text)) return []
+          return protectedFragments({ ...candidate, text: fragment.text.replace(/^`+|`+$/gu, ""), kind: "string" })
+        })
+        for (const fragment of fragments) if (fragment.kind === "Technical") technicalCounts.set(fragment.text, (technicalCounts.get(fragment.text) ?? 0) + 1)
+      }
+      for (const [value, literal] of nativeLiterals) {
+        const expected = literal.technical ? literal.count : occurrences(value, text)
+        const actual = literal.technical ? (technicalCounts.get(value) ?? 0) : occurrences(value, translated)
         if (actual !== expected) {
           // Prefer the document check's concrete error when this fragment is parseable
           // syntax. TextMate-only ranges still need the occurrence check below.

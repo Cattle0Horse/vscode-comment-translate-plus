@@ -82,13 +82,14 @@ export function protectedFragments(unit: TextUnit, tree?: MarkdownNode): readonl
   if (unit.kind !== "string") visit(root)
   fragments.sort((a, b) => a.start - b.start || b.end - a.end)
   const data = /[A-Za-z\d][A-Za-z\d._~:+/%=-]*/gu
+  const path = /(?<![\p{L}\p{N}\p{M}_/\\<])(?:[A-Za-z]:[\\/]|\.{1,2}[\\/]|\/(?!\/))[^\s<>"'\x60，。！？；]+/gu
   const patterns = [
     /https?:\/\/[^\s<>"'\x60，。！？；]+/giu,
     /\b[\da-fA-F]{8}-[\da-fA-F]{4}-[\da-fA-F]{4}-[\da-fA-F]{4}-[\da-fA-F]{12}\b/gu,
     /\b[A-Za-z\d.!#$%&'*+/=?^_\x60{|}~-]+@[A-Za-z\d](?:[A-Za-z\d-]*[A-Za-z\d])?(?:\.[A-Za-z\d](?:[A-Za-z\d-]*[A-Za-z\d])?)+\b/gu,
     /\b0x[\da-fA-F]+\b/gu,
     /(?<![\w.])v?\d+\.\d+\.\d+(?:-[A-Za-z\d]+(?:[.-][A-Za-z\d]+)*)?(?:\+[A-Za-z\d]+(?:[.-][A-Za-z\d]+)*)?(?!\w|\.\w)/gu,
-    /(?<![\p{L}\p{N}\p{M}_/\\<])(?:[A-Za-z]:[\\/]|\.{1,2}[\\/]|\/(?!\/))[^\s<>"'\x60，。！？；]+/gu,
+    path,
     /(?<![\w$])HTTP(?:S|\(S\))?\/\d+(?:\.\d+)*(?![\w$])/giu,
     data
   ]
@@ -111,14 +112,18 @@ export function protectedFragments(unit: TextUnit, tree?: MarkdownNode): readonl
         if (!(/^[\da-f]{32,}$/iu.test(hex) || numeric || mixed)) continue
       }
       if ((/^https?:\/\//iu.test(text) || /^[A-Za-z]:[\\/]|^\.{0,2}[\\/]/u.test(text)) && unit.kind !== "string") {
-        text = text.replace(/[.,!?;:]+$/u, "")
+        text = text.replace(/[.,!?;:]+$/u, (tail) => (pattern === path && /^\.{2,}$/u.test(tail) ? tail : ""))
         for (const [open, close] of [
           ["(", ")"],
           ["[", "]"],
-          ["{", "}"]
+          ["{", "}"],
+          ["（", "）"],
+          ["【", "】"]
         ])
           while (text.endsWith(close) && text.split(close).length > text.split(open).length) text = text.slice(0, -1)
       }
+      // A path prefix followed only by punctuation is an operator or prose, not a filename.
+      if (pattern === path && !/[^.,!?;:()[\]{}\\/]/u.test(text.replace(/^(?:[A-Za-z]:[\\/]|\.{1,2}[\\/]|\/)/u, ""))) continue
       const start = match.index
       const end = start + text.length
       // Escapes and interpolations are lexical boundaries, not identifier characters.

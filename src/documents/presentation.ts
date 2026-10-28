@@ -61,14 +61,33 @@ export function displayTranslations(source: string, units: readonly (TextUnit & 
     }
     group.parts.push(part)
   }
-  return [...groups.values()].map(({ unit, parts }) => {
+  const rows: (TextUnit & { readonly translation: string })[] = []
+  let previousLiteral: TextUnit | undefined
+  for (const { unit, parts } of [...groups.values()].sort((a, b) => a.unit.start - b.unit.start)) {
     const translation = assembleText(
       source,
       parts.map((part) => ({ start: part.start, end: part.end, text: part.translation })),
       unit
     )
-    return { ...unit, translation: parts.length === 1 && !parts[0].display ? translationDisplayText(translation, unit.format, parts[0]) : translation }
-  })
+    const row = { ...unit, translation: parts.length === 1 && !parts[0].display ? translationDisplayText(translation, unit.format, parts[0]) : translation }
+    let literal: TextUnit | undefined = parts.length === 1 ? parts[0] : undefined
+    while (literal?.projection?.kind === "container") literal = literal.projection.unit
+    const preceding = literal?.projection?.kind === "literal" ? literal.projection.preceding : undefined
+    const previous = rows.at(-1)
+    // Translation/cache units stay independent. Only completed display rows sharing
+    // a physical source line rejoin their exact decoded, source-owned separator.
+    if (
+      previous &&
+      preceding &&
+      preceding.id === previousLiteral?.id &&
+      literal?.language === "python" &&
+      source.lastIndexOf("\n", previous.end - 1) === source.lastIndexOf("\n", row.end - 1)
+    ) {
+      rows[rows.length - 1] = { ...previous, end: row.end, text: source.slice(previous.start, row.end), translation: previous.translation + preceding.text + row.translation }
+    } else rows.push(row)
+    previousLiteral = literal
+  }
+  return rows
 }
 
 /** Validate the assembled document too: individually valid cells or list items can change their parent structure. */

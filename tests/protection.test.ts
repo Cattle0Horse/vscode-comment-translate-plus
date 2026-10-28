@@ -420,6 +420,41 @@ test("translated slash-separated prose is not mistaken for a new path while expl
   }
 })
 
+test("punctuation after a slash does not turn an arithmetic operator into a path", () => {
+  for (const format of ["text", "markdown"] as const) {
+    for (const punctuation of [",", ".", ";", ":", "!", "?", ")", "]", "}"]) {
+      const text = "Pack/unpack parcels. Supports +, -, *, /" + punctuation + " Compare red/blue labels."
+      const unit = { id: "operators", start: 0, end: text.length, text, format }
+      const translated = "打包或拆包包裹。支持加法、减法、乘法和除法。比较红色或蓝色标签。"
+      const prepared = prepareTranslation(unit, 32)
+      assert.equal(prepared.restore(translated), translated)
+      assert.equal(validateTranslation(unit, translated), undefined)
+    }
+  }
+})
+
+test("a complete native path cannot be supplied by a substring of another path or URL", () => {
+  for (const format of ["text", "markdown"] as const) {
+    const text = "Read /gallery and /gallery/catalog at https://example.com/gallery."
+    const unit = { id: "path-counts", start: 0, end: text.length, text, format }
+    const prepared = prepareTranslation(unit, 200)
+    const translated = "阅读 /gallery 和 /gallery/catalog，地址为 https://example.com/gallery。"
+    assert.equal(prepared.restore(translated), translated)
+    for (const output of [
+      "阅读 /gallery/catalog，地址为 https://example.com/gallery。",
+      "阅读 /gallery 和 /gallery/catalog/catalog，地址为 https://example.com/gallery。",
+      translated + " /gallery",
+      translated.replace("/gallery 和", "prefix/gallery 和")
+    ])
+      assert.throws(() => prepared.restore(output), ModelRetry)
+  }
+  const text = "Read /gallery beside `/gallery`."
+  const unit = parseMarkdown(text).groups[0].units[0]
+  const prepared = prepareTranslation(unit, 200)
+  assert.equal(prepared.restore("阅读 /gallery。"), "阅读 /gallery。")
+  assert.throws(() => prepared.restore("阅读 `/gallery`。"), ModelRetry)
+})
+
 test("Markdown prefixes stay local and one equivalent echoed prefix is tolerated without accepting new structure", () => {
   for (const [prefix, echoed] of [
     ["- ", "* "],

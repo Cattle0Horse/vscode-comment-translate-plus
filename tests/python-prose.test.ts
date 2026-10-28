@@ -31,6 +31,198 @@ const grammar = {
   }
 } as IGrammar
 
+test("Python adjacent source lines form one content paragraph until a decoded paragraph break", async (t) => {
+  for (const newline of ["\n", "\r\n"]) {
+    const source = [
+      "@catalog_tool(",
+      "    description=(",
+      '        "Pack/unpack parcels before "',
+      '        "visiting. Supports +, -, *, /, parentheses. "',
+      '        "Read the map. Keep the ticket. "',
+      '        "Compare red/blue labels. "',
+      '        "Choose the shelf or "',
+      '        "the documented default.\\n\\nReference shelves:\\n"',
+      "        + render_shelf_catalog()",
+      "    ),",
+      ")"
+    ].join(newline)
+    const units = await extractCode(source, "python", new CodeTokenizer(grammar), () => {})
+    const prepared = units.map((unit) => prepareTranslation(unit, 32))
+    assert.deepEqual(
+      prepared.map((item) => item.text),
+      [
+        "Pack/unpack parcels before visiting. Supports +, -, *, /, parentheses. Read the map. Keep the ticket. Compare red/blue labels. Choose the shelf or the documented default.",
+        "Reference shelves:"
+      ]
+    )
+    let previousEnd = 0
+    let restored = source
+    for (const [index, unit] of units.entries()) {
+      assert.ok(unit.start >= previousEnd)
+      previousEnd = unit.end
+      assert.equal(source.slice(unit.start, unit.end), unit.text)
+      assert.equal(prepared[index].restore(prepared[index].text), unit.text)
+      assert.equal(validateTranslation(unit, prepared[index].restore("阅读目录。")), undefined)
+    }
+    for (let index = units.length - 1; index >= 0; index--) {
+      const unit = units[index]
+      restored = restored.slice(0, unit.start) + prepared[index].restore("阅读目录。") + restored.slice(unit.end)
+    }
+    assert.ok(restored.includes("+ render_shelf_catalog()"))
+    assert.equal((await extractCode(restored, "python", new CodeTokenizer(grammar), () => {})).length, units.length)
+    const translations = ["参观前打包或拆包包裹。支持加法、减法、乘法、除法和括号。阅读地图并保留门票。比较红色与蓝色标签。选择书架或文档规定的默认项。", "参考书架："]
+    const fixture = await chatFixture(t, (_body, items) => items.map((item) => translations[prepared.findIndex((entry) => entry.text === item)]).join("\n%%\n"))
+    const store = new TranslationStore()
+    t.after(() => store.clear())
+    const run = () =>
+      store.translate(
+        "literal-sentences",
+        { units },
+        (input, signal, completed) => requestTranslation(fixture.service, fixture.settings, input, signal, fixture.gate, completed),
+        new AbortController().signal
+      )
+    const result = await run()
+    assert.deepEqual(
+      units.map((unit) => projectionContent(unit, result.get(unit.id)!)),
+      translations
+    )
+    const requests = fixture.seen.length
+    assert.deepEqual(await run(), result)
+    assert.equal(fixture.seen.length, requests)
+    assert.deepEqual(
+      fixture.seen.flatMap((request) => request.items),
+      prepared.map((item) => item.text)
+    )
+  }
+})
+
+test("Python literal boundaries keep same-line sentences and cross-literal inline syntax together", async () => {
+  for (const parts of [
+    ['"Read the map. " "Keep the ticket."'],
+    ['"Read **the map. "', '"Keep both styled.**"'],
+    ['"Read `the map. "', '"Keep both literal.`"'],
+    ['"Read [the map. "', '"Keep both linked.](https://example.com)"']
+  ]) {
+    const source = "notice = (" + parts.join("\n    ") + ")"
+    const units = await extractCode(source, "python", new CodeTokenizer(grammar), () => {})
+    assert.equal(units.length, 1)
+    const prepared = prepareTranslation(units[0], 32)
+    assert.equal(prepared.restore(prepared.text), units[0].text)
+    assert.equal(validateTranslation(units[0], prepared.restore(prepared.text.replace("Read", "阅读"))), undefined)
+  }
+})
+
+test("Python content line breaks are independent of source layout and escaped literal text", async () => {
+  for (const newline of ["\n", "\r\n"]) {
+    for (const [parts, expected] of [
+      [['"Read the map. "', '"Keep the ticket."'], ["Read the map. Keep the ticket."]],
+      [
+        ['"Read the map.\\n"', '"Keep the ticket."'],
+        ["Read the map.", "Keep the ticket."]
+      ],
+      [['"Read the map.\\r\\n\\r\\nKeep the ticket."'], ["Read the map.", "Keep the ticket."]],
+      [['"Read the map.\\\\nKeep the ticket."'], ["Read the map.\\nKeep the ticket."]]
+    ]) {
+      for (const gap of [" ", newline, " \\" + newline]) {
+        const source = "notice = (" + parts.join(gap) + ")"
+        const units = await extractCode(source, "python", new CodeTokenizer(grammar), () => {})
+        assert.deepEqual(
+          units.map((unit) => prepareTranslation(unit, 32).text),
+          expected
+        )
+        for (const unit of units) assert.equal(prepareTranslation(unit, 32).restore(prepareTranslation(unit, 32).text), unit.text)
+      }
+    }
+  }
+  const source = 'r"Read the map.\\n\\nKeep the ticket."'
+  const region: TextUnit = { id: "raw-breaks", start: 0, end: source.length, text: source, kind: "string", format: "text", language: "python" }
+  const units = pythonStringUnits(source, region, [{ start: 0, end: source.length, protected: [] }])
+  assert.equal(units.length, 1)
+  assert.equal(prepareTranslation(units[0], 32).text, "Read the map.\\n\\nKeep the ticket.")
+  assert.equal(prepareTranslation(units[0], 32).restore(prepareTranslation(units[0], 32).text), units[0].text)
+})
+
+test("Python decoded paragraphs share one source-line display block but preserve replacement escapes", async () => {
+  for (const escape of ["\\n\\n", "\\r\\n\\r\\n"]) {
+    const source = 'notice = "Read the map.' + escape + 'Keep the ticket."'
+    const units = await extractCode(source, "python", new CodeTokenizer(grammar), () => {})
+    assert.equal(units.length, 2)
+    const translations = ["阅读地图。", "保留门票。"]
+    const translated = units.map((unit, index) => ({ ...unit, translation: prepareTranslation(unit, 32).restore(translations[index]) }))
+    const rows = displayTranslations(source, [...translated].reverse())
+    assert.equal(rows.length, 1)
+    assert.equal(rows[0].translation, translations.join(escape === "\\n\\n" ? "\n\n" : "\r\n\r\n"))
+    assert.equal(rows[0].start, units[0].start)
+    assert.equal(rows[0].end, units[1].end)
+    for (const part of translated) {
+      assert.equal(displayTranslations(source, [part]).length, 1)
+      assert.equal(validateTranslation(part, part.translation), undefined)
+      const replacement = source.slice(0, part.start) + part.translation + source.slice(part.end)
+      assert.ok(replacement.includes(escape))
+      assert.ok(!replacement.includes("\n"))
+    }
+    let replacement = source
+    for (const part of [...translated].reverse()) replacement = replacement.slice(0, part.start) + part.translation + replacement.slice(part.end)
+    assert.equal(replacement, 'notice = "阅读地图。' + escape + '保留门票。"')
+  }
+})
+
+test("same-line Python paragraphs retry and cache independently before joining in source order", async (t) => {
+  const source = 'notice = "Read /gallery.\\n\\nKeep the ticket."'
+  const units = await extractCode(source, "python", new CodeTokenizer(grammar), () => {})
+  const fixture = await chatFixture(t, (_body, items, call) =>
+    items.map((item) => (item.startsWith("Read") ? (call === 1 ? "阅读画廊。" : "阅读 /gallery。") : "保留门票。")).join("\n%%\n")
+  )
+  const store = new TranslationStore()
+  t.after(() => store.clear())
+  const published: string[] = []
+  const run = () =>
+    store.translate(
+      "same-line-paragraphs",
+      { units },
+      (input, signal, completed) => requestTranslation(fixture.service, fixture.settings, input, signal, fixture.gate, completed),
+      new AbortController().signal,
+      false,
+      (item) => published.push(item.id)
+    )
+  const result = await run()
+  assert.deepEqual(
+    fixture.seen.map((request) => request.items),
+    [["Read /gallery.", "Keep the ticket."], ["Read /gallery."]]
+  )
+  assert.deepEqual(published, [units[1].id, units[0].id])
+  const [row] = displayTranslations(
+    source,
+    units.map((unit) => ({ ...unit, translation: result.get(unit.id)! }))
+  )
+  assert.equal(row.translation, "阅读 /gallery。\n\n保留门票。")
+  assert.deepEqual(await run(), result)
+  assert.equal(fixture.seen.length, 2)
+})
+
+test("nested Python previews preserve escaped paragraph boundaries while display details decode them", async () => {
+  const source = '> ```python\n> notice = "Read the map.\\n\\nKeep the ticket."\n> ```'
+  const parsed = await parseMarkdownWithCode(source, async (code, language) => {
+    const units = await extractCode(code, language, new CodeTokenizer(grammar), () => {})
+    return { source: code, groups: units.map((unit) => ({ start: unit.start, end: unit.end, units: [unit] })), errors: [] }
+  })
+  const units = parsed.groups.flatMap((group) => group.units)
+  const translations = new Map(units.map((unit, index) => [unit.id, prepareTranslation(unit, 32).restore(index === 0 ? "阅读地图。" : "保留门票。")]))
+  const [row] = displayTranslations(
+    source,
+    [...units].reverse().map((unit) => ({ ...unit, translation: translations.get(unit.id)! }))
+  )
+  assert.equal(
+    displayTranslations(
+      source,
+      units.map((unit) => ({ ...unit, translation: translations.get(unit.id)! }))
+    ).length,
+    1
+  )
+  assert.equal(row.translation, "阅读地图。\n\n保留门票。")
+  assert.equal(translatedMarkdown(parsed, translations), '> ```python\n> notice = "阅读地图。\\n\\n保留门票。"\n> ```')
+})
+
 test("Python multiline f-string prose survives interpolation-only lines and blank paragraphs", async () => {
   for (const newline of ["\n", "\r\n"]) {
     for (const quote of ['"""', "'''"]) {

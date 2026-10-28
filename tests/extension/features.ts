@@ -424,6 +424,30 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   checks.push("real Python grammar keeps triple quote boundaries local for both quote styles and multiline docstrings")
 
   await config.update("browse.strings", true, vscode.ConfigurationTarget.Global)
+  {
+    const source = 'notice = "Read the original document.\\n\\nRead the original document."\nnext_value = 1'
+    const target = await open("decoded-paragraph-row.py", "python", source)
+    await start(target.document, 2)
+    const lenses = await vscode.commands.executeCommand<vscode.CodeLens[]>("vscode.executeCodeLensProvider", target.document.uri, 100)
+    assert(lenses?.filter((lens) => lens.range.start.line === 1).length === 1, "Same-line decoded paragraphs reserved multiple translation rows.")
+    assert(target.document.getText() === source && !target.document.isDirty, "Decoded paragraph display modified source.")
+    const completed = owner.browse.inspect(target.document.uri)!.units
+    const rows = displayTranslations(source, completed)
+    assert(rows.length === 1 && rows[0].translation === "阅读原始文档。\n\n阅读原始文档。", "Same-line display details lost decoded paragraphs or source order.")
+    const second = completed[1]
+    const position = target.document.positionAt(second.start + 2)
+    target.editor.selection = new vscode.Selection(position, position)
+    assert(await vscode.commands.executeCommand<boolean>("commentTranslatePlus.translateAndReplace"), "Decoded paragraph cursor replacement failed.")
+    assert(
+      target.document.getText() === source.slice(0, second.start) + second.translation + source.slice(second.end),
+      "Decoded paragraph replacement changed a neighbour or its escaped separator."
+    )
+    assert(target.document.getText().includes("\\n\\n") && target.document.lineCount === 2, "Replacement changed escaped content breaks into physical source lines.")
+    await vscode.commands.executeCommand("undo")
+    assert(target.document.getText() === source, "Decoded paragraph replacement did not undo exactly.")
+    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    checks.push("decoded Python paragraphs retain independent units, one source-line display block, decoded details and escape-preserving cursor replacement")
+  }
   for (const newline of ["\n", "\r\n"]) {
     const source = [
       "def _locked_skill_notice(name: str) -> str:",
@@ -471,7 +495,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     for (const unit of units) {
       const prepared = prepareTranslation(unit, 32)
       assert(prepared.restore(prepared.text) === unit.text, "Python expression no-op lost protected syntax.")
-      if (expression.includes("user.name")) assert(prepared.text.includes("{user.name!r:>10}") && !prepared.hasMarkers, "Short Python interpolation consumed CTP markers.")
+      if (unit.text.includes("user.name")) assert(prepared.text.includes("{user.name!r:>10}") && !prepared.hasMarkers, "Short Python interpolation consumed CTP markers.")
       if (expression.includes("shelf[")) {
         const translated = prepared.restore(prepared.text.replace("Read", "阅读"))
         assert(

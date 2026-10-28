@@ -263,8 +263,10 @@ export function pythonStringUnits(source: string, region: TextUnit, literals: re
       positions.append(value.length, start + from, start + to)
     })
   }
+  // Only decoded content supplies line boundaries; gaps between literals are source layout.
   const blocks = proseBlocks(text, protectedRanges)
   const units: (TextUnit & { readonly kind: "string" })[] = []
+  let previousDecodedEnd = 0
   for (const block of blocks) {
     const raw = text.slice(block.start, block.end)
     const lines = [...raw.matchAll(/[^\n]*(?:\n|$)/gu)]
@@ -327,6 +329,7 @@ export function pythonStringUnits(source: string, region: TextUnit, literals: re
         projection: {
           kind: "literal",
           unit,
+          preceding: units.length ? { id: units.at(-1)!.id, text: text.slice(previousDecodedEnd, decoded.start) } : undefined,
           codec: {
             identity: JSON.stringify([syntax.prefix, transition, syntax.quote, syntax.raw, syntax.formatted, syntax.expressions]),
             invalid: {
@@ -340,6 +343,7 @@ export function pythonStringUnits(source: string, region: TextUnit, literals: re
           }
         }
       })
+      previousDecodedEnd = decoded.end
     }
   }
   return units

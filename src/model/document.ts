@@ -25,6 +25,8 @@ export type UnitProjection =
   | {
       readonly kind: "literal"
       readonly unit: TextUnit
+      /** Decoded source-owned gap after the preceding prose unit in this literal group. */
+      readonly preceding?: { readonly id: string; readonly text: string }
       readonly codec: {
         readonly identity: string
         readonly invalid: { readonly reason: string; readonly instruction: string; readonly difference: TranslationDifference }

@@ -69,6 +69,31 @@ test("native fragment count failures carry observed counts into recovery and cac
   }
 })
 
+test("technical recovery rejects a longer path substituted for a native path before caching the repair", async (t) => {
+  const source = "Read /gallery and /gallery/catalog."
+  const broken = "阅读 /gallery 和 /gallery/catalog/catalog。"
+  const fixed = "阅读 /gallery 和 /gallery/catalog。"
+  const fixture = await chatFixture(t, (_body, _items, call) => (call === 1 ? broken : fixed))
+  const input = inputOf(parseMarkdown(source))
+  const store = new TranslationStore()
+  t.after(() => store.clear())
+  const events: TranslationEvent[] = []
+  const run = () =>
+    store.translate(
+      "native-paths",
+      input,
+      (batch, signal, completed) => requestTranslation(fixture.service, fixture.settings, batch, signal, fixture.gate, completed, { details: false, emit: (event) => events.push(event) }),
+      new AbortController().signal
+    )
+  assert.equal((await run()).get(input.units[0].id), fixed)
+  const failure = events.flatMap((event) => (event.kind === "request" ? event.failures : []))[0]
+  assert.equal(failure.difference.expected, "1 次：/gallery/catalog")
+  assert.equal(failure.difference.actual, "0 次")
+  assert.ok(modelFeedback(fixture.seen[1].body).includes(failure.difference.modelReason!))
+  assert.equal((await run()).get(input.units[0].id), fixed)
+  assert.equal(fixture.seen.length, 2)
+})
+
 test("all source items are sent as one line and restore their original breaks while context keeps its format", async (t) => {
   for (const newline of ["\n", "\r\n", "\r"]) {
     const source = "Read first." + newline + "  Continue reading."
