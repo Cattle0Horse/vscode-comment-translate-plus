@@ -64,12 +64,15 @@ export function displayTranslations(source: string, units: readonly (TextUnit & 
   const rows: (TextUnit & { readonly translation: string })[] = []
   let previousLiteral: TextUnit | undefined
   for (const { unit, parts } of [...groups.values()].sort((a, b) => a.unit.start - b.unit.start)) {
-    const translation = assembleText(
-      source,
-      parts.map((part) => ({ start: part.start, end: part.end, text: part.translation })),
-      unit
-    )
-    const row = { ...unit, translation: parts.length === 1 && !parts[0].display ? translationDisplayText(translation, unit.format, parts[0]) : translation }
+    const translation =
+      parts.length === 1 && !parts[0].display
+        ? translationDisplayText(parts[0].translation, unit.format, parts[0])
+        : assembleText(
+            source,
+            parts.map((part) => ({ start: part.start, end: part.end, text: part.translation })),
+            unit
+          )
+    const row = { ...unit, translation }
     let literal: TextUnit | undefined = parts.length === 1 ? parts[0] : undefined
     while (literal?.projection?.kind === "container") literal = literal.projection.unit
     const preceding = literal?.projection?.kind === "literal" ? literal.projection.preceding : undefined

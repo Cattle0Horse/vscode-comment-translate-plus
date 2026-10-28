@@ -27,7 +27,6 @@ interface DisplayUnit {
   readonly column: number
   readonly nextLine: number
   readonly text: string
-  readonly detail: string
 }
 
 class TranslationLens extends vscode.CodeLens {
@@ -102,7 +101,7 @@ export class BrowseRenderer implements vscode.Disposable, vscode.CodeLensProvide
         const prefix = document.lineAt(position.line).text.slice(0, position.character) + first.slice(0, stripped && index >= 0 ? index : (first.match(/^\s*/)?.[0].length ?? 0))
         const tabSize = Number(vscode.workspace.getConfiguration("editor", document.uri).get("tabSize", 4))
         const column = [...prefix].reduce((column, character) => (character === "\t" ? column + tabSize - (column % tabSize) : column + 1), 0)
-        return { unit, text: prose(unit.translation, unit), detail: unit.translation, column, nextLine: document.positionAt(unit.end).line + 1 }
+        return { unit, text: prose(unit.translation, unit), column, nextLine: document.positionAt(unit.end).line + 1 }
       })
       .filter((item) => !!item.text)
   }
@@ -190,38 +189,26 @@ export class BrowseRenderer implements vscode.Disposable, vscode.CodeLensProvide
     }
     if (!units.length) this.resolved.delete(editor.document.uri.toString())
     const resolved = this.resolved.get(editor.document.uri.toString())
-    const rows = new Map<number, { column: number; texts: string[]; details: string[] }>()
-    for (const { nextLine, column, text, detail } of units) {
+    const rows = new Map<number, DisplayUnit[]>()
+    for (const item of units) {
+      const { nextLine } = item
       if (nextLine < editor.document.lineCount && (resolved?.version !== editor.document.version || !resolved.lines.has(nextLine))) continue
-      const row = rows.get(nextLine) ?? { column, texts: [], details: [] }
-      row.texts.push(text)
-      row.details.push(detail)
+      const row = rows.get(nextLine) ?? []
+      row.push(item)
       rows.set(nextLine, row)
     }
-    editor.setDecorations(
-      this.contrast,
-      [...rows]
-        .filter(([line]) => line < editor.document.lineCount)
-        .map(([line, row]) => ({
-          range: new vscode.Range(line, 0, line, 0),
-          hoverMessage: new vscode.MarkdownString().appendCodeblock(row.details.join("\n\n")),
-          renderOptions: { before: { contentText: row.texts.join(" · "), textDecoration: `none; transform: translateX(${row.column}ch);` } }
-        }))
-    )
-    const tail = rows.get(editor.document.lineCount)
+    const contrast: vscode.DecorationOptions[] = []
+    const tail: vscode.DecorationOptions[] = []
     const end = editor.document.lineAt(editor.document.lineCount - 1).range.end
-    editor.setDecorations(
-      this.tail,
-      tail
-        ? [
-            {
-              range: new vscode.Range(end, end),
-              hoverMessage: new vscode.MarkdownString().appendCodeblock(tail.details.join("\n\n")),
-              renderOptions: { after: { contentText: tail.texts.join(" · "), textDecoration: `none; transform: translateX(${tail.column}ch);` } }
-            }
-          ]
-        : []
-    )
+    for (const [line, row] of rows) {
+      if (line > editor.document.lineCount) continue
+      const hoverMessage = new vscode.MarkdownString().appendCodeblock(row.map((item) => item.unit.translation).join("\n\n"))
+      const content = { contentText: row.map((item) => item.text).join(" · "), textDecoration: `none; transform: translateX(${row[0].column}ch);` }
+      if (line < editor.document.lineCount) contrast.push({ range: new vscode.Range(line, 0, line, 0), hoverMessage, renderOptions: { before: content } })
+      else tail.push({ range: new vscode.Range(end, end), hoverMessage, renderOptions: { after: content } })
+    }
+    editor.setDecorations(this.contrast, contrast)
+    editor.setDecorations(this.tail, tail)
   }
 
   dispose(): void {
