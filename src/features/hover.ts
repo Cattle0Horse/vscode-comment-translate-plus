@@ -1,7 +1,6 @@
 import * as vscode from "vscode"
 import { translatedMarkdown, translationDisplayText } from "../documents/presentation.ts"
 import { translationIsUnchanged } from "../documents/validation.ts"
-import type { TranslationInput } from "../model/translation.ts"
 import type { TextUnit } from "../model/document.ts"
 import { describeError } from "../model/diagnostics.ts"
 import type { CancellationReason } from "../model/diagnostics.ts"
@@ -72,10 +71,14 @@ export class TranslationHover implements vscode.Disposable, vscode.HoverProvider
         const identity = await replacementIdentity(document.uri, this.translations)
         controller.signal.throwIfAborted()
         if (document.isClosed || document.version !== version) return
-        const batch: TranslationInput = { units: [unit] }
-        const translated = selected
-          ? await this.translations.translateSelection(document, selected, controller.signal)
-          : (await this.translations.translate(document, batch, controller.signal, false, undefined, await this.translations.settings(document.uri, false))).get(unit.id)
+        let translated: string | undefined
+        if (selected) {
+          translated = await this.translations.translateSelection(document, selected, controller.signal)
+        } else {
+          const settings = await this.translations.settings(document.uri, false)
+          const result = await this.translations.translate(document, { units: [unit] }, controller.signal, false, undefined, settings)
+          translated = result.get(unit.id)
+        }
         // Selections are already canonicalized per parsed unit, including decoded strings.
         if (translated && (selected ? translated !== unit.text : !translationIsUnchanged(unit, translated))) {
           const content = new vscode.MarkdownString()

@@ -65,9 +65,14 @@ export class SourceReplacementAction implements vscode.Disposable {
         const cancellation = token.onCancellationRequested(() => controller.abort("user-cancelled"))
         try {
           if (token.isCancellationRequested) controller.abort("user-cancelled")
-          const translated = selected
-            ? await this.translations.translateSelection(document, selected, controller.signal)
-            : (await this.translations.translate(document, { units: [unit] }, controller.signal, false, undefined, await this.translations.settings(document.uri, false))).get(unit.id)
+          let translated: string | undefined
+          if (selected) {
+            translated = await this.translations.translateSelection(document, selected, controller.signal)
+          } else {
+            const settings = await this.translations.settings(document.uri, false)
+            const result = await this.translations.translate(document, { units: [unit] }, controller.signal, false, undefined, settings)
+            translated = result.get(unit.id)
+          }
           controller.signal.throwIfAborted()
           if (translated === undefined) return false
           return this.replace({ uri, version, start: unit.start, end: unit.end, source: unit.text, text: translated, identity })
