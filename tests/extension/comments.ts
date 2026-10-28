@@ -24,7 +24,7 @@ export async function runCommentParagraphs(workspace: vscode.Uri, owner: Applica
     ["sql", "sql", "--", "SELECT 1;"]
   ]) {
     for (const [index, newline] of ["\n", "\r\n"].entries()) {
-      const source = ["  " + prefix + " Read the original", "  " + prefix + " document.", "  " + prefix, "  " + prefix + " Keep its context.", code].join(newline)
+      const source = ["  " + prefix + " Read the original", "  " + prefix + " document.", "  " + prefix + " -----------", "  " + prefix + " Keep its context.", code].join(newline)
       const uri = vscode.Uri.joinPath(workspace, "comment-paragraph-" + index + "." + extension)
       await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(source))
       const document = await vscode.workspace.openTextDocument(uri)

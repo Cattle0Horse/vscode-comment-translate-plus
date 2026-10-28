@@ -29,7 +29,7 @@ function collectRegions(source: string, tokens: Iterable<RegionToken>): CodeSpan
   return spans
 }
 
-/** Adjacent standalone line comments form one paragraph; code and empty comments remain boundaries. */
+/** Adjacent standalone prose comments form one paragraph; code, empty comments and separators remain boundaries. */
 function commentParagraphs(source: string, spans: readonly CodeSpan[]): CodeSpan[] {
   const paragraphs: CodeSpan[] = []
   for (const span of spans) {
@@ -37,7 +37,7 @@ function commentParagraphs(source: string, spans: readonly CodeSpan[]): CodeSpan
       const text = source.slice(span.start, span.end)
       const delimiter = span.protected.find((range) => range.start === span.start)
       span.commentPrefix = text.match(/^(?:\/{2,}!?|#+!?|--+|;+|%+|'+|!)/u)?.[0] ?? (delimiter ? source.slice(delimiter.start, delimiter.end).trimEnd() : undefined)
-      if (span.commentPrefix && !text.slice(span.commentPrefix.length).trim()) span.commentPrefix = undefined
+      if (span.commentPrefix && !/[\p{L}\p{N}]/u.test(text.slice(span.commentPrefix.length))) span.commentPrefix = undefined
       const leading = source.slice(source.lastIndexOf("\n", span.start - 1) + 1, span.start)
       if (/^[\t ]*$/u.test(leading)) span.indent = leading
       const previous = paragraphs.at(-1)

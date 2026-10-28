@@ -70,6 +70,36 @@ test("blank lines, code, inline comments, indentation and marker changes separat
   assert.equal(prepareTranslation(rust[0], 32).text, "Read the catalog before entering.")
 })
 
+test("decorative comment separators stay outside translated paragraphs and preserve their source positions", async () => {
+  for (const newline of ["\n", "\r\n"]) {
+    for (const marker of ["#", "//", "///", "--", ";"]) {
+      for (const separator of ["-----------", "===========", "* * *", "─━─━─"]) {
+        const source = [
+          marker + " Keep the ticket.",
+          marker + " " + separator,
+          marker + " Gallery guide",
+          marker + " " + separator,
+          marker + " Read the catalog",
+          marker + " before entering."
+        ].join(newline)
+        const units = await extractCode(source, "fixture", new CodeTokenizer(lineGrammar(marker)), () => {})
+        assert.deepEqual(
+          units.map((unit) => prepareTranslation(unit, 32).text),
+          ["Keep the ticket.", "Gallery guide", "Read the catalog before entering."]
+        )
+        const title = units[1]
+        const translation = prepareTranslation(title, 32).restore("画廊指南")
+        assert.equal(validateTranslation(title, translation), undefined)
+        const rows = displayTranslations(source, [{ ...title, translation }])
+        assert.equal(rows.length, 1)
+        assert.equal(rows[0].start, source.indexOf(marker + " Gallery guide"))
+        assert.equal(rows[0].end, title.end)
+        assert.equal(source.slice(title.start, title.end), marker + " Gallery guide")
+      }
+    }
+  }
+})
+
 test("comment paragraphs share edit invalidation and keep neighbouring paragraphs displayed", async () => {
   const source = "// Read the catalog\n// before entering.\n//\n// Keep the ticket."
   const grammar = lineGrammar("//")
