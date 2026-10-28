@@ -171,7 +171,9 @@ export function prepareTranslation(
       // wrapper around exactly one such marker is representation, not new content.
       translated = translated.replace(new RegExp("(?<!`)(`+)(" + pattern.source + ")\\1(?!`)", "g"), (match, ticks: string, marker: string) => {
         const value = markers.get(marker)
-        return value && ((value.inlineCode && value.value.match(/^`+/u)?.[0] === ticks) || /^https?:\/\//iu.test(value.value)) ? marker : match
+        if (!value) return match
+        if (value.inlineCode && value.value.match(/^`+/u)?.[0] === ticks) return marker
+        return /^https?:\/\//iu.test(value.value) ? marker : match
       })
       // Native emphasis delimiters need no IDs. Repair only their immediate inner
       // whitespace when the complete restored document still has the source shape.
