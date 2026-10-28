@@ -1251,6 +1251,54 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   await config.update("auto.include", undefined, vscode.ConfigurationTarget.Global)
   checks.push("automatic include matches any rule, excludes win overlaps, empty include disables auto, default restores it and manual browse retains priority")
   checks.push("automatic browse supports code and Markdown, excludes root-relative files and nested directories, reacts to glob changes and respects manual overrides")
+  const diffOriginalUri = vscode.Uri.parse("ctp-auto-diff:/history/previous.md?ref=previous")
+  const diffSource = "Read the original document."
+  const diffProvider = vscode.workspace.registerTextDocumentContentProvider(diffOriginalUri.scheme, { provideTextDocumentContent: () => diffSource })
+  try {
+    await config.update("auto.include", ["docs/**"], vscode.ConfigurationTarget.Global)
+    await config.update("auto.enabled", true, vscode.ConfigurationTarget.Global)
+    const modified = await open("docs/automatic-diff.md", "markdown", "Read the complete field.")
+    await vscode.commands.executeCommand("vscode.diff", diffOriginalUri, modified.document.uri, "Automatic document changes")
+    const original = await vscode.workspace.openTextDocument(diffOriginalUri)
+    await waitFor(
+      () =>
+        vscode.window.tabGroups.all.some((group) => group.tabs.some((tab) => tab.input instanceof vscode.TabInputTextDiff && tab.input.original.toString() === diffOriginalUri.toString())),
+      "automatic diff tab"
+    )
+    assert(automaticScope(original), "Diff original did not inherit the workspace file's automatic scope.")
+    await waitFor(
+      () => owner.browse.inspect(diffOriginalUri)?.status === "ready" && owner.browse.inspect(modified.document.uri)?.status === "ready",
+      "both diff sides automatically translate"
+    )
+    assert(owner.browse.inspect(diffOriginalUri)!.units[0].translation.includes("阅读原始文档"), "Diff original did not translate its own content.")
+    assert(owner.browse.inspect(modified.document.uri)!.units[0].translation.includes("阅读完整字段"), "Diff modified side did not translate its own content.")
+    const unrelated = await vscode.workspace.openTextDocument(vscode.Uri.parse("ctp-auto-diff:/unrelated.md"))
+    assert(!automaticScope(unrelated), "An unrelated virtual document inherited the diff workspace.")
+    await config.update("auto.exclude", ["docs/**"], vscode.ConfigurationTarget.Global)
+    await waitFor(() => !owner.browse.has(diffOriginalUri) && !owner.browse.has(modified.document.uri), "exclusion stops both diff sides")
+    await config.update("auto.exclude", [], vscode.ConfigurationTarget.Global)
+    await waitFor(
+      () => owner.browse.inspect(diffOriginalUri)?.status === "ready" && owner.browse.inspect(modified.document.uri)?.status === "ready",
+      "clearing exclusion restarts both diff sides"
+    )
+    owner.browse.stop(diffOriginalUri, true)
+    await config.update("auto.include", ["**/*.md"], vscode.ConfigurationTarget.Global)
+    await waitFor(() => owner.browse.inspect(modified.document.uri)?.status === "ready", "modified diff remains automatic after manual original stop")
+    assert(!owner.browse.has(diffOriginalUri), "Automatic diff restart overrode the original side's manual stop.")
+    assert(
+      original.getText() === diffSource && !original.isDirty && modified.document.getText() === "Read the complete field." && !modified.document.isDirty,
+      "Automatic translation edited a diff source."
+    )
+    checks.push(
+      "diff sides automatically translate distinct content using the workspace counterpart's include/exclude rules, retain per-side manual overrides and never edit source or admit unrelated virtual documents"
+    )
+  } finally {
+    await config.update("auto.enabled", false, vscode.ConfigurationTarget.Global)
+    await config.update("auto.include", undefined, vscode.ConfigurationTarget.Global)
+    await config.update("auto.exclude", undefined, vscode.ConfigurationTarget.Global)
+    await vscode.commands.executeCommand("workbench.action.closeAllEditors")
+    diffProvider.dispose()
+  }
   await config.update("activeProfile", "custom", vscode.ConfigurationTarget.Global)
   await config.update("targetLanguage", "zh-CN", vscode.ConfigurationTarget.Global)
   const custom = await open("custom-prompts.md", "markdown", "Read the original document.")

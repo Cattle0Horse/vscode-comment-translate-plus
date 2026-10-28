@@ -71,6 +71,7 @@ export class Application implements vscode.Disposable {
       }),
       vscode.window.onDidChangeActiveTextEditor(refresh),
       vscode.window.onDidChangeVisibleTextEditors(refresh),
+      vscode.window.tabGroups.onDidChangeTabs(refresh),
       vscode.window.onDidChangeTextEditorVisibleRanges(() => {
         this.translations.refreshPriorities()
         this.browse.refreshVisible()

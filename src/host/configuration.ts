@@ -122,6 +122,18 @@ export function displayMode(uri?: vscode.Uri): "contrast" | "inplace" {
 }
 
 export function automatic(document: vscode.TextDocument): boolean {
+  if (!vscode.workspace.getWorkspaceFolder(document.uri)) {
+    for (const tab of vscode.window.tabGroups.all.flatMap((group) => group.tabs)) {
+      if (!(tab.input instanceof vscode.TabInputTextDiff)) continue
+      const { original, modified } = tab.input
+      const peer = original.toString() === document.uri.toString() ? modified : modified.toString() === document.uri.toString() ? original : undefined
+      if (!peer || !vscode.workspace.getWorkspaceFolder(peer)) continue
+      const workspaceDocument = vscode.workspace.textDocuments.find((candidate) => candidate.uri.toString() === peer.toString())
+      if (!workspaceDocument) continue
+      document = workspaceDocument
+      break
+    }
+  }
   const config = vscode.workspace.getConfiguration("commentTranslatePlus", document.uri)
   const folder = vscode.workspace.getWorkspaceFolder(document.uri)
   if (!config.get<boolean>("auto.enabled", false) || !folder) return false
