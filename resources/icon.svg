@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" fill="none">
+  <title>注释翻译+</title>
+  <defs>
+    <linearGradient id="background" x1="64" y1="32" x2="448" y2="480" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#159CA8"/>
+      <stop offset="1" stop-color="#1467B8"/>
+    </linearGradient>
+  </defs>
+  <rect x="16" y="16" width="480" height="480" rx="112" fill="url(#background)"/>
+  <path d="M144 108H368C396.719 108 420 131.281 420 160V340C420 368.719 396.719 392 368 392H200L120 436L136 391.39C111.087 387.548 92 366.001 92 340V160C92 131.281 115.281 108 144 108Z" fill="#F8FEFF"/>
+  <g stroke="#117B98" stroke-width="18" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M154 169L174 185M144 222H169V314L195 294"/>
+    <path d="M222 163H314C299 195 267 220 219 233M232 181C249 205 280 224 326 233"/>
+    <path d="M226 266H316M215 302H328M272 240V334"/>
+  </g>
+  <circle cx="404" cy="112" r="52" fill="#20D9BE" stroke="#147EAA" stroke-width="10"/>
+  <path d="M404 91V133M383 112H425" stroke="#073F61" stroke-width="14" stroke-linecap="round"/>
+</svg>
