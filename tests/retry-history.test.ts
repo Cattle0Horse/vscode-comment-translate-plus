@@ -83,15 +83,10 @@ test("ambiguous item counts recover through smaller batches without carrying obs
     const published: string[] = []
     const fixture = await chatFixture(t, (_body, items) => (items.length > 1 ? "名称：ai-writer" : items[0].replace("Original", "译文")))
     const input = listBatch(count)
-    const result = await requestTranslation(
-      fixture.service,
-      { ...fixture.settings, maxConcurrentRequests: 1 },
-      input,
-      new AbortController().signal,
-      fixture.gate,
-      (item) => published.push(item.text),
-      { details: false, emit: (event) => events.push(event) }
-    )
+    const result = await requestTranslation(fixture.service, { ...fixture.settings }, input, new AbortController().signal, fixture.gate, (item) => published.push(item.text), {
+      details: false,
+      emit: (event) => events.push(event)
+    })
     assert.equal(result.length, count)
     assert.deepEqual(
       published,

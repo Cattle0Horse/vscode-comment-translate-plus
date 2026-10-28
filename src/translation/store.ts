@@ -18,7 +18,7 @@ interface PendingUnit {
   readonly unit: PreparedInput["units"][number]
   readonly group: RequestGroup
   readonly interest: AbortController
-  readonly consumers: Map<symbol, (text: string) => void>
+  readonly consumers: Map<symbol, { accept(text: string): void; priority(): number }>
   readonly promise: Promise<string>
   readonly resolve: (text: string) => void
   readonly reject: (error: unknown) => void
@@ -42,12 +42,19 @@ export class TranslationStore {
   translate(
     identity: string,
     input: TranslationInput,
-    action: (input: PreparedInput, signal: AbortSignal, completed: (item: TranslationItem) => void, interests: ReadonlyMap<string, AbortSignal>) => Promise<readonly TranslationItem[]>,
+    action: (
+      input: PreparedInput,
+      signal: AbortSignal,
+      completed: (item: TranslationItem) => void,
+      interests: ReadonlyMap<string, AbortSignal>,
+      priority: (id: string) => number
+    ) => Promise<readonly TranslationItem[]>,
     signal: AbortSignal,
     force = false,
     completed?: (item: TranslationItem) => void,
     reused?: (event: { readonly kind: "cache" | "pending"; readonly count: number; readonly total: number }) => void,
-    interests?: ReadonlyMap<string, AbortSignal>
+    interests?: ReadonlyMap<string, AbortSignal>,
+    priority?: (unit: TextUnit) => number
   ): Promise<ReadonlyMap<string, string>> {
     signal.throwIfAborted()
     if (force) this.invalidate(identity, [{ units: input.units.filter((unit) => !interests?.get(unit.id)?.aborted) }])
@@ -100,11 +107,18 @@ export class TranslationStore {
     if (shared) reused?.({ kind: "pending", count: shared, total: input.units.length })
     const consumer = Symbol()
     for (const [task, targets] of waiting)
-      task.consumers.set(consumer, (text) => {
-        if (signal.aborted) return
-        for (const unit of targets) {
-          values.set(unit.id, text)
-          completed?.({ id: unit.id, text })
+      task.consumers.set(consumer, {
+        priority: () => {
+          let highest = 2
+          for (const unit of targets) highest = Math.min(highest, priority?.(unit) ?? 2)
+          return highest
+        },
+        accept: (text) => {
+          if (signal.aborted) return
+          for (const unit of targets) {
+            values.set(unit.id, text)
+            completed?.({ id: unit.id, text })
+          }
         }
       })
     if (created.units.size) {
@@ -120,7 +134,7 @@ export class TranslationStore {
         if (failure) throw failure
         if (task.value !== undefined) return
         if (task.cacheable) this.remember(task.key, item.text, persist)
-        for (const notify of task.consumers.values()) notify(item.text)
+        for (const notify of task.consumers.values()) notify.accept(item.text)
         task.value = item.text
         task.resolve(item.text)
       }
@@ -146,7 +160,12 @@ export class TranslationStore {
             units: units.filter((task) => task.value === undefined && !task.interest.signal.aborted).map((task) => task.unit)
           }
           if (!remaining.units.length) return
-          const content = await action(remaining, created.controller.signal, accept, new Map(units.map((task) => [task.unit.id, task.interest.signal])))
+          const content = await action(remaining, created.controller.signal, accept, new Map(units.map((task) => [task.unit.id, task.interest.signal])), (id) => {
+            const task = byId.get(id)
+            let highest = 2
+            if (task) for (const consumer of task.consumers.values()) highest = Math.min(highest, consumer.priority())
+            return highest
+          })
           created.controller.signal.throwIfAborted()
           if (units.every((task) => task.value !== undefined || task.interest.signal.aborted)) return
           for (const [id, text] of validateTranslations(remaining, content)) accept({ id, text })

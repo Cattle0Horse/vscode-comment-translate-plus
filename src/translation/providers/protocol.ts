@@ -35,7 +35,7 @@ export interface ProviderContext {
   accept(item: TranslationItem): void
   output(text: string): void
   trace(event: ProviderTrace): void
-  request(url: string, init?: Omit<RequestInit, "signal">): Promise<HttpResponse>
+  request(url: string, init?: Omit<RequestInit, "signal">, itemId?: string): Promise<HttpResponse>
 }
 
 export interface TranslationProvider {

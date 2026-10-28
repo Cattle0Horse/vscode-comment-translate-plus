@@ -21,6 +21,7 @@ export interface TranslationSettings extends ServiceSettings {
   readonly profileId: string
   readonly name: string
   readonly identity: string
+  readonly maxConcurrentRequests: number
   readonly rate: number
 }
 

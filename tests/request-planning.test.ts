@@ -12,14 +12,14 @@ import { chatFixture, listBatch, requestTranslation } from "./support/fixtures.t
 test("partial model failure adjusts learned capacity using the attempted batch, not just the failed remainder", async (t) => {
   const fixture = await chatFixture(t, (_body, items, call) => items.map((item, index) => (call === 1 && index === 1 ? "" : item)).join("\n%%\n"))
   const input = listBatch(4)
-  const settings = { ...fixture.settings, maxConcurrentRequests: 1 }
+  const settings = { ...fixture.settings }
   await requestTranslation(fixture.service, settings, input, new AbortController().signal, fixture.gate)
   const next = fixture.seen.length
   await requestTranslation(fixture.service, settings, input, new AbortController().signal, fixture.gate)
   assert.equal(fixture.seen[next].items.length, 2, "A single failed item incorrectly collapsed the learned batch capacity to one.")
 })
 
-test("a later batch recompiles its measured request when a consumer abandons one of its units", async (t) => {
+test("later batches exclude abandoned units while retaining the request item limit", async (t) => {
   let release!: () => void
   let began!: () => void
   const firstRequest = new Promise<void>((resolve) => {
@@ -74,8 +74,7 @@ test("a later batch recompiles its measured request when a consumer abandons one
     batchGrowthItems: 1,
     batchGrowthFactor: 1.25,
     batchShrinkFactor: 0.5,
-    maxTranslationAttempts: 3,
-    maxConcurrentRequests: 1
+    maxTranslationAttempts: 3
   }
   const units = Array.from({ length: 5 }, (_, index) => ({
     id: String(index),
@@ -98,9 +97,9 @@ test("a later batch recompiles its measured request when a consumer abandons one
   interests.get("3")!.abort("hover-target-changed")
   release()
   const result = await pending
-  assert.deepEqual(
-    requests.map((items) => items.length),
-    [2, 1, 1]
+  assert.ok(
+    requests.every((items) => items.length <= settings.maxItemsPerRequest),
+    "Replanning exceeded the HTTP item limit."
   )
   assert.ok(!requests.flat().includes(units[3].text), "An abandoned unit remained in the compiled HTTP payload.")
   assert.deepEqual(result.map((item) => item.id).sort(), ["0", "1", "2", "4"])

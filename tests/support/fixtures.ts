@@ -43,8 +43,7 @@ export const limits = {
   batchGrowthItems: 1,
   batchGrowthFactor: 1.25,
   batchShrinkFactor: 0.5,
-  maxTranslationAttempts: 3,
-  maxConcurrentRequests: 2
+  maxTranslationAttempts: 3
 }
 
 export async function requestTranslation(
@@ -196,7 +195,7 @@ export async function chatFixture(t: TestContext, respond: (body: ChatBody, item
     preserveTerms: defaultPreserveTerms,
     skipSameLanguage: false
   }
-  return { seen, settings, service: new TranslationService(), gate: new RequestGate(100, 4) }
+  return { seen, settings, service: new TranslationService(), gate: new RequestGate(100, 1) }
 }
 
 export function listBatch(count: number): TranslationInput {

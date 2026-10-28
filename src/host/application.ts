@@ -53,6 +53,7 @@ export class Application implements vscode.Disposable {
     this.preview = new MarkdownPreview(this.documents, this.translations, (document) => this.retranslate(document))
     this.controls = new Controls(this.documents, this.translations, this.browse, this.hover, this.preview, this.replacement, () => this.retranslate())
     const refresh = () => {
+      this.translations.refreshPriorities()
       this.browse.refreshVisible()
       this.browse.render()
       this.browse.tryAutomatic()
@@ -70,7 +71,10 @@ export class Application implements vscode.Disposable {
       }),
       vscode.window.onDidChangeActiveTextEditor(refresh),
       vscode.window.onDidChangeVisibleTextEditors(refresh),
-      vscode.window.onDidChangeTextEditorVisibleRanges(() => this.browse.refreshVisible()),
+      vscode.window.onDidChangeTextEditorVisibleRanges(() => {
+        this.translations.refreshPriorities()
+        this.browse.refreshVisible()
+      }),
       vscode.workspace.onDidCloseTextDocument((document) => {
         this.browse.stop(document.uri, false, "document-closed")
         this.browse.forget(document.uri)
@@ -88,6 +92,7 @@ export class Application implements vscode.Disposable {
   }
 
   private edited(event: vscode.TextDocumentChangeEvent): void {
+    this.translations.refreshPriorities()
     const document = event.document
     const id = document.uri.toString()
     const pending = this.timers.get(id)

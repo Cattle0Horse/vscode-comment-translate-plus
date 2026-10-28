@@ -308,7 +308,7 @@ test("unit interests cancel unused HTTP and queued units while preserving a shar
     return items.join("\n%%\n")
   })
   t.after(() => releases.forEach((release) => release()))
-  const settings = { ...fixture.settings, userPrompt: "${content}", maxItemsPerRequest: 1, maxConcurrentRequests: 1 }
+  const settings = { ...fixture.settings, userPrompt: "${content}", maxItemsPerRequest: 1 }
   const input = prepareInput(settings, inputOf(parseMarkdown("Original A.\n\nOriginal B.\n\nOriginal C.")))
   const store = new TranslationStore()
   t.after(() => store.clear())
@@ -386,7 +386,7 @@ test("unit cancellation skips queued work without failing the remaining browse u
     return items.join("\n%%\n")
   })
   t.after(() => releases.forEach((release) => release()))
-  const settings = { ...fixture.settings, userPrompt: "${content}", maxItemsPerRequest: 1, maxConcurrentRequests: 1 }
+  const settings = { ...fixture.settings, userPrompt: "${content}", maxItemsPerRequest: 1 }
   const input = prepareInput(settings, inputOf(parseMarkdown("Original A.\n\nOriginal B.\n\nOriginal C.")))
   const controllers = input.units.map(() => new AbortController())
   const store = new TranslationStore()
@@ -531,7 +531,8 @@ test("actual request dispatch fills the configured concurrency window while the 
     return items.join("\n%%\n")
   })
   const controller = new AbortController()
-  const pending = requestTranslation(fixture.service, { ...fixture.settings, maxItemsPerRequest: 1, maxConcurrentRequests: 2 }, listBatch(3), controller.signal, fixture.gate)
+  fixture.gate.configure(100, 2)
+  const pending = requestTranslation(fixture.service, { ...fixture.settings, maxItemsPerRequest: 1 }, listBatch(3), controller.signal, fixture.gate)
   void pending.catch(() => {})
   try {
     await waitFor(() => releases.length === 2)

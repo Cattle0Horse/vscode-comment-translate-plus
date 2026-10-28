@@ -154,6 +154,48 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
   checks.push("whole-document command starts browse and completes offscreen units without scrolling, changing source or repeating validated requests")
 
+  const prioritySettings = { maxConcurrentRequests: config.get<number>("maxConcurrentRequests"), maxItemsPerRequest: config.get<number>("maxItemsPerRequest") }
+  await config.update("maxConcurrentRequests", 1, vscode.ConfigurationTarget.Global)
+  await config.update("maxItemsPerRequest", 1, vscode.ConfigurationTarget.Global)
+  const priorityA = ["Read the original document. Amber.", "Read the original document. Birch.", "Read the original document. Cedar."]
+  const priorityB = ["Read the original document. Delta.", "Read the original document. Elm.", "Read the original document. Fern."]
+  const background = await open("priority-background.md", "markdown", priorityA.join("\n".repeat(100)))
+  const beforePriority = (await requests()).length
+  await fetch(origin + "/control", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ hold: true }) })
+  let foreground: Awaited<ReturnType<typeof open>> | undefined
+  try {
+    await vscode.commands.executeCommand("commentTranslatePlus.translateAll")
+    await waitFor(async () => (await requests()).length === beforePriority + 1, "background first HTTP held")
+    foreground = await open("priority-foreground.md", "markdown", priorityB.join("\n".repeat(100)))
+    await vscode.commands.executeCommand("commentTranslatePlus.translateAll")
+    const last = new vscode.Range(200, 0, 200, 0)
+    foreground.editor.revealRange(last, vscode.TextEditorRevealType.AtTop)
+    await waitFor(() => foreground!.editor.visibleRanges.some((range) => range.contains(last)), "foreground last viewport")
+    await waitFor(() => owner.browse.inspect(foreground!.document.uri)?.loading.length === 3, "foreground units queued")
+    assert(owner.browse.inspect(background.document.uri)?.status === "working", "Switching tabs cancelled background translation.")
+    assert((await requests()).length === beforePriority + 1, "Queued work exceeded the shared concurrency limit.")
+  } finally {
+    await fetch(origin + "/control", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ hold: false }) })
+  }
+  await waitFor(
+    () => owner.browse.inspect(background.document.uri)?.units.length === 3 && owner.browse.inspect(foreground!.document.uri)?.units.length === 3,
+    "foreground and background complete"
+  )
+  const orderedPriority = (await requests()).slice(beforePriority)
+  const expectedPriority = await Promise.all([priorityA[0], priorityB[2], priorityB[0], priorityB[1], priorityA[1], priorityA[2]].map(requestFingerprint))
+  assert(
+    JSON.stringify(orderedPriority.flatMap((record) => record.itemFingerprints ?? [])) === JSON.stringify(expectedPriority),
+    "HTTP order did not follow viewport, current tab, then background tab."
+  )
+  assert(
+    orderedPriority.every((record) => !record.cancelled),
+    "Tab switching or scrolling cancelled submitted HTTP."
+  )
+  assert(!background.document.isDirty && !foreground!.document.isDirty, "Priority scheduling changed source documents.")
+  for (const target of [background, foreground!]) owner.browse.stop(target.document.uri, true)
+  for (const [key, value] of Object.entries(prioritySettings)) await config.update(key, value, vscode.ConfigurationTarget.Global)
+  checks.push("tab switching keeps background translation alive while actual HTTP follows the latest viewport, current tab and other tabs without editing source")
+
   const code =
     '// Read the original document.\nconst url = "https://example.com";\nconst value = "Read the original document.";\nconst template = `Read the original document. ${sourceId}\\n`;\n/**\n * Keep `sourceId` unchanged.\n */\nconst untouched = 1;'
   const typescript = await open("comments-and-strings.ts", "typescript", code)
@@ -2330,6 +2372,9 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     const target = await open("configured-request-policy.md", "markdown", source)
     const parsed = await owner.documents.parse(target.document)
     const units = parsed.groups.flatMap((group) => group.units).filter((unit) => unit.text.startsWith("Read"))
+    // Keep all source units at the same background priority so this case
+    // isolates configured batch limits from viewport tier boundaries.
+    await open("configured-policy-idle.txt", "plaintext", "No translation requested.")
     const before = (await requests()).length
     const result = await owner.translations.translate(target.document, { units }, new AbortController().signal)
     assert(result.size === 6 && [...result.values()].every((text) => text.includes("阅读原始文档")), "Configured policy lost translations.")

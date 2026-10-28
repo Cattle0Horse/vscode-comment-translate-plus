@@ -25,7 +25,8 @@ export class TranslationService {
     gate: RequestGate,
     completed?: (item: TranslationItem) => void,
     trace?: TranslationTrace,
-    interests?: ReadonlyMap<string, AbortSignal>
+    interests?: ReadonlyMap<string, AbortSignal>,
+    priority?: (id: string) => number
   ): Promise<readonly TranslationItem[]> {
     settings = { ...settings, sourceLanguage: settings.sourceLanguage.trim() || "auto", targetLanguage: settings.targetLanguage.trim() }
     validateService(settings)
@@ -39,7 +40,7 @@ export class TranslationService {
       this.policies.set(key, policy)
       while (this.policies.size > 16) this.policies.delete(this.policies.keys().next().value!)
     }
-    return new TranslationRun(settings, batch, signal, gate, policy, "T" + ++this.sequence, completed, trace, interests).execute()
+    return new TranslationRun(settings, batch, signal, gate, policy, "T" + ++this.sequence, completed, trace, interests, priority).execute()
   }
 }
 
@@ -66,7 +67,8 @@ class TranslationRun {
     private readonly taskId: string,
     private readonly completed?: (item: TranslationItem) => void,
     private readonly trace?: TranslationTrace,
-    interests?: ReadonlyMap<string, AbortSignal>
+    interests?: ReadonlyMap<string, AbortSignal>,
+    private readonly priority: (id: string) => number = () => 2
   ) {
     const provider = getProvider(settings.provider)
     this.units = batch.units.map((unit) => new TranslationUnit(unit, settings, provider, interests?.get(unit.id)))
@@ -215,11 +217,18 @@ class TranslationRun {
             reasons.set(item.id, error)
           }
         },
-        request: (url, init = {}) =>
-          request(this.gate, url, init, requestSignal, () => {
-            sent++
-            this.httpRequests++
-          })
+        request: (url, init = {}, itemId) =>
+          request(
+            this.gate,
+            url,
+            init,
+            requestSignal,
+            () => {
+              sent++
+              this.httpRequests++
+            },
+            () => (itemId === undefined ? Math.min(...units.filter((unit) => unit.wanted).map((unit) => this.priority(unit.source.id)), 2) : this.priority(itemId))
+          )
       })
       requestSignal.throwIfAborted()
       if (outputItems.size !== units.length)
@@ -300,29 +309,52 @@ class TranslationRun {
     this.emit({ kind: "start", total: this.units.length })
     try {
       await this.prepare()
-      const pending = this.units.filter((unit) => unit.pending)
-      for (let index = 0; index < pending.length;) {
-        if (active.size >= this.settings.maxConcurrentRequests) await Promise.race(active)
+      const remaining = new Set(this.units.filter((unit) => unit.pending))
+      const priority = (): number => {
+        let highest = 2
+        for (const unit of remaining) if (unit.pending) highest = Math.min(highest, this.priority(unit.source.id))
+        return highest
+      }
+      while (remaining.size) {
         if (failure) throw failure.error
         this.combined.throwIfAborted()
-        if (!pending[index].pending) {
-          index++
-          continue
-        }
-        const batch = this.policy.plan(pending.slice(index))
-        if (batch.kind === "oversized") {
-          batch.unit.reject(this.policy.oversized(batch.characters))
-          index++
-          continue
-        }
-        const work = this.run(batch.units, batch.reason, batch.compiled)
-          .catch((error) => {
-            failure ??= { error }
-            this.controller.abort("request-failed")
-          })
-          .finally(() => active.delete(work))
-        active.add(work)
-        index += batch.units.length
+        // Choose units only when the shared HTTP budget has room. A new
+        // viewport can then overtake the unplanned tail of a whole document.
+        await this.gate.plan(
+          () => {
+            let highest = 2
+            let candidates: TranslationUnit[] = []
+            for (const unit of remaining) {
+              if (!unit.pending) continue
+              const current = this.priority(unit.source.id)
+              if (current < highest) {
+                highest = current
+                candidates = []
+              }
+              if (current === highest) candidates.push(unit)
+            }
+            if (!candidates.length) {
+              remaining.clear()
+              return
+            }
+            const batch = this.policy.plan(candidates)
+            if (batch.kind === "oversized") {
+              batch.unit.reject(this.policy.oversized(batch.characters))
+              remaining.delete(batch.unit)
+              return
+            }
+            for (const unit of batch.units) remaining.delete(unit)
+            const work = this.run(batch.units, batch.reason, batch.compiled)
+              .catch((error) => {
+                failure ??= { error }
+                this.controller.abort("request-failed")
+              })
+              .finally(() => active.delete(work))
+            active.add(work)
+          },
+          this.combined,
+          priority
+        )
       }
       await Promise.all(active)
       if (failure) throw failure.error

@@ -592,8 +592,7 @@ test("configured character targets and growth factors measure final messages and
     initialItemsPerRequest: 8,
     initialRequestCharacters: 300,
     batchGrowthSuccesses: 1,
-    batchGrowthFactor: 2,
-    maxConcurrentRequests: 1
+    batchGrowthFactor: 2
   }
   await requestTranslation(fixture.service, settings, input, new AbortController().signal, fixture.gate)
   assert.deepEqual(

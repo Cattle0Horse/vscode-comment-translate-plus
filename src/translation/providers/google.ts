@@ -19,7 +19,7 @@ export const google: TranslationProvider = {
             if (item.text.length > 5000) throw Error("service-text-too-large")
             const url = new URL(settings.apiUrl)
             url.search = new URLSearchParams({ client: "dict-chrome-ex", sl: language(settings.sourceLanguage), tl: language(settings.targetLanguage), dt: "t", q: item.text }).toString()
-            const response = await context.request(url.href, { redirect: "error" })
+            const response = await context.request(url.href, { redirect: "error" }, item.id)
             const body: unknown = JSON.parse(response.text)
             if (!Array.isArray(body) || !Array.isArray(body[0]) || body[0].some((part: unknown) => !Array.isArray(part) || typeof part[0] !== "string"))
               throw Error("service-response-invalid")

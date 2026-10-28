@@ -123,7 +123,7 @@ test("a source-owned inline code marker may echo its exact backtick wrapper with
 test("single-item model failures do not collapse learned capacity for later healthy batches", async (t) => {
   let broken = true
   const fixture = await chatFixture(t, (_body, items) => (broken ? "" : items.map((item) => item.replace("Original", "译文")).join("\n%%\n")))
-  const settings = { ...fixture.settings, maxConcurrentRequests: 1 }
+  const settings = { ...fixture.settings }
   await assert.rejects(requestTranslation(fixture.service, settings, listBatch(1), new AbortController().signal, fixture.gate), /translation-item-invalid/)
   assert.equal(fixture.seen.length, settings.maxTranslationAttempts)
   broken = false

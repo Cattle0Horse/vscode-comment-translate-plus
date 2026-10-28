@@ -209,8 +209,7 @@ test("default request scopes keep paragraph, table and fenced-string references 
   const manifest = JSON.parse(await readFile("package.json", "utf8"))
   const settings = {
     ...fixture.settings,
-    batchBySemanticScope: manifest.contributes.configuration.properties["commentTranslatePlus.batchBySemanticScope"].default,
-    maxConcurrentRequests: 1
+    batchBySemanticScope: manifest.contributes.configuration.properties["commentTranslatePlus.batchBySemanticScope"].default
   }
   const input = inputOf(parsed)
   const result = await requestTranslation(fixture.service, settings, input, new AbortController().signal, fixture.gate)
@@ -601,7 +600,7 @@ test("request policy controls fixed targets, semantic boundaries and hard caps w
   const input = listBatch(6)
   const send = async (changes: Partial<typeof fixture.settings>, batch = input) => {
     const start = fixture.seen.length
-    await requestTranslation(fixture.service, { ...fixture.settings, maxConcurrentRequests: 1, ...changes }, batch, new AbortController().signal, fixture.gate)
+    await requestTranslation(fixture.service, { ...fixture.settings, ...changes }, batch, new AbortController().signal, fixture.gate)
     return fixture.seen.slice(start).map((request) => request.items.length)
   }
   assert.deepEqual(await send({ adaptiveBatching: false, initialItemsPerRequest: 2, batchGrowthSuccesses: 1 }), [2, 2, 2])
@@ -617,7 +616,7 @@ test("configured full-capacity success threshold and growth step affect subseque
   const fixture = await chatFixture(t, (_body, items) => items.join("\n\n%%\n\n"))
   await requestTranslation(
     fixture.service,
-    { ...fixture.settings, initialItemsPerRequest: 2, batchGrowthSuccesses: 2, batchGrowthItems: 2, maxConcurrentRequests: 1 },
+    { ...fixture.settings, initialItemsPerRequest: 2, batchGrowthSuccesses: 2, batchGrowthItems: 2 },
     listBatch(10),
     new AbortController().signal,
     fixture.gate
@@ -632,7 +631,7 @@ test("configured shrink factor and attempt budget retain verified neighbours and
   const fixture = await chatFixture(t, (_body, items, call) => (call === 1 ? "" : items.join("\n\n%%\n\n")))
   await requestTranslation(
     fixture.service,
-    { ...fixture.settings, initialItemsPerRequest: 8, batchShrinkFactor: 0.25, maxTranslationAttempts: 4, maxConcurrentRequests: 1 },
+    { ...fixture.settings, initialItemsPerRequest: 8, batchShrinkFactor: 0.25, maxTranslationAttempts: 4 },
     listBatch(8),
     new AbortController().signal,
     fixture.gate
@@ -888,7 +887,10 @@ test("a cancelled queued request is not counted as an HTTP start", async (t) => 
   release()
   await held
   assert.equal(fixture.seen.length, 0)
-  assert.ok(events.some((event) => event.kind === "request" && event.cancelled && event.httpRequests === 0))
+  assert.ok(
+    events.filter((event) => event.kind === "request").every((event) => event.httpRequests === 0),
+    "Queued cancellation was counted as HTTP work."
+  )
   assert.ok(events.some((event) => event.kind === "finish" && event.status === "cancelled" && event.httpRequests === 0))
   const entries: string[] = []
   const log = new TranslationLog((entry) => entries.push(entry))

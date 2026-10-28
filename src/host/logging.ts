@@ -50,7 +50,14 @@ function modelOutput(raw: string): { text: string; reason?: string; raw: boolean
 function finishMessage(event: Extract<TranslationEvent, { kind: "finish" }>, context: TranslationLogContext): string {
   const title = { complete: "任务完成", partial: "部分完成", cancelled: "任务已取消", failed: event.completed === event.total ? "请求协议异常" : "翻译失败" }[event.status]
   let message = `${title}：${event.completed}/${event.total} 项，有变化 ${event.changed} 项，无变化 ${event.unchanged} 项，跳过 ${event.skipped} 项，失败 ${event.failures.length} 项，HTTP ${event.httpRequests} 次，${event.elapsedMs} ms`
-  if (event.status === "cancelled") return message + "\n  取消原因：" + (event.cancellationReasons ?? ["unspecified"]).map(describeCancellation).join("；")
+  if (event.status === "cancelled")
+    return (
+      message +
+      "\n  取消原因：" +
+      (event.cancellationReasons ?? ["unspecified"]).map(describeCancellation).join("；") +
+      "；" +
+      (event.httpRequests ? "HTTP 已开始" : "HTTP 尚未开始（排队或发送前）")
+    )
   if (!event.failures.length) {
     if (event.code) message += "\n  原因：" + describeError(event.code)
     return message

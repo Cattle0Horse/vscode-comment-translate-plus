@@ -7,7 +7,7 @@ import { TranslationService } from "../translation/engine.ts"
 import type { TranslationEvent } from "../model/events.ts"
 import { TranslationLog } from "./logging.ts"
 import { TranslationStore } from "../translation/store.ts"
-import type { ParsedDocument } from "../model/document.ts"
+import type { TextUnit, ParsedDocument } from "../model/document.ts"
 import type { SourceEdit } from "../documents/edits.ts"
 import type { PreparedInput, TranslationInput } from "../model/translation.ts"
 import type { TranslationItem } from "../model/translation.ts"
@@ -27,6 +27,8 @@ export class TranslationRuntime implements vscode.Disposable {
   private readonly service = new TranslationService()
   private readonly output = vscode.window.createOutputChannel("注释翻译+")
   private readonly log = new TranslationLog((entry) => this.output.appendLine(entry))
+  private activeDocument: vscode.TextDocument | undefined
+  private visibleRanges: readonly { start: number; end: number }[] = []
   private disposed = false
   constructor(context: vscode.ExtensionContext, home?: string) {
     this.persistent = new PersistentCache(join(context.globalStorageUri.fsPath, "translation-cache.sqlite"), () => {
@@ -138,6 +140,12 @@ export class TranslationRuntime implements vscode.Disposable {
     throw Error("extension-disposed")
   }
 
+  refreshPriorities(): void {
+    this.activeDocument = vscode.window.activeTextEditor?.document
+    const editor = vscode.window.activeTextEditor
+    this.visibleRanges = editor?.visibleRanges.map((range) => ({ start: editor.document.offsetAt(range.start), end: editor.document.offsetAt(range.end) })) ?? []
+  }
+
   async translate(
     document: vscode.TextDocument,
     batch: TranslationInput,
@@ -165,7 +173,7 @@ export class TranslationRuntime implements vscode.Disposable {
     return this.store.translate(
       settings.identity,
       { units },
-      (canonical, requestSignal, accepted, interests) =>
+      (canonical, requestSignal, accepted, interests, priority) =>
         this.service.request(
           settings,
           canonical,
@@ -176,13 +184,18 @@ export class TranslationRuntime implements vscode.Disposable {
             details: this.log.detailsEnabled,
             emit: (event) => this.logTranslation(event, settings, document)
           },
-          interests
+          interests,
+          priority
         ),
       signal,
       force,
       completed,
       (event) => this.log.reused(event, vscode.workspace.asRelativePath(document.uri), settings.apiKey),
-      interests
+      interests,
+      (unit: TextUnit) => {
+        if (this.activeDocument !== document) return 2
+        return this.visibleRanges.some((range) => unit.start <= range.end && unit.end >= range.start) ? 0 : 1
+      }
     )
   }
 

@@ -31,13 +31,17 @@ export const bing: TranslationProvider = {
         await Promise.all(
           items.map(async (item) => {
             if (item.text.length > 5000) throw Error("service-text-too-large")
-            const response = await context.request(url.href, {
-              method: "POST",
-              redirect: "error",
-              credentials: "include",
-              headers: { ...headers, "Content-Type": "application/x-www-form-urlencoded", ...(bootstrap.cookies ? { Cookie: bootstrap.cookies } : {}) },
-              body: new URLSearchParams({ fromLang: language(settings.sourceLanguage), to: language(settings.targetLanguage), text: item.text, token, key }).toString()
-            })
+            const response = await context.request(
+              url.href,
+              {
+                method: "POST",
+                redirect: "error",
+                credentials: "include",
+                headers: { ...headers, "Content-Type": "application/x-www-form-urlencoded", ...(bootstrap.cookies ? { Cookie: bootstrap.cookies } : {}) },
+                body: new URLSearchParams({ fromLang: language(settings.sourceLanguage), to: language(settings.targetLanguage), text: item.text, token, key }).toString()
+              },
+              item.id
+            )
             const body = JSON.parse(response.text) as { translations?: { text?: unknown }[] }[]
             const text = Array.isArray(body) ? body[0]?.translations?.[0]?.text : undefined
             if (typeof text !== "string" || !text.trim()) throw Error("service-response-invalid")

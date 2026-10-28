@@ -46,7 +46,6 @@ export function readRequestPolicy(read: (key: keyof RequestPolicy, fallback: num
 export interface ServiceSettings extends ProviderSettings, RequestPolicy {
   readonly provider: string
   readonly skipSameLanguage: boolean
-  readonly maxConcurrentRequests: number
 }
 
 export function serviceIdentity(settings: ServiceSettings): string {
@@ -68,13 +67,7 @@ export function validateService(settings: ServiceSettings): void {
   const url = new URL(settings.apiUrl)
   if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.hash || url.search) throw Error("api-url-invalid")
   if (!settings.targetLanguage.trim() || settings.targetLanguage.trim() === "auto") throw Error("service-settings-incomplete")
-  if (
-    Object.entries(requestPolicySchema).some(([key, schema]) => !validPolicyValue(schema, settings[key as keyof RequestPolicy])) ||
-    !Number.isInteger(settings.maxConcurrentRequests) ||
-    settings.maxConcurrentRequests < 1 ||
-    settings.maxConcurrentRequests > 20
-  )
-    throw Error("service-settings-incomplete")
+  if (Object.entries(requestPolicySchema).some(([key, schema]) => !validPolicyValue(schema, settings[key as keyof RequestPolicy]))) throw Error("service-settings-incomplete")
   getProvider(settings.provider).validate?.(settings)
 }
 
