@@ -1601,7 +1601,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   assert(
     (detailLog.match(/--- user ---/g) ?? []).length === 6 &&
       (detailLog.match(/--- assistant ---/g) ?? []).length === 2 &&
-      (detailLog.match(/Previous response errors:/g) ?? []).length === 2 &&
+      (detailLog.match(/- Problem:/g) ?? []).length === 2 &&
       !detailLog.includes("Current request: 1 item(s).") &&
       (detailLog.match(/--- assistant（finish_reason=stop） ---/g) ?? []).length === 4,
     "The four model responses or two independent retry diagnostics were hidden."

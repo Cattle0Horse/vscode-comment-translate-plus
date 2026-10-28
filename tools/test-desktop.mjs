@@ -239,17 +239,18 @@ const mock = createServer(async (request, response) => {
         source: system.match(/Source language: [^\n]*?\[([^\]]+)\]/)?.[1],
         sourceDeclared: system.includes("Source language:"),
         referenceIncluded: !!context,
-        retryFeedbackIncluded: users.length === 2 && body.messages.at(-1) === users[1] && feedback.startsWith("Previous response errors:"),
+        retryFeedbackIncluded: users.length === 2 && body.messages.at(-1) === users[1] && feedback.includes("- Problem: ") && feedback.includes("- Correction: "),
         retryFeedbackCompact: users.length === 2 && !/Item \d|Current request:|\b(?:translation|service)-[a-z-]+/.test(feedback),
         retryFeedbackEnglishSeparated:
           users.length === 2 &&
           feedback
             .trim()
             .split("\n\n")
+            .slice(1)
             .filter((block) => !block.startsWith("Current request:"))
             .every((block) => {
-              const lines = block.split("\n")
-              return lines.length === 2 && lines[0].startsWith("Previous response errors: ") && lines[1].startsWith("Correction: ")
+              const lines = block.split("\n").filter((line) => !/^Item \d+:$/.test(line))
+              return lines.length === 2 && lines[0].startsWith("- Problem: ") && lines[1].startsWith("- Correction: ")
             }),
         previousOutputFingerprint: body.messages.some((message) => message.role === "assistant")
           ? createHash("sha256")
@@ -260,17 +261,14 @@ const mock = createServer(async (request, response) => {
           users.length === 2 &&
           feedbackLines.some(
             (line, index) =>
-              line.startsWith("Previous response errors: Item 1:") &&
-              line.includes("exactly once") &&
-              feedbackLines[index + 1]?.startsWith("Correction: Item 1:") &&
-              feedbackLines[index + 1].includes("marker")
+              line === "Item 1:" &&
+              feedbackLines[index + 1]?.includes("exactly once") &&
+              feedbackLines[index + 2]?.startsWith("- Correction: ") &&
+              feedbackLines[index + 2].includes("marker")
           ) &&
           feedbackLines.some(
             (line, index) =>
-              line.startsWith("Previous response errors: Item 2:") &&
-              line.includes("empty") &&
-              feedbackLines[index + 1]?.startsWith("Correction: Item 2:") &&
-              feedbackLines[index + 1].includes("non-empty")
+              line === "Item 2:" && feedbackLines[index + 1]?.includes("empty") && feedbackLines[index + 2]?.startsWith("- Correction: ") && feedbackLines[index + 2].includes("non-empty")
           ),
         contextCharacters: context.length,
         contextFingerprint: createHash("sha256").update(context).digest("hex"),

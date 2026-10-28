@@ -18,7 +18,7 @@ for (const echo of ["request", "correction", "instruction"] as const) {
         return (
           modelFeedback(body)
             .split("\n")
-            .find((line) => line.startsWith("Correction:"))! +
+            .find((line) => line.startsWith("- Correction:"))! +
           "\n\n" +
           items.join("\n%%\n")
         )
@@ -206,9 +206,9 @@ test("ambiguous item counts recover through smaller batches without carrying obs
     for (const retry of fixture.seen.slice(1)) {
       assert.ok(!retry.body.messages.some((message) => message.role === "assistant"), "An ambiguous output was guessed into a smaller request.")
       const feedback = modelFeedback(retry.body)
-      const errors = feedback.split("\n").filter((line) => line.startsWith("Previous response errors:"))
+      const errors = feedback.split("\n").filter((line) => line.startsWith("- Problem:"))
       assert.equal(errors.length, retry.items.length)
-      for (const error of errors) assert.doesNotMatch(error.replace(/Item \d+: /u, ""), /\d/u, "A previous batch count leaked into the model's error description.")
+      for (const error of errors) assert.doesNotMatch(error, /\d/u, "A previous batch count leaked into the model's error description.")
       const currentCount = feedback.match(/Current request: (\d+) item\(s\)/u)?.[1]
       assert.equal(currentCount, retry.items.length > 1 ? String(retry.items.length) : undefined)
       if (retry.items.length === 1) assert.doesNotMatch(feedback, /Item \d|separator|boundary line/u)
@@ -232,8 +232,13 @@ test("multiple invalid items retry together with the complete assistant response
   assert.deepEqual(retry.messages.at(-2), { role: "assistant", content: output })
   const correction = modelFeedback(retry)
   assert.match(correction, /2 item\(s\); separator: %% on its own line/)
-  assert.match(correction, /Item 1:.*exactly once/)
-  assert.match(correction, /Item 2: [^\n]+\n[^\n]*non-empty/)
+  const blocks = [...correction.matchAll(/Item (\d+):\n- Problem: ([^\n]+)\n- Correction: ([^\n]+)/gu)]
+  assert.deepEqual(
+    blocks.map((block) => block[1]),
+    ["1", "2"]
+  )
+  assert.ok(blocks[0][2].includes("<CTP0>") && blocks[0][3].includes("marker"), "The marker feedback lost its source ownership.")
+  assert.ok(blocks[1][2].includes("empty") && blocks[1][3].includes("non-empty"), "The empty-output feedback lost its source ownership.")
   assert.ok(result[0].text.includes("`firstId_abcdefghijklmnopqrstuvwxyz_123456789`"))
 })
 

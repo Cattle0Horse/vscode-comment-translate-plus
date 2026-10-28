@@ -90,10 +90,11 @@ export function modelRequest(request: TranslationRequest): {
     messages.push({
       role: "user",
       content:
+        "Correct the following problems in the previous response:\n\n" +
         request.retryFeedback
           .map((feedback) => {
-            const item = request.items.length > 1 ? "Item " + (feedback.index + 1) + ": " : ""
-            return "Previous response errors: " + item + feedback.reason + "\nCorrection: " + item + feedback.instruction
+            const item = request.items.length > 1 ? "Item " + (feedback.index + 1) + ":\n" : ""
+            return item + "- Problem: " + feedback.reason + "\n- Correction: " + feedback.instruction
           })
           .join("\n\n") +
         "\n\n" +

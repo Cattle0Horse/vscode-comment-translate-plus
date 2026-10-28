@@ -255,13 +255,7 @@ test("context continuation after an internal line break is rejected, regenerated
       "Recovery changed the user's original template or reference identity."
     )
     const hint = modelFeedback(fixture.seen[1].body)
-    const feedbackLines = hint.split("\n")
-    assert.equal(feedbackLines.length, 2, "Recovery must keep its prefixed reason and correction on two lines.")
-    assert.ok(feedbackLines[0].startsWith("Previous response errors: ") && feedbackLines[1].startsWith("Correction: "))
-    assert.ok(
-      feedbackLines.every((line) => line.length > 0 && !/\p{Script=Han}/u.test(line)),
-      "Model feedback included a localized log reason."
-    )
+    assert.ok(!/\p{Script=Han}/u.test(hint), "Model feedback included a localized log reason.")
     assert.match(hint, /(?:do not|without|exclude|omit)[^.\n]*reference/i, "Recovery did not explicitly exclude reference content.")
     assert.match(hint, /preceding or following blocks/i)
     assert.ok(!hint.includes("sample_task") && !hint.includes("translation-structure-invalid"), "Raw source fragments or diagnostic codes leaked into recovery instructions.")
@@ -270,7 +264,10 @@ test("context continuation after an internal line break is rejected, regenerated
     assert.equal(failure.failures[0].difference.actual, "包含内部换行")
     assert.equal(
       failure.failures[0].difference.modelReason,
-      feedbackLines[0].slice("Previous response errors: ".length),
+      hint
+        .split("\n")
+        .find((line) => line.startsWith("- Problem: "))
+        ?.slice("- Problem: ".length),
       "Model feedback and structured diagnostics disagree about the failure reason."
     )
     store.clear()
@@ -299,7 +296,6 @@ test("single-item validation recovery omits batch metadata and keeps original me
     )
     assert.deepEqual(fixture.seen[1].body.messages.slice(0, fixture.seen[0].body.messages.length), fixture.seen[0].body.messages)
     const hint = modelFeedback(fixture.seen[1].body)
-    assert.equal(hint.split("\n").length, 2, "A validator combined its reason and corrective instruction.")
     assert.ok(!/\p{Script=Han}/u.test(hint), "A validator sent a localized log reason to the model.")
     assert.ok(!/Item \d|Current request:|separator|\b(?:translation|service)-[a-z-]+/.test(hint), "Single-item recovery retained batch metadata or diagnostic codes: " + scenario.code)
   }
