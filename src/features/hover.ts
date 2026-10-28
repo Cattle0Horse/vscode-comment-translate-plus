@@ -20,7 +20,6 @@ export class TranslationHover implements vscode.Disposable, vscode.HoverProvider
   constructor(
     private readonly documents: DocumentReader,
     private readonly translations: TranslationRuntime,
-    private readonly inspect: (uri: vscode.Uri) => BrowseSnapshot | undefined,
     private readonly editing: (uri: vscode.Uri) => boolean
   ) {
     this.registration = vscode.languages.registerHoverProvider("*", this)
@@ -73,11 +72,10 @@ export class TranslationHover implements vscode.Disposable, vscode.HoverProvider
         const identity = await replacementIdentity(document.uri, this.translations)
         controller.signal.throwIfAborted()
         if (document.isClosed || document.version !== version) return
-        const cached = this.inspect(document.uri)?.units.find((item) => item.id === unit.id)
         const batch: TranslationInput = { units: [unit] }
         const translated = selected
           ? await this.translations.translateSelection(document, selected, controller.signal)
-          : (cached?.translation ?? (await this.translations.translate(document, batch, controller.signal)).get(unit.id))
+          : (await this.translations.translate(document, batch, controller.signal, false, undefined, await this.translations.settings(document.uri, false))).get(unit.id)
         // Selections are already canonicalized per parsed unit, including decoded strings.
         if (translated && (selected ? translated !== unit.text : !translationIsUnchanged(unit, translated))) {
           const content = new vscode.MarkdownString()
@@ -154,7 +152,7 @@ export class TranslationHover implements vscode.Disposable, vscode.HoverProvider
   private async translateMarkdown(document: vscode.TextDocument, markdown: string, signal: AbortSignal): Promise<string> {
     const parsed = await this.documents.parseSource(markdown, "markdown", () => signal.throwIfAborted())
     if (!parsed.groups.some((group) => group.units.length)) return markdown
-    return translatedMarkdown(parsed, await this.translations.translateUnits(document, parsed, signal))
+    return translatedMarkdown(parsed, await this.translations.translateUnits(document, parsed, signal, undefined, await this.translations.settings(document.uri, false)))
   }
 
   cancel(uri: vscode.Uri, reason: CancellationReason): void {
@@ -172,4 +170,3 @@ import { replacementIdentity } from "./replacement.ts"
 import type { SourceReplacement } from "./replacement.ts"
 import type { DocumentReader } from "../host/documents.ts"
 import type { TranslationRuntime } from "../host/translations.ts"
-import type { BrowseSnapshot } from "./browse/session.ts"

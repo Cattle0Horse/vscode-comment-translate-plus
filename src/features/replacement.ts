@@ -9,7 +9,6 @@ import type { CancellationReason } from "../model/diagnostics.ts"
 import { requestPolicyIdentity } from "../translation/settings.ts"
 import type { DocumentReader } from "../host/documents.ts"
 import type { TranslationRuntime } from "../host/translations.ts"
-import type { BrowseSnapshot } from "./browse/session.ts"
 
 export interface SourceReplacement {
   readonly uri: string
@@ -22,7 +21,7 @@ export interface SourceReplacement {
 }
 
 export async function replacementIdentity(uri: vscode.Uri, translations: TranslationRuntime): Promise<string> {
-  const settings = await translations.settings(uri)
+  const settings = await translations.settings(uri, false)
   return JSON.stringify([settings.profileId, settings.identity, requestPolicyIdentity(settings)])
 }
 
@@ -31,8 +30,7 @@ export class SourceReplacementAction implements vscode.Disposable {
   private readonly registration = vscode.commands.registerCommand("commentTranslatePlus.replaceHover", (value) => this.replace(value))
   constructor(
     private readonly documents: DocumentReader,
-    private readonly translations: TranslationRuntime,
-    private readonly inspect: (uri: vscode.Uri) => BrowseSnapshot | undefined
+    private readonly translations: TranslationRuntime
   ) {}
 
   async translateAndReplace(): Promise<boolean> {
@@ -67,10 +65,9 @@ export class SourceReplacementAction implements vscode.Disposable {
         const cancellation = token.onCancellationRequested(() => controller.abort("user-cancelled"))
         try {
           if (token.isCancellationRequested) controller.abort("user-cancelled")
-          const cached = selection.isEmpty ? this.inspect(document.uri)?.units.find((item) => item.id === unit.id) : undefined
           const translated = selected
             ? await this.translations.translateSelection(document, selected, controller.signal)
-            : (cached?.translation ?? (await this.translations.translate(document, { units: [unit] }, controller.signal)).get(unit.id))
+            : (await this.translations.translate(document, { units: [unit] }, controller.signal, false, undefined, await this.translations.settings(document.uri, false))).get(unit.id)
           controller.signal.throwIfAborted()
           if (translated === undefined) return false
           return this.replace({ uri, version, start: unit.start, end: unit.end, source: unit.text, text: translated, identity })

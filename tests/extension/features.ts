@@ -971,6 +971,26 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   )
   await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
   await config.update("preserveTerms", [], vscode.ConfigurationTarget.Global)
+  const bypassFile = vscode.Uri.joinPath(workspace, "explicit-terms.json")
+  const explicitSource = "Read the complete field."
+  await vscode.workspace.fs.writeFile(bypassFile, new TextEncoder().encode(JSON.stringify([explicitSource])))
+  await config.update("preserveTerms", [bypassFile.toString()], vscode.ConfigurationTarget.Global)
+  const explicit = await open("explicit-terms.md", "markdown", explicitSource)
+  await start(explicit.document, 1)
+  assert(owner.browse.inspect(explicit.document.uri)!.units[0].translation === explicitSource, "Browse did not preserve the configured full body.")
+  const explicitHover = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", explicit.document.uri, new vscode.Position(0, 2))
+  assert(values(explicitHover).includes("阅读完整字段。"), "Hover reused the browse preserved result instead of translating.")
+  explicit.editor.selection = new vscode.Selection(0, 0, 0, 0)
+  assert(await vscode.commands.executeCommand("commentTranslatePlus.translateAndReplace"), "Cursor replacement failed for a preserved term.")
+  assert(explicit.document.getText() === "阅读完整字段。", "Cursor replacement retained a preserved term.")
+  const explicitSelection = await open("explicit-selection.md", "markdown", explicitSource)
+  explicitSelection.editor.selection = new vscode.Selection(0, 0, 0, explicitSource.length)
+  const selectionHover = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", explicitSelection.document.uri, new vscode.Position(0, 2))
+  assert(values(selectionHover).includes("阅读完整字段。"), "Selection hover retained a preserved term.")
+  assert(await vscode.commands.executeCommand("commentTranslatePlus.translateAndReplace"), "Selection replacement failed for a preserved term.")
+  assert(explicitSelection.document.getText() === "阅读完整字段。", "Selection replacement retained a preserved term.")
+  checks.push("source and selection hover/replacement translate preserved terms despite locally completed browse results")
+  await config.update("preserveTerms", [], vscode.ConfigurationTarget.Global)
   const clearedTerms = await open("cleared-terms.md", "markdown", "JSON")
   const beforeClearedTerms = (await requests()).length
   await start(clearedTerms.document, 1)
@@ -1106,6 +1126,12 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     initialFailure = true
   }
   assert(initialFailure, "An unavailable first-time term source was silently treated as an empty successful list.")
+  const unavailableTerms = await open("unavailable-explicit-terms.md", "markdown", explicitSource)
+  const unavailableHover = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", unavailableTerms.document.uri, new vscode.Position(0, 2))
+  assert(values(unavailableHover).includes("阅读完整字段。"), "Unavailable term files blocked hover translation.")
+  assert(await vscode.commands.executeCommand("commentTranslatePlus.translateAndReplace"), "Unavailable term files blocked replacement.")
+  assert(unavailableTerms.document.getText() === "阅读完整字段。", "Unavailable term files prevented translated replacement.")
+  checks.push("hover and replacement remain usable when first-time preserve-term loading fails")
   const failedReads = ((await (await fetch(origin + "/state")).json()) as { termFileReads: number }).termFileReads
   for (let index = 0; index < 2; index++) {
     try {
@@ -1278,8 +1304,12 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     "technical identifier preview"
   )
   const afterIdentifiers = (await requests()).length
+  const sourceIdFingerprint = await requestFingerprint("sourceId")
   const identifierHover = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", identifiers.document.uri, new vscode.Position(0, 3))
-  assert((await requests()).length === afterIdentifiers && !values(identifierHover).includes("[注释翻译+]"), "An identifier hover re-requested or duplicated the source.")
+  assert(
+    (await requests()).slice(afterIdentifiers).some((request) => request.itemFingerprints?.includes(sourceIdFingerprint)) && !values(identifierHover).includes("[注释翻译+]"),
+    "Identifier hover did not bypass the preserve term or duplicated an unchanged model result."
+  )
   assert(identifiers.document.getText() === identifierSource && !identifiers.document.isDirty, "Identifier filtering edited the Markdown source.")
   await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
   const identifierYamlSource = "read_only: sourceId\nendpoint: ./src/config.ts\nversion: v1.2.3\n"
@@ -1293,7 +1323,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   assert(identifierYaml.document.getText() === identifierYamlSource && !identifierYaml.document.isDirty, "Identifier filtering edited YAML source.")
   await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
   checks.push(
-    "default terms preserve whole Markdown/YAML identifiers while technical values complete locally and prose and unmatched YAML keys translate; preview, hover and source stay consistent"
+    "default terms preserve whole Markdown/YAML identifiers while technical values complete locally and prose and unmatched YAML keys translate; preview preserves terms, hover requests them and unchanged results do not duplicate source"
   )
 
   const mixed = await open("mixed-languages.ts", "typescript", "// " + chinese + '\nconst message = "' + chinese + '";\n// Read the original document.\nconst untouched = 1;')

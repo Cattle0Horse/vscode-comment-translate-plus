@@ -48,13 +48,8 @@ export class Application implements vscode.Disposable {
         if (vscode.window.activeTextEditor?.document.uri.toString() === uri.toString()) void vscode.commands.executeCommand("editor.action.hideHover")
       }
     )
-    this.replacement = new SourceReplacementAction(this.documents, this.translations, (uri) => this.browse.inspect(uri))
-    this.hover = new TranslationHover(
-      this.documents,
-      this.translations,
-      (uri) => this.browse.inspect(uri),
-      (uri) => this.timers.has(uri.toString())
-    )
+    this.replacement = new SourceReplacementAction(this.documents, this.translations)
+    this.hover = new TranslationHover(this.documents, this.translations, (uri) => this.timers.has(uri.toString()))
     this.preview = new MarkdownPreview(this.documents, this.translations, (document) => this.retranslate(document))
     this.controls = new Controls(this.documents, this.translations, this.browse, this.hover, this.preview, this.replacement, () => this.retranslate())
     const refresh = () => {

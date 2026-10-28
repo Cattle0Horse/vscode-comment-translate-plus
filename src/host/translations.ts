@@ -17,6 +17,7 @@ import { TermFiles } from "./termFiles.ts"
 import type { prepareSelection } from "../documents/selection.ts"
 import { PersistentCache } from "./persistentCache.ts"
 import { join } from "node:path"
+import { emptyPreserveTerms } from "../documents/terms.ts"
 
 export class TranslationRuntime implements vscode.Disposable {
   readonly terms: TermFiles
@@ -118,7 +119,9 @@ export class TranslationRuntime implements vscode.Disposable {
     }
   }
 
-  async settings(uri?: vscode.Uri): Promise<TranslationSettings> {
+  async settings(uri?: vscode.Uri, usePreserveTerms = true): Promise<TranslationSettings> {
+    if (this.disposed) throw Error("extension-disposed")
+    if (!usePreserveTerms) return getTranslationSettings(uri, emptyPreserveTerms)
     while (!this.disposed) {
       const before = JSON.stringify(vscode.workspace.getConfiguration("commentTranslatePlus", uri).inspect("preserveTerms"))
       let terms: PreserveTerms
@@ -186,7 +189,7 @@ export class TranslationRuntime implements vscode.Disposable {
   async translateSelection(document: vscode.TextDocument, selection: ReturnType<typeof prepareSelection>, signal: AbortSignal): Promise<string> {
     const translations = new Map<string, string>()
     try {
-      await this.translate(document, selection, signal, false, (item) => translations.set(item.id, item.text))
+      await this.translate(document, selection, signal, false, (item) => translations.set(item.id, item.text), await this.settings(document.uri, false))
     } catch (error) {
       // The request already reports failed items. Keep their source while displaying accepted neighbours.
       if (!(error instanceof TranslationFailure) || !error.reported || !translations.size) throw error
@@ -199,7 +202,8 @@ export class TranslationRuntime implements vscode.Disposable {
     document: vscode.TextDocument,
     parsed: ParsedDocument,
     signal: AbortSignal,
-    progress?: (translations: ReadonlyMap<string, string>) => void
+    progress?: (translations: ReadonlyMap<string, string>) => void,
+    settings?: TranslationSettings
   ): Promise<ReadonlyMap<string, string>> {
     const input = { units: parsed.groups.flatMap((group) => group.units) }
     const translations = new Map<string, string>()
@@ -210,7 +214,7 @@ export class TranslationRuntime implements vscode.Disposable {
           progress(translations)
         }
       : undefined
-    const result = await this.translate(document, input, signal, false, completed)
+    const result = await this.translate(document, input, signal, false, completed, settings)
     signal.throwIfAborted()
     for (const [id, text] of result) translations.set(id, text)
     progress?.(translations)
