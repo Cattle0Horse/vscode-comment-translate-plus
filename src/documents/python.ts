@@ -278,15 +278,8 @@ export function pythonStringUnits(source: string, region: TextUnit, literals: re
 
   if (sentenceBoundaries.size) protectInline(markdownTree(text).topNode)
   const blocks = proseBlocks(text, protectedRanges).flatMap((block) => {
-    const parts: { start: number; end: number }[] = []
-    let start = block.start
-    for (const boundary of sentenceBoundaries) {
-      if (boundary <= start || boundary >= block.end) continue
-      parts.push({ start, end: boundary })
-      start = boundary
-    }
-    parts.push({ start, end: block.end })
-    return parts
+    const starts = [block.start, ...[...sentenceBoundaries].filter((boundary) => boundary > block.start && boundary < block.end)]
+    return starts.map((start, index) => ({ start, end: starts[index + 1] ?? block.end }))
   })
   const units: (TextUnit & { readonly kind: "string" })[] = []
   let previousDecodedEnd = 0
