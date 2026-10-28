@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import { existsSync, mkdirSync } from "node:fs"
+import { existsSync, mkdirSync, statSync } from "node:fs"
 import { dirname } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 import type { StatementSync } from "node:sqlite"
@@ -8,6 +8,17 @@ export interface PersistentCacheOptions {
   readonly enabled: boolean
   readonly maxEntries: number
   readonly maxBytes: number
+}
+
+export interface PersistentCacheSnapshot {
+  readonly state: "disabled" | "ready" | "failed"
+  readonly entries: number | undefined
+  readonly bytes: number | undefined
+  readonly diskBytes: number | undefined
+  readonly pendingChanges: number
+  readonly maxEntries: number
+  readonly maxBytes: number
+  readonly directory: string
 }
 
 interface Change {
@@ -41,6 +52,38 @@ export class PersistentCache {
     private readonly path: string,
     private readonly warning: () => void
   ) {}
+
+  snapshot(): PersistentCacheSnapshot {
+    let entries: number | undefined
+    let bytes: number | undefined
+    let reader: DatabaseSync | undefined
+    try {
+      const database = this.database ?? (statSync(this.path, { throwIfNoEntry: false }) ? (reader = new DatabaseSync(this.path, { readOnly: true, timeout: 250 })) : undefined)
+      const totals = database?.prepare("SELECT COUNT(*) AS count, COALESCE(SUM(bytes), 0) AS bytes FROM translations").get()
+      entries = totals ? Number(totals.count) : 0
+      bytes = totals ? Number(totals.bytes) : 0
+    } catch {
+      // Statistics must not change storage state or report unreadable data as empty.
+    } finally {
+      reader?.close()
+    }
+    let diskBytes: number | undefined
+    try {
+      diskBytes = ["", "-wal", "-shm"].reduce((total, suffix) => total + (statSync(this.path + suffix, { throwIfNoEntry: false })?.size ?? 0), 0)
+    } catch {
+      // File access failures are distinct from absent cache files.
+    }
+    return {
+      state: this.failed ? "failed" : this.options.enabled ? "ready" : "disabled",
+      entries,
+      bytes,
+      diskBytes,
+      pendingChanges: this.changes.size,
+      maxEntries: this.options.maxEntries,
+      maxBytes: this.options.maxBytes,
+      directory: dirname(this.path)
+    }
+  }
 
   async configure(options: PersistentCacheOptions): Promise<void> {
     if (this.closed) return

@@ -33,8 +33,15 @@ export async function runPersistentCache(workspace: vscode.Uri, owner: Applicati
       async (input) => input.units.map((unit) => ({ id: unit.id, text: unit.text.replace("Read", "阅读").replace("Keep", "保留") })),
       signal()
     )
+    const pending = cache.snapshot()
+    assert(pending.entries === 0 && pending.pendingChanges === input.units.length, "Inspecting usage flushed pending translations or lost their count.")
     await cache.close()
     restored = await open()
+    const usage = restored.snapshot()
+    assert(
+      usage.state === "ready" && usage.entries === input.units.length && usage.bytes! > 0 && usage.diskBytes! > usage.bytes!,
+      "Native usage lost committed payload or physical database overhead."
+    )
     const next = new TranslationStore(restored)
     const recovered = await next.translate(
       "synthetic-config",
@@ -92,6 +99,7 @@ export async function runPersistentCache(workspace: vscode.Uri, owner: Applicati
   }
   return [
     "native desktop SQLite persists independent validated units, restores a fresh store and deletes invalidations before reopening",
+    "native cache usage separates pending writes, committed payload and disk files without committing on inspection",
     "native persistent-cache settings enable and disable the production runtime without discarding memory results or editing source"
   ]
 }

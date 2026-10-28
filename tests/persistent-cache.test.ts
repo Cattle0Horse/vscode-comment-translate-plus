@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import type { TestContext } from "node:test"
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
@@ -55,6 +55,76 @@ function storage(t: TestContext) {
     }
   }
 }
+
+test("usage snapshots separate committed payload, pending mutations and physical files without flushing", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] })
+  const disk = storage(t)
+  const cache = await disk.open()
+  const text = "合成译文"
+  cache.set("first", text)
+  cache.set("second", "another translation")
+  let snapshot = cache.snapshot()
+  assert.equal(snapshot.state, "ready")
+  assert.equal(snapshot.entries, 0)
+  assert.equal(snapshot.bytes, 0)
+  assert.equal(snapshot.pendingChanges, 2)
+  assert.equal(disk.query("SELECT COUNT(*) AS count FROM translations")[0].count, 0)
+  await cache.flush()
+  const other = await disk.open()
+  other.set("external", "另一窗口")
+  await other.flush()
+  cache.set("first", "待提交的新译文")
+  cache.remove("second")
+  snapshot = cache.snapshot()
+  assert.equal(snapshot.entries, 3)
+  assert.equal(
+    snapshot.bytes,
+    [text, "another translation", "另一窗口"].reduce((total, value) => total + Buffer.byteLength(value, "utf8") + 64, 0)
+  )
+  assert.equal(snapshot.pendingChanges, 2)
+  assert.equal(
+    snapshot.diskBytes,
+    ["", "-wal", "-shm"].reduce((total, suffix) => total + (statSync(disk.path + suffix, { throwIfNoEntry: false })?.size ?? 0), 0)
+  )
+  assert.ok(snapshot.diskBytes! > snapshot.bytes!)
+  assert.equal(disk.query("SELECT COUNT(*) AS count FROM translations")[0].count, 3)
+  await cache.configure({ ...options, maxEntries: 1 })
+  snapshot = cache.snapshot()
+  assert.equal(snapshot.entries, Number(disk.query("SELECT COUNT(*) AS count FROM translations")[0].count))
+  assert.equal(snapshot.maxEntries, 1)
+  assert.equal(snapshot.pendingChanges, 0)
+})
+
+test("disabled usage does not create storage and still reports remaining database files", async (t) => {
+  const disk = storage(t)
+  const cache = await disk.open({ ...options, enabled: false })
+  assert.equal(cache.snapshot().state, "disabled")
+  assert.equal(cache.snapshot().diskBytes, 0)
+  assert.equal(cache.snapshot().entries, 0)
+  assert.equal(existsSync(disk.path), false)
+  await cache.configure(options)
+  cache.set("first", "合成译文")
+  await cache.flush()
+  await cache.configure({ ...options, enabled: false })
+  const snapshot = cache.snapshot()
+  assert.equal(snapshot.state, "disabled")
+  assert.equal(snapshot.entries, 0)
+  assert.equal(snapshot.bytes, 0)
+  assert.ok(snapshot.diskBytes! > 0)
+})
+
+test("unreadable usage remains unknown and preserves storage failure state", async (t) => {
+  const disk = storage(t)
+  writeFileSync(disk.path, "synthetic damaged SQLite file")
+  const cache = await disk.open()
+  const snapshot = cache.snapshot()
+  assert.equal(snapshot.state, "failed")
+  assert.equal(snapshot.entries, undefined)
+  assert.equal(snapshot.bytes, undefined)
+  assert.equal(snapshot.diskBytes, Buffer.byteLength("synthetic damaged SQLite file"))
+  assert.equal(disk.warnings, 1)
+  assert.equal(readFileSync(disk.path, "utf8"), "synthetic damaged SQLite file")
+})
 
 test("SQLite batches writes and reopens with keyed lookup without saving source keys", async (t) => {
   const disk = storage(t)

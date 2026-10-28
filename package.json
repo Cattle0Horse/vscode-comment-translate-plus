@@ -132,6 +132,11 @@
         "icon": "$(output)"
       },
       {
+        "command": "commentTranslatePlus.showCacheUsage",
+        "title": "查看缓存使用情况",
+        "category": "Comment Translate Plus"
+      },
+      {
         "command": "commentTranslatePlus.actions",
         "title": "注释浏览操作",
         "category": "Comment Translate Plus",

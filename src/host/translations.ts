@@ -61,6 +61,54 @@ export class TranslationRuntime implements vscode.Disposable {
     return this.persistent.configure({ enabled, maxEntries, maxBytes: maxSize * 1024 * 1024 })
   }
 
+  async showCacheUsage(): Promise<void> {
+    const size = (bytes: number) => {
+      const divisor = bytes < 1024 ? 1 : bytes < 1024 * 1024 ? 1024 : 1024 * 1024
+      return (bytes / divisor).toLocaleString("zh-CN", { maximumFractionDigits: 3 }) + (divisor === 1 ? " B" : divisor === 1024 ? " KiB" : " MiB")
+    }
+    while (!this.disposed) {
+      const snapshot = this.persistent.snapshot()
+      const items: (vscode.QuickPickItem & { action?: "refresh" | "directory" | "settings" })[] = [
+        {
+          label: "持久化缓存",
+          description: snapshot.state === "failed" ? "存储故障，仅使用内存缓存" : snapshot.state === "ready" ? "已开启" : "已关闭"
+        },
+        { label: "缓存条目", description: snapshot.entries === undefined ? "无法读取" : `${snapshot.entries.toLocaleString("zh-CN")} / ${snapshot.maxEntries.toLocaleString("zh-CN")} 项` },
+        {
+          label: "缓存容量",
+          description: snapshot.bytes === undefined ? "无法读取" : `${size(snapshot.bytes)} / ${size(snapshot.maxBytes)}（${((snapshot.bytes / snapshot.maxBytes) * 100).toFixed(1)}%）`,
+          detail: "已提交的摘要与译文有效载荷，受条数和容量上限约束。"
+        },
+        {
+          label: "磁盘文件大小",
+          description: snapshot.diskBytes === undefined ? "无法读取" : size(snapshot.diskBytes),
+          detail: "数据库、WAL 与 SHM 文件合计，包含索引、空闲页及事务日志，可能大于缓存容量。"
+        },
+        { label: "待写入变更", description: `${snapshot.pendingChanges} 项`, detail: "当前窗口尚未提交的新增、更新或删除；不计入上方已提交统计。" },
+        { label: "刷新", action: "refresh" },
+        { label: "打开缓存目录", description: snapshot.directory, action: "directory" },
+        { label: "打开缓存设置", action: "settings" }
+      ]
+      const selected = await vscode.window.showQuickPick(items, { title: "注释翻译+：缓存使用情况", placeHolder: "按需查看持久化缓存统计，选择刷新获取最新数据" })
+      if (!selected || this.disposed) return
+      if (selected.action === "settings") {
+        await vscode.commands.executeCommand("workbench.action.openSettings", "@ext:cattle-horse.vscode-comment-translate-plus persistentCache")
+        return
+      }
+      if (selected.action === "directory") {
+        try {
+          await vscode.workspace.fs.stat(vscode.Uri.file(snapshot.directory))
+          if (!(await vscode.env.openExternal(vscode.Uri.file(snapshot.directory)))) throw Error("无法打开缓存目录。")
+        } catch (error) {
+          void vscode.window.showWarningMessage(
+            error instanceof vscode.FileSystemError && error.code === "FileNotFound" ? "缓存目录尚未创建。" : "无法打开缓存目录，请检查目录是否存在及访问权限。"
+          )
+        }
+        return
+      }
+    }
+  }
+
   async settings(uri?: vscode.Uri): Promise<TranslationSettings> {
     while (!this.disposed) {
       const before = JSON.stringify(vscode.workspace.getConfiguration("commentTranslatePlus", uri).inspect("preserveTerms"))

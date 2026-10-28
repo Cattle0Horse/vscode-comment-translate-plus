@@ -48,6 +48,7 @@ export class Controls implements vscode.Disposable {
       }
     })
     command("showErrors", () => this.translations.showErrors())
+    command("showCacheUsage", () => this.translations.showCacheUsage())
     command("translateAndReplace", () => this.replacement.translateAndReplace())
     command("actions", () => this.actions())
     command("setLanguages", () => this.setLanguages())
@@ -159,7 +160,7 @@ export class Controls implements vscode.Disposable {
       { label: "开启 / 关闭工作区自动注释浏览", command: "toggleAuto" }
     )
     if (vscode.window.activeTextEditor && isMarkdownDocument(vscode.window.activeTextEditor.document)) items.push({ label: "打开 Markdown 翻译预览", command: "preview" })
-    items.push({ label: "扩展设置", command: "settings" }, { label: "查看日志与错误", command: "showErrors" })
+    items.push({ label: "查看缓存使用情况", command: "showCacheUsage" }, { label: "扩展设置", command: "settings" }, { label: "查看日志与错误", command: "showErrors" })
     const selected = await vscode.window.showQuickPick(items, {
       title: "注释翻译+",
       placeHolder: "当前文档的注释浏览操作"
