@@ -30,6 +30,38 @@ import {
   listBatch
 } from "./support/fixtures.ts"
 
+test("standalone XML prompt delimiters preserve markup while exposing enclosed Markdown for LF and CRLF", () => {
+  for (const newline of ["\n", "\r\n"]) {
+    for (const tag of ["catalog_rules", "catalog:rules"]) {
+      const source = [`<${tag}>`, "- Read the map.", "- Keep the ticket.", "", "Catalog ids: `__CATALOG_IDS__`.", `</${tag}>`].join(newline)
+      const parsed = parseMarkdown(source)
+      const units = inputOf(parsed).units
+      assert.deepEqual(
+        units.map((unit) => unit.text),
+        ["- Read the map.", "- Keep the ticket.", "Catalog ids: `__CATALOG_IDS__`."]
+      )
+      const translations = new Map<string, string>()
+      for (const unit of units) {
+        assert.equal(source.slice(unit.start, unit.end), unit.text)
+        const prepared = prepareTranslation(unit, 32)
+        assert.equal(prepared.restore(prepared.text), unit.text)
+        const output = unit.text.replace("Read the map", "阅读地图").replace("Keep the ticket", "保留门票").replace("Catalog ids", "目录编号")
+        assert.equal(validateTranslation(unit, output), undefined)
+        translations.set(unit.id, output)
+      }
+      const output = translatedMarkdown(parsed, translations)
+      assert.equal(output, source.replace("Read the map", "阅读地图").replace("Keep the ticket", "保留门票").replace("Catalog ids", "目录编号"))
+    }
+    for (const source of [
+      "<div>\nDo not extract raw HTML.\n</div>",
+      "<!--\nDo not extract comments.\n-->",
+      "<script>\nDo not extract scripts.\n</script>",
+      "```xml\n<catalog_rules>\nDo not extract unparsed code.\n</catalog_rules>\n```"
+    ])
+      assert.equal(inputOf(parseMarkdown(source.replaceAll("\n", newline))).units.length, 0)
+  }
+})
+
 test("embedded translations reject missing container prefixes, line-boundary damage, broken links and fence injection", async () => {
   const source = "> ```md\n> Read [guide](https://example.com)\n> and keep `sourceId`.\n> ```"
   const parsed = await embeddedMarkdown(source)

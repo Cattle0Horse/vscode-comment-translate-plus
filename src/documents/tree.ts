@@ -1,6 +1,32 @@
 import type { TextUnit } from "../model/document.ts"
 import { parser, GFM } from "@lezer/markdown"
-const markdown = parser.configure(GFM)
+
+// XML-style prompt delimiters own one line, not the Markdown up to the next blank line.
+function xmlDelimiter(text: string): boolean {
+  const tag = text.match(/^<\/?([A-Za-z][\w:.-]*)[\t ]*\/?>[\t ]*$/u)
+  return !!tag && /[_:]/u.test(tag[1])
+}
+
+const markdown = parser.configure([
+  GFM,
+  {
+    parseBlock: [
+      {
+        name: "XMLDelimiter",
+        before: "HTMLBlock",
+        parse(context, line) {
+          if (!xmlDelimiter(line.text.slice(line.pos))) return false
+          context.addElement(context.elt("HTMLTag", context.lineStart + line.pos, context.lineStart + line.text.trimEnd().length))
+          context.nextLine()
+          return true
+        },
+        endLeaf(_context, line) {
+          return line.indent < line.baseIndent + 4 && xmlDelimiter(line.text.slice(line.pos))
+        }
+      }
+    ]
+  }
+])
 
 export type MarkdownNode = ReturnType<typeof markdown.parse>["topNode"]
 

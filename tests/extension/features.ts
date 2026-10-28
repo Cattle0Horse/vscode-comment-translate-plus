@@ -2805,5 +2805,27 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   checks.push(
     "angle-bracket, brace and dollar-brace URL parameters use one CTP and restore exactly before Chinese punctuation across reading, source hover, native preview and cache without source edits"
   )
+  const deletedSource = "<catalog_rules>\n- Read the original document.\n- Keep `sourceId` and [guide](https://example.com).\n\nCatalog ids: `__CATALOG_IDS__`.\n</catalog_rules>"
+  const originalUri = vscode.Uri.parse("ctp-diff-original:/catalog-rules.md")
+  const originalProvider = vscode.workspace.registerTextDocumentContentProvider(originalUri.scheme, { provideTextDocumentContent: () => deletedSource })
+  try {
+    const modified = await open("catalog-rules.md", "markdown", "<catalog_rules>\nCatalog ids: `__CATALOG_IDS__`.\n</catalog_rules>")
+    await vscode.commands.executeCommand("vscode.diff", originalUri, modified.document.uri, "Catalog changes")
+    const original = await vscode.workspace.openTextDocument(originalUri)
+    await waitFor(() => vscode.window.visibleTextEditors.some((editor) => editor.document === original), "diff original editor")
+    await owner.browse.start(original)
+    await waitFor(() => owner.browse.inspect(originalUri)?.status === "ready" && owner.browse.inspect(originalUri)?.units.length === 3, "deleted XML-wrapped Markdown translation")
+    const snapshot = owner.browse.inspect(originalUri)!
+    assert(snapshot.units[0].translation.includes("阅读原始文档"), "Deleted Markdown inside XML delimiters was not translated.")
+    const hovers = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", originalUri, new vscode.Position(1, 5))
+    assert(values(hovers).includes("阅读原始文档"), "Diff original hover lost its translation.")
+    assert(original.getText() === deletedSource && !original.isDirty, "Translation modified the read-only diff original.")
+    assert(modified.document.getText() === "<catalog_rules>\nCatalog ids: `__CATALOG_IDS__`.\n</catalog_rules>", "Original translation changed the modified side.")
+    checks.push("read-only diff original translates deleted Markdown inside XML delimiters and exposes source hover without editing either side")
+  } finally {
+    owner.browse.stop(originalUri, true)
+    await vscode.commands.executeCommand("workbench.action.closeAllEditors")
+    originalProvider.dispose()
+  }
   return checks
 }
