@@ -62,6 +62,8 @@ export class Controls implements vscode.Disposable {
       const config = vscode.workspace.getConfiguration("commentTranslatePlus")
       return this.updateSetting("auto.enabled", !config.get<boolean>("auto.enabled", false))
     })
+    command("addCurrentFileToAutoExclude", () => this.addCurrentFileRule("exclude"))
+    command("addCurrentFileToAutoInclude", () => this.addCurrentFileRule("include"))
     command("preview", () => this.preview.open())
     command("settings", () => vscode.commands.executeCommand("workbench.action.openSettings", "@ext:cattle-horse.vscode-comment-translate-plus"))
 
@@ -157,7 +159,9 @@ export class Controls implements vscode.Disposable {
       { label: "选择翻译配置", command: "selectProfile" },
       { label: "切换对照 / 占位模式", command: "toggleMode" },
       { label: "开启 / 关闭悬停翻译", command: "toggleHover" },
-      { label: "开启 / 关闭工作区自动注释浏览", command: "toggleAuto" }
+      { label: "开启 / 关闭工作区自动注释浏览", command: "toggleAuto" },
+      { label: "添加当前文件到自动翻译排除规则", command: "addCurrentFileToAutoExclude" },
+      { label: "添加当前文件到自动翻译包含规则", command: "addCurrentFileToAutoInclude" }
     )
     if (vscode.window.activeTextEditor && isMarkdownDocument(vscode.window.activeTextEditor.document)) items.push({ label: "打开 Markdown 翻译预览", command: "preview" })
     items.push({ label: "查看缓存使用情况", command: "showCacheUsage" }, { label: "扩展设置", command: "settings" }, { label: "查看日志与错误", command: "showErrors" })
@@ -166,6 +170,26 @@ export class Controls implements vscode.Disposable {
       placeHolder: "当前文档的注释浏览操作"
     })
     if (selected) await vscode.commands.executeCommand("commentTranslatePlus." + selected.command)
+  }
+
+  private async addCurrentFileRule(kind: "include" | "exclude"): Promise<void> {
+    const document = vscode.window.activeTextEditor?.document
+    const folder = document && !document.isUntitled ? vscode.workspace.getWorkspaceFolder(document.uri) : undefined
+    if (!document || !folder) {
+      void vscode.window.showWarningMessage("请先打开工作区内的文件，再添加自动翻译规则。")
+      return
+    }
+    const pattern = vscode.workspace.asRelativePath(document.uri, false).replace(/[[\]*?{}]/g, (character) => "[" + character + "]")
+    const config = vscode.workspace.getConfiguration("commentTranslatePlus", document.uri)
+    const key = "auto." + kind
+    const rules = config.get<string[]>(key, kind === "include" ? ["**/*"] : [])
+    try {
+      await config.update(key, [...rules, pattern], vscode.ConfigurationTarget.WorkspaceFolder)
+      const note = kind === "include" ? "；仍遵循自动翻译开关、排除规则和手动阅读状态" : ""
+      void vscode.window.showInformationMessage("已添加当前文件到自动翻译" + (kind === "include" ? "包含" : "排除") + "规则：" + pattern + note)
+    } catch (error) {
+      void vscode.window.showErrorMessage("无法保存自动翻译规则：" + (error instanceof Error ? error.message : String(error)))
+    }
   }
 
   private async selectProfile(): Promise<void> {

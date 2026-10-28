@@ -1251,6 +1251,43 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   await config.update("auto.include", undefined, vscode.ConfigurationTarget.Global)
   checks.push("automatic include matches any rule, excludes win overlaps, empty include disables auto, default restores it and manual browse retains priority")
   checks.push("automatic browse supports code and Markdown, excludes root-relative files and nested directories, reacts to glob changes and respects manual overrides")
+  await config.update("auto.include", [], vscode.ConfigurationTarget.Global)
+  await config.update("auto.exclude", ["**/generated/**"], vscode.ConfigurationTarget.Global)
+  await config.update("auto.enabled", true, vscode.ConfigurationTarget.Global)
+  const ruleTarget = await open("rule[1]{a,b}.md", "markdown", "Read the original document.")
+  const ruleConfig = vscode.workspace.getConfiguration("commentTranslatePlus", ruleTarget.document.uri)
+  try {
+    assert(!automaticScope(ruleTarget.document), "Empty include did not prevent the command target from opening automatically.")
+    await vscode.commands.executeCommand("commentTranslatePlus.addCurrentFileToAutoInclude")
+    await waitFor(() => owner.browse.inspect(ruleTarget.document.uri)?.status === "ready", "include command starts current file")
+    const neighbor = await open("rule1a.md", "markdown", "Read the original document.")
+    const nestedNeighbor = await open("nested/rule[1]{a,b}.md", "markdown", "Read the original document.")
+    assert(!automaticScope(neighbor.document) && !automaticScope(nestedNeighbor.document), "The current-file rule broadened to a glob match or nested same-name file.")
+    await vscode.window.showTextDocument(ruleTarget.document, { preview: false })
+    await vscode.commands.executeCommand("commentTranslatePlus.addCurrentFileToAutoExclude")
+    await waitFor(() => !owner.browse.has(ruleTarget.document.uri), "exclude command stops current file")
+    const saved = vscode.workspace.getConfiguration("commentTranslatePlus", ruleTarget.document.uri).get<string[]>("auto.exclude")!
+    await vscode.commands.executeCommand("commentTranslatePlus.addCurrentFileToAutoExclude")
+    await vscode.commands.executeCommand("commentTranslatePlus.addCurrentFileToAutoInclude")
+    const updatedRules = vscode.workspace.getConfiguration("commentTranslatePlus", ruleTarget.document.uri)
+    const exclusions = updatedRules.get<string[]>("auto.exclude")!
+    assert(exclusions.length === saved.length + 1 && exclusions.at(-1) === saved.at(-1), "Repeated exclusion did not append the current file again.")
+    assert(!automaticScope(ruleTarget.document), "The include command bypassed an exclusion.")
+    const inclusions = updatedRules.get<string[]>("auto.include")!
+    assert(inclusions.length === 2 && inclusions[0] === inclusions[1], "Repeated inclusion did not append the current file again.")
+    assert(exclusions.includes("**/generated/**"), "Adding a file discarded inherited exclusion rules.")
+    assert(updatedRules.inspect<string[]>("auto.include")?.globalValue?.length === 0, "A file rule changed global settings.")
+    assert(ruleTarget.document.getText() === "Read the original document." && !ruleTarget.document.isDirty, "Adding automatic rules changed the source.")
+  } finally {
+    await config.update("auto.enabled", false, vscode.ConfigurationTarget.Global)
+    await ruleConfig.update("auto.include", undefined, vscode.ConfigurationTarget.WorkspaceFolder)
+    await ruleConfig.update("auto.exclude", undefined, vscode.ConfigurationTarget.WorkspaceFolder)
+    await config.update("auto.include", undefined, vscode.ConfigurationTarget.Global)
+    await config.update("auto.exclude", undefined, vscode.ConfigurationTarget.Global)
+  }
+  checks.push(
+    "current-file commands append exact folder-scoped rules even on repeat, escape glob characters, preserve inherited exclusions and re-evaluate automatic browsing without source edits"
+  )
   const diffOriginalUri = vscode.Uri.parse("ctp-auto-diff:/history/previous.md?ref=previous")
   const diffSource = "Read the original document."
   const diffProvider = vscode.workspace.registerTextDocumentContentProvider(diffOriginalUri.scheme, { provideTextDocumentContent: () => diffSource })

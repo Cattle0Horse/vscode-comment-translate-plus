@@ -206,6 +206,16 @@
         "command": "commentTranslatePlus.refreshPreserveTerms",
         "title": "刷新保留词",
         "category": "Comment Translate Plus"
+      },
+      {
+        "command": "commentTranslatePlus.addCurrentFileToAutoExclude",
+        "title": "添加当前文件到自动翻译排除规则",
+        "category": "Comment Translate Plus"
+      },
+      {
+        "command": "commentTranslatePlus.addCurrentFileToAutoInclude",
+        "title": "添加当前文件到自动翻译包含规则",
+        "category": "Comment Translate Plus"
       }
     ],
     "configuration": {
@@ -1273,6 +1283,14 @@
         {
           "command": "commentTranslatePlus.translateAndReplace",
           "group": "browse@13"
+        },
+        {
+          "command": "commentTranslatePlus.addCurrentFileToAutoExclude",
+          "group": "browse@14"
+        },
+        {
+          "command": "commentTranslatePlus.addCurrentFileToAutoInclude",
+          "group": "browse@15"
         }
       ],
       "commandPalette": [
