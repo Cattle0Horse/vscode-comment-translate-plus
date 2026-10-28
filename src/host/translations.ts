@@ -63,8 +63,16 @@ export class TranslationRuntime implements vscode.Disposable {
 
   async showCacheUsage(): Promise<void> {
     const size = (bytes: number) => {
-      const divisor = bytes < 1024 ? 1 : bytes < 1024 * 1024 ? 1024 : 1024 * 1024
-      return (bytes / divisor).toLocaleString("zh-CN", { maximumFractionDigits: 3 }) + (divisor === 1 ? " B" : divisor === 1024 ? " KiB" : " MiB")
+      let value = bytes
+      let unit = "B"
+      if (bytes >= 1024 * 1024) {
+        value /= 1024 * 1024
+        unit = "MiB"
+      } else if (bytes >= 1024) {
+        value /= 1024
+        unit = "KiB"
+      }
+      return value.toLocaleString("zh-CN", { maximumFractionDigits: 3 }) + " " + unit
     }
     while (!this.disposed) {
       const snapshot = this.persistent.snapshot()
@@ -97,8 +105,9 @@ export class TranslationRuntime implements vscode.Disposable {
       }
       if (selected.action === "directory") {
         try {
-          await vscode.workspace.fs.stat(vscode.Uri.file(snapshot.directory))
-          if (!(await vscode.env.openExternal(vscode.Uri.file(snapshot.directory)))) throw Error("无法打开缓存目录。")
+          const directory = vscode.Uri.file(snapshot.directory)
+          await vscode.workspace.fs.stat(directory)
+          if (!(await vscode.env.openExternal(directory))) throw Error("无法打开缓存目录。")
         } catch (error) {
           void vscode.window.showWarningMessage(
             error instanceof vscode.FileSystemError && error.code === "FileNotFound" ? "缓存目录尚未创建。" : "无法打开缓存目录，请检查目录是否存在及访问权限。"

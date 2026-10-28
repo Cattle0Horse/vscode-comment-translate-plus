@@ -58,7 +58,8 @@ export class PersistentCache {
     let bytes: number | undefined
     let reader: DatabaseSync | undefined
     try {
-      const database = this.database ?? (statSync(this.path, { throwIfNoEntry: false }) ? (reader = new DatabaseSync(this.path, { readOnly: true, timeout: 250 })) : undefined)
+      if (!this.database && statSync(this.path, { throwIfNoEntry: false })) reader = new DatabaseSync(this.path, { readOnly: true, timeout: 250 })
+      const database = this.database ?? reader
       const totals = database?.prepare("SELECT COUNT(*) AS count, COALESCE(SUM(bytes), 0) AS bytes FROM translations").get()
       entries = totals ? Number(totals.count) : 0
       bytes = totals ? Number(totals.bytes) : 0
