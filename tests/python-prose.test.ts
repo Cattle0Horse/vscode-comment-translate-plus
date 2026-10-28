@@ -31,6 +31,25 @@ const grammar = {
   }
 } as IGrammar
 
+test("Python path enumerations accept Chinese separators on the first response and cache the result", async (t) => {
+  const source = 'notice = "a document in /gallery, /catalog, or the /archive/files store"'
+  const output = "/gallery、/catalog 或 /archive/files 存储中的文档"
+  const units = await extractCode(source, "python", new CodeTokenizer(grammar), () => {})
+  const fixture = await chatFixture(t, () => output)
+  const store = new TranslationStore()
+  t.after(() => store.clear())
+  const run = () =>
+    store.translate("python-path-list", { units }, (input, signal) => requestTranslation(fixture.service, fixture.settings, input, signal, fixture.gate), new AbortController().signal)
+  const result = await run()
+  const [row] = displayTranslations(
+    source,
+    units.map((unit) => ({ ...unit, translation: result.get(unit.id)! }))
+  )
+  assert.equal(row.translation, output)
+  assert.deepEqual(await run(), result)
+  assert.equal(fixture.seen.length, 1, "Valid path separators caused retries or prevented cache reuse.")
+})
+
 test("Python source literal sentence endings retain independent requests, display rows and replacement ranges", async () => {
   for (const newline of ["\n", "\r\n"]) {
     for (const ending of [".", "?", "!", "。", "？", "！"]) {
@@ -460,6 +479,69 @@ test("Python paragraph folding inside quoted Markdown fences retains container p
     assert.equal(validateTranslation(units[0], translated), undefined)
     assert.equal(translatedMarkdown(parsed, new Map([[units[0].id, translated]])), ["> ```python", "> value = (", '>     "参观前阅读博物馆目录。"', "> )", "> ```"].join(newline))
   }
+})
+
+test("Python interpolation smart quotes restore source syntax without changing prose or expression content", () => {
+  for (const expression of ["{'; '.join(exhibit_labels)}", '{" | ".join(exhibit_labels)}']) {
+    const source = 'f"""Summary: ' + expression + '."""'
+    const start = source.indexOf(expression)
+    const region: TextUnit = { id: "quotes", text: source, start: 0, end: source.length, format: "text", kind: "string", language: "python" }
+    const [unit] = pythonStringUnits(source, region, [{ start: 0, end: source.length, protected: [{ start, end: start + expression.length }] }])
+    const prepared = prepareTranslation(unit, 200)
+    const smart = expression.replace(/'/gu, (_quote, index: number) => (index === 1 ? "’" : "‘")).replace(/"/gu, (_quote, index: number) => (index === 1 ? "”" : "“"))
+    const output = prepared.restore("概览：“馆藏”" + smart + "。")
+    assert.equal(validateTranslation(unit, output), undefined)
+    assert.equal(projectionContent(unit, output), "概览：“馆藏”" + expression + "。")
+    for (const invalid of [
+      smart.replace("exhibit_labels", "other_labels"),
+      smart.replace("join", "split"),
+      smart.replace(" ", ""),
+      smart + smart,
+      "",
+      expression + smart,
+      smart.replace(/[‘’“”]/u, "`"),
+      smart.replace(expression.includes("'") ? /[‘’]/gu : /[“”]/gu, expression.includes("'") ? "“" : "’")
+    ]) {
+      assert.throws(() => prepared.restore("概览：" + invalid + "。"), /structure-invalid/u)
+    }
+  }
+  const expression = "{'; '.join(exhibit_labels)}"
+  const text = "Summary: " + expression + " and {exhibit_count}."
+  const unit: TextUnit = {
+    id: "ordered-quotes",
+    text,
+    start: 0,
+    end: text.length,
+    format: "text",
+    language: "python",
+    kind: "string",
+    protected: [...text.matchAll(/\{[^}]+\}/gu)].map((match) => ({ start: match.index, end: match.index + match[0].length }))
+  }
+  const smart = expression.replace(/'/gu, "’")
+  assert.throws(() => prepareTranslation(unit, 200).restore("概览：{exhibit_count} 和 " + smart + "。"), /structure-invalid/u)
+  const prose = { ...unit, language: undefined, protected: undefined }
+  const ordinary = "概览：" + smart + " 和 {exhibit_count}。"
+  assert.equal(prepareTranslation(prose, 200).restore(ordinary), ordinary)
+  const literalQuotes = text.replace("'; '", "'；‘’'")
+  const literalUnit = { ...unit, text: literalQuotes, end: literalQuotes.length, protected: [{ start: literalQuotes.indexOf("{"), end: literalQuotes.indexOf("}") + 1 }] }
+  assert.throws(() => prepareTranslation(literalUnit, 200).restore(literalQuotes.replace("‘’", "''")), /structure-invalid/u)
+})
+
+test("Python interpolation quote repair completes through HTTP and caches exact source expressions", async (t) => {
+  const expression = "{'; '.join(exhibit_labels)}"
+  const source = 'f"Summary: ' + expression + '"'
+  const start = source.indexOf(expression)
+  const region: TextUnit = { id: "quote-http", text: source, start: 0, end: source.length, format: "text", kind: "string", language: "python" }
+  const units = pythonStringUnits(source, region, [{ start: 0, end: source.length, protected: [{ start, end: start + expression.length }] }])
+  const fixture = await chatFixture(t, () => "概览：{’; ‘.join(exhibit_labels)}")
+  const store = new TranslationStore()
+  t.after(() => store.clear())
+  const run = () =>
+    store.translate("python-quote-repair", { units }, (input, signal) => requestTranslation(fixture.service, fixture.settings, input, signal, fixture.gate), new AbortController().signal)
+  const result = await run()
+  assert.equal(projectionContent(units[0], result.get(units[0].id)!), "概览：" + expression)
+  assert.deepEqual(await run(), result)
+  assert.equal(fixture.seen.length, 1, "Repairable quotation changes caused retries or prevented cache reuse.")
 })
 
 test("Repeated f-string expressions belong only to their own paragraphs", () => {

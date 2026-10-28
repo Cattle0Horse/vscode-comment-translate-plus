@@ -17,6 +17,49 @@ import { TranslationStore } from "../src/translation/store.ts"
 import { defaultSystemPrompt, defaultUserPrompt, defaultLanguageNames } from "../src/translation/providers/prompts.ts"
 import { limits, requestTranslation, batch, modelInput, chatFixture } from "./support/fixtures.ts"
 
+test("bare URLs keep translated closing punctuation outside the protected target", () => {
+  const url = "https://example.com/garden-guide"
+  for (const format of ["markdown", "text"] as const)
+    for (const [source, output] of [
+      [`Read (${url}).`, `阅读（${url}）。`],
+      [`Read (${url}).`, `阅读【${url}】。`],
+      [`**Read (${url}).**`, `**阅读（${url}）。**`],
+      [`Read (${url}/plant(red)).`, `阅读（${url}/plant(red)）。`],
+      [`Read (${url}/花（红）).`, `阅读（${url}/花（红））。`]
+    ]) {
+      const unit = { id: "punctuation", text: source, start: 0, end: source.length, format }
+      const prepared = prepareTranslation(unit, 32)
+      const restored = prepared.restore(prepared.text.replace("Read (", output.includes("【") ? "阅读【" : "阅读（").replace(").", output.includes("【") ? "】。" : "）。"))
+      assert.equal(restored, output)
+      assert.equal(validateTranslation(unit, output), undefined)
+      assert.ok(validateTranslation(unit, output.replace("garden-guide", "changed-guide")) instanceof ModelRetry)
+      if (format === "markdown") {
+        const parsed = parseMarkdown(source)
+        assert.equal(translatedMarkdown(parsed, new Map([[parsed.groups[0].units[0].id, restored]])), output)
+      }
+    }
+
+  for (const source of [`Read [guide](${url}）).`, `Read <${url}）>.`, `[ref]: ${url}）\n\nRead [guide][ref].`]) {
+    const unit = { id: "explicit-target", text: source, start: 0, end: source.length, format: "markdown" as const }
+    assert.ok(validateTranslation(unit, unit.text.replace("）", "")) instanceof ModelRetry)
+  }
+})
+
+test("translated URL wrappers complete on the first HTTP response and reuse the cache", async (t) => {
+  const source = "Read the garden guide (https://example.com/garden-guide)."
+  const output = "阅读花园指南（https://example.com/garden-guide）。"
+  const fixture = await chatFixture(t, () => "阅读花园指南（<CTP0>）。")
+  const parsed = parseMarkdown(source)
+  const input = { units: parsed.groups.flatMap((group) => group.units) }
+  const store = new TranslationStore()
+  t.after(() => store.clear())
+  const translate = () =>
+    store.translate("url-punctuation", input, (request, signal) => requestTranslation(fixture.service, fixture.settings, request, signal, fixture.gate), new AbortController().signal)
+  assert.equal(translatedMarkdown(parsed, await translate()), output)
+  assert.equal(translatedMarkdown(parsed, await translate()), output)
+  assert.equal(fixture.seen.length, 1, "Valid punctuation caused a retry or prevented cache reuse.")
+})
+
 test("short links reach the model in native form and retain exact targets", () => {
   for (const source of [
     "Read [Title](URL).",
@@ -430,6 +473,24 @@ test("punctuation after a slash does not turn an arithmetic operator into a path
       assert.equal(prepared.restore(translated), translated)
       assert.equal(validateTranslation(unit, translated), undefined)
     }
+  }
+})
+
+test("Chinese enumeration punctuation separates complete native paths without weakening their counts", () => {
+  for (const format of ["text", "markdown"] as const) {
+    const text = "Read /gallery, /catalog, or /archive/files storage."
+    const unit = { id: "path-list", start: 0, end: text.length, text, format }
+    const prepared = prepareTranslation(unit, 32)
+    const output = "/gallery、/catalog 或 /archive/files 存储中的文件。"
+    assert.equal(prepared.restore(output), output)
+    assert.equal(validateTranslation(unit, output), undefined)
+    for (const invalid of [
+      output.replace("/gallery、", ""),
+      output.replace("/gallery、", "/gallery/extra、"),
+      output.replace("/gallery、", "/gallery、/gallery、"),
+      output.replace("/catalog", "/catalogue")
+    ])
+      assert.throws(() => prepared.restore(invalid), ModelRetry)
   }
 })
 

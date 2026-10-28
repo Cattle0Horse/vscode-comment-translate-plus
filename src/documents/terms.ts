@@ -141,6 +141,20 @@ export function prepareTranslation(
         "g"
       )
     : undefined
+  // Only source-owned Python interpolations may recover typographic quote changes.
+  // Existing curly quotes are literal data and must not become interchangeable.
+  const nativeQuoteValues =
+    unit.language === "python"
+      ? [...new Set(protectedRanges.filter((range) => range.kind === undefined).map((range) => source.slice(range.start, range.end)))].filter(
+          (value) => nativeLiterals.has(value) && value.startsWith("{") && value.endsWith("}") && /['"]/u.test(value) && !/[‘’“”]/u.test(value)
+        )
+      : []
+  const nativeQuotePattern = nativeQuoteValues.length
+    ? new RegExp(
+        nativeQuoteValues.map((value) => [...value].map((character) => (character === "'" ? "['‘’]" : character === '"' ? '["“”]' : escapePattern(character))).join("")).join("|"),
+        "gu"
+      )
+    : undefined
   return {
     text,
     source,
@@ -167,6 +181,7 @@ export function prepareTranslation(
           counts.set(marker, (counts.get(marker) ?? 0) + 1)
           return marker
         })
+      if (nativeQuotePattern) translated = translated.replace(nativeQuotePattern, (value) => (nativeLiterals.has(value) ? value : value.replace(/[‘’]/gu, "'").replace(/[“”]/gu, '"')))
       // Code owns its delimiters; URL data owns its original link syntax. A code
       // wrapper around exactly one such marker is representation, not new content.
       translated = translated.replace(new RegExp("(?<!`)(`+)(" + pattern.source + ")\\1(?!`)", "g"), (match, ticks: string, marker: string) => {

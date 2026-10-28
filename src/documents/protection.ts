@@ -18,7 +18,8 @@ function addressText(text: string, preserveEllipsis = false): string {
 /** Bare GFM URLs may swallow sentence punctuation; explicit destinations own it. */
 export function linkTargetText(node: MarkdownNode, source: string): string {
   const text = source.slice(node.from, node.to)
-  return node.parent?.name === "Paragraph" ? text.replace(/[，。！？；]+$/u, "") : text
+  if (["Link", "Image", "Autolink", "LinkReference"].includes(node.parent?.name ?? "")) return text
+  return addressText(text.replace(/[，。！？；]+$/u, ""))
 }
 
 /** Shortcut candidates are prose without a definition; collapsed references always use their label as the target. */
@@ -115,7 +116,7 @@ export function protectedFragments(unit: TextUnit, tree?: MarkdownNode): readonl
   }
   fragments.sort((a, b) => a.start - b.start || b.end - a.end)
   const data = /[A-Za-z\d][A-Za-z\d._~:+/%=-]*/gu
-  const path = /(?<![\p{L}\p{N}\p{M}_/\\<])(?:[A-Za-z]:[\\/]|\.{1,2}[\\/]|\/(?!\/))[^\s<>"'\x60，。！？；]+/gu
+  const path = /(?<![\p{L}\p{N}\p{M}_/\\<])(?:[A-Za-z]:[\\/]|\.{1,2}[\\/]|\/(?!\/))[^\s<>"'\x60，。！？；、]+/gu
   const patterns = [
     /https?:\/\/[^\s<>"'\x60，。！？；]+/giu,
     /\b[\da-fA-F]{8}-[\da-fA-F]{4}-[\da-fA-F]{4}-[\da-fA-F]{4}-[\da-fA-F]{12}\b/gu,
