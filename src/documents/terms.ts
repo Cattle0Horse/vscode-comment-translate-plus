@@ -150,10 +150,7 @@ export function prepareTranslation(
         )
       : []
   const nativeQuotePattern = nativeQuoteValues.length
-    ? new RegExp(
-        nativeQuoteValues.map((value) => [...value].map((character) => (character === "'" ? "['‘’]" : character === '"' ? '["“”]' : escapePattern(character))).join("")).join("|"),
-        "gu"
-      )
+    ? new RegExp(nativeQuoteValues.map((value) => escapePattern(value).replace(/'/gu, "['‘’]").replace(/"/gu, '["“”]')).join("|"), "gu")
     : undefined
   return {
     text,
