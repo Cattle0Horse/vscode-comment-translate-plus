@@ -3,7 +3,7 @@
   "displayName": "注释翻译+",
   "description": "注释、Markdown 与指令文件沉浸式翻译，独立悬停、Markdown 翻译预览和可切换翻译服务",
   "icon": "resources/icon.png",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "publisher": "cattle-horse",
   "license": "MIT",
   "repository": {
