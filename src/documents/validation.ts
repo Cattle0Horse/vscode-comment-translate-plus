@@ -415,11 +415,9 @@ export function validateTranslation(unit: TextUnit, translated: string, code = "
       if (JSON.stringify(expected) === JSON.stringify(actual)) return
       // Complete inline containers follow the same reordering contract as Markdown.
       // Comparing their tree shape retains ownership, nesting and HTML/escape order.
-      if (
-        JSON.stringify(markdownShape(markdownTree(unit.text).topNode, unit.text, false, unit.linkLabels)) ===
-        JSON.stringify(markdownShape(markdownTree(translated).topNode, translated, false, unit.linkLabels))
-      )
-        return
+      const sourceShape = markdownShape(markdownTree(unit.text).topNode, unit.text, false, unit.linkLabels)
+      const translatedShape = markdownShape(markdownTree(translated).topNode, translated, false, unit.linkLabels)
+      if (JSON.stringify(sourceShape) === JSON.stringify(translatedShape)) return
       return (
         validateProtectedFragments(expected, actual, unit.text, translated) ??
         new ModelRetry(

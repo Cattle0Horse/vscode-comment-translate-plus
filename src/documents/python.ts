@@ -127,7 +127,9 @@ function expressionOrder(text: string, expressions: readonly string[]): string[]
     .map((value) => value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"))
     .join("|")
   const ordered = [...text.matchAll(new RegExp(pattern, "gu"))].map((match) => match[0])
-  if (JSON.stringify([...ordered].sort()) !== JSON.stringify([...expressions].sort())) throw Error("translation-structure-invalid")
+  const expected = [...expressions].sort()
+  const actual = [...ordered].sort()
+  if (actual.length !== expected.length || actual.some((expression, index) => expression !== expected[index])) throw Error("translation-structure-invalid")
   return ordered
 }
 
