@@ -52,6 +52,14 @@ interface PreviousResponse {
   readonly items: ReadonlyMap<TranslationUnit, string>
 }
 
+function retryDeadline(units: readonly TranslationUnit[]): number {
+  let deadline = 0
+  for (const unit of units) {
+    if (unit.failure instanceof RequestRetry) deadline = Math.max(deadline, unit.failure.retryAt ?? 0)
+  }
+  return deadline
+}
+
 class TranslationRun {
   private readonly units: readonly TranslationUnit[]
   private readonly controller = new AbortController()
@@ -166,7 +174,7 @@ class TranslationRun {
     for (const interest of signals) interest.addEventListener("abort", cancelUnused, { once: true })
     cancelUnused()
     const requestSignal = AbortSignal.any([this.combined, abandoned.signal])
-    const notBefore = Math.max(0, ...units.map((unit) => (unit.failure instanceof RequestRetry ? (unit.failure.retryAt ?? 0) : 0)))
+    const notBefore = retryDeadline(units)
     for (const unit of units) unit.beginAttempt()
     const attempt = Math.max(...units.map((unit) => unit.attempts))
     const requestId = this.taskId + "/R" + ++this.requestSequence
@@ -276,9 +284,7 @@ class TranslationRun {
         completed: units.filter((unit) => unit.translation !== undefined).length,
         failures: failed.map((unit) => unit.diagnostic(unit.failure, reasons.has(unit.source.id) || !reasons.size)),
         nextBatchSize,
-        retryDelayMs: nextBatchSize
-          ? Math.max(0, Math.ceil(Math.max(0, ...failed.map((unit) => (unit.failure instanceof RequestRetry ? (unit.failure.retryAt ?? 0) : 0))) - performance.now()))
-          : undefined,
+        retryDelayMs: nextBatchSize ? Math.max(0, Math.ceil(retryDeadline(failed) - performance.now())) : undefined,
         sourceCharacters: payload.items.reduce((sum, item) => sum + item.text.length, 0),
         contextCharacters: measurement.referenceCharacters,
         inputCharacters: measurement.characters,

@@ -27,13 +27,10 @@ type RequestPolicy = { readonly [K in keyof typeof requestPolicySchema]: (typeof
 
 export const requestPolicyConfigurationKeys = [...transportConfigurationKeys, ...Object.keys(requestPolicySchema).filter((key) => !(key in transportPolicySchema))]
 
-function schedulingValue(root: unknown, path: readonly string[], fallback: number | boolean): unknown {
-  let value = root
-  for (const key of path) {
-    if (value === undefined) return fallback
-    if (!value || typeof value !== "object" || Array.isArray(value)) throw Error("requestScheduling 及其分组必须是对象。")
-    value = (value as Record<string, unknown>)[key]
-  }
+function schedulingValue(group: unknown, field: string, fallback: number | boolean): unknown {
+  if (group === undefined) return fallback
+  if (!group || typeof group !== "object" || Array.isArray(group)) throw Error("requestScheduling 及其分组必须是对象。")
+  const value = (group as Record<string, unknown>)[field]
   return value === undefined ? fallback : value
 }
 
@@ -47,7 +44,7 @@ export function readRequestPolicy(read: (key: string, fallback: unknown) => unkn
   const scheduling = Object.fromEntries(transportConfigurationKeys.map((key) => [key.slice("requestScheduling.".length), read(key, {})]))
   return Object.fromEntries(
     Object.entries(requestPolicySchema).map(([key, schema]) => {
-      const value = "path" in schema ? schedulingValue(scheduling, schema.path, schema.default) : read(key, schema.default)
+      const value = "path" in schema ? schedulingValue(scheduling[schema.path[0]], schema.path[1], schema.default) : read(key, schema.default)
       if (!validPolicyValue(schema, value)) {
         const name = "path" in schema ? "requestScheduling." + schema.path.join(".") : key
         if (schema.type === "boolean") throw Error(name + " 必须是布尔值。")
