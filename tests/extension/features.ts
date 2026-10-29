@@ -604,6 +604,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     ["json", '{"notice": "Read /gallery before /catalog carefully."}', "/gallery", "/catalog"],
     ["yaml", 'notice: "Read /gallery before /catalog carefully."', "/gallery", "/catalog"],
     ["python", 'notice = "Read /gallery before /catalog carefully."', "/gallery", "/catalog"],
+    ["python", 'notice = "Read \\t before \\a carefully."', "\t", "\x07"],
     ["typescript", "// Read [one](https://one.example) before [two](https://two.example).", "[one](https://one.example)", "[two](https://two.example)"]
   ]) {
     const parsed = await owner.documents.parseSource(source, language)
@@ -618,10 +619,11 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
       throw Error("Cross-language restoration failed: " + language + " · " + JSON.stringify({ source, body: prepared.text, protected: unit.protected, error }), { cause: error })
     }
     assert(validateTranslation(unit, restored) === undefined, "Complete inline fragments could not reorder in " + language)
-    assert(restored.includes(first) && restored.includes(second), "Cross-language restoration lost a protected fragment: " + language)
+    const content = unit.projection ? projectionContent(unit, restored) : restored
+    assert(content.includes(first) && content.includes(second), "Cross-language restoration lost a protected fragment: " + language)
     assert(prepared.restore(prepared.text) === unit.text, "Cross-language no-change restoration altered source bytes: " + language)
   }
-  checks.push("real TypeScript, Shell, JSON, YAML and Python parsers retain complete interpolations, paths and comment links when translated clauses reorder")
+  checks.push("real TypeScript, Shell, JSON, YAML and Python parsers retain complete interpolations, paths, escapes and comment links when translated clauses reorder")
 
   await config.update("browse.strings", true, vscode.ConfigurationTarget.Global)
   for (const quote of ['"""', "'''"]) {

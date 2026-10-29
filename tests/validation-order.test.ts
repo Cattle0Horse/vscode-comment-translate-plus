@@ -33,7 +33,7 @@ test("item bounds and internal line breaks precede marker and native syntax dama
   }
 })
 
-test("marker syntax precedes marker counts and native content counts precede string order", () => {
+test("marker syntax precedes marker counts while complete native string fragments may reorder", () => {
   const source = "Read `sourceId_abcdefghijklmnopqrstuvwxyz_123456789`."
   const prepared = prepareTranslation(inputOf(parseMarkdown(source)).units[0], 32)
   for (const output of ["阅读 <CTP99>。", "阅读 <CTPbroken>。"]) {
@@ -63,10 +63,8 @@ test("marker syntax precedes marker counts and native content counts precede str
     { ...unit, text: escapes, end: escapes.length, protected: [...escapes.matchAll(/\\[ta]/gu)].map((match) => ({ start: match.index, end: match.index + 2 })) },
     32
   )
-  assert.throws(
-    () => escaped.restore("阅读 \\a 然后 \\t。"),
-    (error) => error instanceof ModelRetry && /string syntax/.test(error.feedback.reason)
-  )
+  assert.equal(escaped.restore("阅读 \\a 然后 \\t。"), "阅读 \\a 然后 \\t。")
+  for (const invalid of ["阅读 \\a。", "阅读 \\a 和 \\a。", "阅读 \\a 然后 \\b。"]) assert.throws(() => escaped.restore(invalid), /structure-invalid/u)
   assert.throws(
     () => string.restore("阅读 {second}\n说明。"),
     (error) => error instanceof ModelRetry && /internal line break/.test(error.feedback.reason)

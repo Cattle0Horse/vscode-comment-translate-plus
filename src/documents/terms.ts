@@ -71,7 +71,6 @@ export function prepareTranslation(
   const markers = new Map<string, { value: string; inlineCode?: boolean }>()
   let remaining = ""
   const nativeLiterals = new Map<string, { count: number; technical: boolean }>()
-  const orderedTokens: string[] | undefined = unit.language === "python" && unit.kind !== "comment" ? [] : undefined
   let text = ""
   let position = 0
   let rangeIndex = 0
@@ -90,9 +89,6 @@ export function prepareTranslation(
       if (!range.side && range.kind !== "InlineCode") {
         const previous = nativeLiterals.get(value)
         nativeLiterals.set(value, { count: (previous?.count ?? 0) + 1, technical: range.kind === "Technical" && (previous?.technical ?? true) })
-        // Complete interpolations and technical data move with the translated clause.
-        // Only grammar-owned delimiters and escapes retain their relative order.
-        if (orderedTokens && range.kind === undefined && !(value.startsWith("{") && value.endsWith("}"))) orderedTokens.push(value)
       }
       return value
     }
@@ -313,21 +309,6 @@ export function prepareTranslation(
               }
             }
           )
-        }
-      }
-      if (orderedTokens) {
-        let cursor = 0
-        for (const token of orderedTokens) {
-          const found = translated.indexOf(token, cursor)
-          if (found < 0)
-            throw new ModelRetry(
-              {
-                reason: "The response reordered string syntax.",
-                instruction: "Keep string delimiters and escapes in their source order; complete interpolations may move within this item."
-              },
-              { code: "translation-structure-invalid", difference: { reason: "模型改变了字符串语法的顺序。" } }
-            )
-          cursor = found + token.length
         }
       }
       if (translated === text) return unit.text
