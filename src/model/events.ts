@@ -32,6 +32,7 @@ export type TranslationDetail =
       readonly completed: number
       readonly failures: readonly FailedTranslation[]
       readonly nextBatchSize?: number
+      readonly retryDelayMs?: number
       readonly sourceCharacters: number
       readonly contextCharacters: number
       readonly inputCharacters: number

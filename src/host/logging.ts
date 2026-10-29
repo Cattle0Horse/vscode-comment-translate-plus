@@ -144,7 +144,11 @@ export class TranslationLog {
   private requestMessage(event: Extract<TranslationEvent, { kind: "request" }>, context: TranslationLogContext, secrets: readonly string[]): string {
     let title = "请求完成"
     if (event.cancelled) title = "请求已取消"
-    else if (event.failures.length && event.failures.every((failure) => failure.code === "service-network-failed" || failure.code === "service-timeout")) title = "请求传输失败"
+    else if (
+      event.failures.length &&
+      event.failures.every((failure) => failure.code.startsWith("service-http-") || failure.code === "service-network-failed" || failure.code === "service-timeout")
+    )
+      title = "请求传输失败"
     else if (event.failures.length && event.failures.every((failure) => failure.code === "translation-language-review")) title = "请求语种待复核"
     else if (event.failures.length) title = "请求校验未通过"
     let message = `${title}：${event.completed}/${event.ids.length} 项通过，HTTP ${event.httpRequests} 次，${event.elapsedMs} ms（含排队），尝试 ${event.attempt}`
@@ -156,6 +160,7 @@ export class TranslationLog {
         "；" +
         [...new Set(event.failures.map((failure) => failure.difference.reason))].join("；") +
         (event.nextBatchSize ? " 以 " + event.nextBatchSize + " 项重试。" : " 未完成项保留原文。")
+    if (!event.cancelled && event.retryDelayMs) message += "\n  请求恢复等待至少 " + event.retryDelayMs + " ms；共享冷却与恢复发送间隔可能继续延长等待。"
     if (!event.cancelled)
       for (const group of failureGroups(event.failures)) {
         const first = group[0]

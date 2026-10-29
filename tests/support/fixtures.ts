@@ -9,6 +9,7 @@ import { parseMarkdown, parseMarkdownWithCode } from "../../src/documents/markdo
 import { parseYaml } from "../../src/documents/yaml.ts"
 import type { TranslationItem } from "../../src/model/translation.ts"
 import { RequestGate } from "../../src/translation/requestGate.ts"
+import { readRequestPolicy } from "../../src/translation/settings.ts"
 import { BrowseSession } from "../../src/features/browse/session.ts"
 import { TranslationStore } from "../../src/translation/store.ts"
 import type { TranslationInput } from "../../src/model/translation.ts"
@@ -30,6 +31,10 @@ export async function embeddedMarkdown(source: string): Promise<ParsedDocument> 
 }
 
 export const limits = {
+  ...readRequestPolicy((_key, fallback) => fallback),
+  slowStart: false,
+  retryBackoffInitialMs: 0,
+  recoveryIntervalMs: 0,
   minimumMarkerCharacters: 32,
   maxItemsPerRequest: 20,
   maxRequestCharacters: 12000,
@@ -157,7 +162,7 @@ export function dropLastProtection(text: string): string {
   return text.replace(fragment, "")
 }
 
-type ChatReply = string | { readonly disconnect: true } | { readonly status: number }
+type ChatReply = string | { readonly disconnect: true } | { readonly status: number; readonly headers?: Record<string, string> }
 
 export async function chatFixture(t: TestContext, respond: (body: ChatBody, items: string[], call: number) => ChatReply | Promise<ChatReply>) {
   const seen: { body: ChatBody; items: string[] }[] = []
@@ -171,7 +176,7 @@ export async function chatFixture(t: TestContext, respond: (body: ChatBody, item
     const content = await respond(body, items, seen.length)
     if (typeof content !== "string") {
       if ("disconnect" in content) request.socket.destroy()
-      else response.writeHead(content.status).end()
+      else response.writeHead(content.status, content.headers).end()
       return
     }
     response.end(JSON.stringify({ choices: [{ finish_reason: "stop", message: { content } }] }))

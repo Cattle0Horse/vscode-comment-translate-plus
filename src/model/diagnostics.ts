@@ -64,7 +64,9 @@ export class ModelRetry extends TranslationFailure {
 }
 
 /** A failed request may be retried without giving new instructions to the model. */
-export class RequestRetry extends TranslationFailure {}
+export class RequestRetry extends TranslationFailure {
+  retryAt?: number
+}
 
 export function failureCode(error: unknown): string {
   return error instanceof Error && /^[a-z][a-z0-9-]+$/.test(error.message) ? error.message : "translation-failed"

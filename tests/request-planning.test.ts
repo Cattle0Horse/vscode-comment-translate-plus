@@ -7,7 +7,7 @@ import { TranslationService } from "../src/translation/engine.ts"
 import { prepareInput } from "../src/translation/prepare.ts"
 import { RequestGate } from "../src/translation/requestGate.ts"
 import type { ServiceSettings } from "../src/translation/settings.ts"
-import { chatFixture, listBatch, requestTranslation } from "./support/fixtures.ts"
+import { chatFixture, listBatch, requestTranslation, limits } from "./support/fixtures.ts"
 
 test("partial model failure adjusts learned capacity using the attempted batch, not just the failed remainder", async (t) => {
   const fixture = await chatFixture(t, (_body, items, call) => items.map((item, index) => (call === 1 && index === 1 ? "" : item)).join("\n%%\n"))
@@ -50,6 +50,7 @@ test("later batches exclude abandoned units while retaining the request item lim
     server.closeAllConnections()
   })
   const settings: ServiceSettings = {
+    ...limits,
     minimumMarkerCharacters: 32,
     provider: "openai",
     apiUrl: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,

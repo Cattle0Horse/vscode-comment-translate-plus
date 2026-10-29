@@ -8,7 +8,7 @@ import { MarkdownPreview } from "../features/preview.ts"
 import { SourceReplacementAction } from "../features/replacement.ts"
 import type { ParsedDocument } from "../model/document.ts"
 import type { SourceEdit } from "../documents/edits.ts"
-import { requestPolicySchema } from "../translation/settings.ts"
+import { requestPolicyConfigurationKeys } from "../translation/settings.ts"
 import { TranslationFailure } from "../model/diagnostics.ts"
 import { addPreserveTerm } from "./addPreserveTerm.ts"
 
@@ -164,7 +164,7 @@ export class Application implements vscode.Disposable {
       "preserveTerms",
       "skipSameLanguage",
       "browse",
-      ...Object.keys(requestPolicySchema),
+      ...requestPolicyConfigurationKeys,
       "maxRequestsPerSecond",
       "maxConcurrentRequests"
     ].some((key) => event.affectsConfiguration("commentTranslatePlus." + key))

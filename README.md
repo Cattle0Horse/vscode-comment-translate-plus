@@ -56,6 +56,8 @@
 
 ## 开始翻译
 
+请求默认从 1 并发慢启动，有积压且满载健康时逐步增长，受 `commentTranslatePlus.maxConcurrentRequests` 和 `maxRequestsPerSecond` 硬上限约束。首次网络或限流故障后改为加法探测；429/503 支持 `Retry-After`、共享冷却、指数退避与随机抖动。高级参数在设置界面分为 `commentTranslatePlus.requestScheduling.slowStart`（慢启动）、`commentTranslatePlus.requestScheduling.retry`（失败重试）、`commentTranslatePlus.requestScheduling.recovery`（拥塞恢复）三个对象；通常保持默认，只填写希望覆盖的字段即可。失败后继续共用 `maxTranslationAttempts`，不会无限重试。鉴权错误直接失败，阅读与等待都可取消。
+
 打开文件，点击编辑器右上角的**眼睛图标**，开启当前文档的注释浏览模式。再次点击即可关闭。默认需要手动开启；开启后，编辑内容会在停止输入约 1 秒后自动更新译文。
 
 点击状态栏中的扩展入口可打开操作菜单，也可从编辑器右键菜单进入。所有命令都能在命令面板中搜索到，分类为 `Comment Translate Plus`。

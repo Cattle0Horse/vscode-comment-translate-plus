@@ -7,6 +7,7 @@ import { runEditReuse } from "./edits.ts"
 import { runCommentParagraphs } from "./comments.ts"
 import { runParsing } from "./parsing.ts"
 import { runPersistentCache } from "./cache.ts"
+import { runTransport } from "./transport.ts"
 
 function assert(value: unknown, message: string): asserts value {
   if (!value) throw Error(message)
@@ -333,6 +334,7 @@ export async function run(): Promise<void> {
     }
     checks.push(...cases.map((item) => `${item.id}: host corpus preserves structure, source and cached browse`))
     checks.push(...(await runFeatures(workspace, controller, test.origin)))
+    checks.push(...(await runTransport(workspace, controller, test.origin)))
     checks.push(...(await runPersistentCache(workspace, controller)))
   } finally {
     await config.update("profiles", [], vscode.ConfigurationTarget.Global)

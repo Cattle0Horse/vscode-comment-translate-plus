@@ -736,6 +736,151 @@
           "scope": "window",
           "description": "阅读或预览开启时，最后一次文本编辑后等待多久再自动翻译，单位毫秒；0 关闭等待。修改从下一次编辑生效，等待期间悬停不提前发送请求"
         },
+        "commentTranslatePlus.requestScheduling.slowStart": {
+          "type": "object",
+          "description": "慢启动：首次健康满载时指数提高并发；首次传输故障后改为加法探测。 通常保持默认，只填写希望覆盖的字段。",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "首次使用服务时从低并发开始，健康满载成功后指数增长；发生请求失败后改用加法探测。"
+            },
+            "initialConcurrency": {
+              "type": "integer",
+              "default": 1,
+              "minimum": 1,
+              "maximum": 20,
+              "description": "慢启动起始并发，不超过全局最大并发。"
+            },
+            "growthFactor": {
+              "type": "number",
+              "default": 2,
+              "minimum": 1.1,
+              "maximum": 10,
+              "description": "首次慢启动每轮健康满载成功后的并发增长倍率，向上取整并受全局硬上限约束。"
+            }
+          },
+          "default": {}
+        },
+        "commentTranslatePlus.requestScheduling.retry": {
+          "type": "object",
+          "description": "失败重试：Retry-After、指数退避、随机抖动与共享冷却。 通常保持默认，只填写希望覆盖的字段。",
+          "additionalProperties": false,
+          "properties": {
+            "respectRetryAfter": {
+              "type": "boolean",
+              "default": true,
+              "description": "遵循 429/503 响应的 Retry-After（秒数或 HTTP 日期），等待不少于服务指定时长，不受退避上限截短。"
+            },
+            "http429": {
+              "type": "boolean",
+              "default": true,
+              "description": "允许对 HTTP 429 有限重试；关闭后直接报告失败。"
+            },
+            "http503": {
+              "type": "boolean",
+              "default": true,
+              "description": "允许对 HTTP 503 有限重试；其他 HTTP 错误直接失败。"
+            },
+            "initialDelayMs": {
+              "type": "integer",
+              "default": 1000,
+              "minimum": 0,
+              "maximum": 300000,
+              "description": "首次请求恢复的退避基准毫秒数，0 允许立即恢复。"
+            },
+            "maxDelayMs": {
+              "type": "integer",
+              "default": 30000,
+              "minimum": 0,
+              "maximum": 3600000,
+              "description": "指数退避及随机抖动的毫秒上限；不截短 Retry-After。初始值大于上限时按上限计。"
+            },
+            "multiplier": {
+              "type": "number",
+              "default": 2,
+              "minimum": 1,
+              "maximum": 10,
+              "description": "每次请求失败的退避倍率；共享冷却开启时按同服务累计失败计算。"
+            },
+            "jitterRatio": {
+              "type": "number",
+              "default": 0.2,
+              "minimum": 0,
+              "maximum": 1,
+              "description": "退避基准上下随机浮动的比例，0 禁用抖动，最终不超过退避上限。"
+            },
+            "sharedCooldown": {
+              "type": "boolean",
+              "default": true,
+              "description": "同翻译服务地址及凭据共享请求失败冷却；关闭后只延迟失败请求的重试。"
+            }
+          },
+          "default": {}
+        },
+        "commentTranslatePlus.requestScheduling.recovery": {
+          "type": "object",
+          "description": "拥塞恢复：并发降低、健康增长、发送间隔及网络故障判定。 通常保持默认，只填写希望覆盖的字段。",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "请求故障后降低并发并按满载健康成功逐步恢复；关闭后仍遵循冷却和全局硬上限。"
+            },
+            "minConcurrency": {
+              "type": "integer",
+              "default": 1,
+              "minimum": 1,
+              "maximum": 20,
+              "description": "乘法降低后的并发下限，不超过全局最大并发。"
+            },
+            "successes": {
+              "type": "integer",
+              "default": 3,
+              "minimum": 1,
+              "maximum": 1000,
+              "description": "慢启动或恢复期间累计多少次满载健康 HTTP 成功后提高并发；请求故障清零。"
+            },
+            "concurrencyStep": {
+              "type": "integer",
+              "default": 1,
+              "minimum": 1,
+              "maximum": 20,
+              "description": "每次恢复增长增加的并发数，不超过全局最大并发。"
+            },
+            "decreaseFactor": {
+              "type": "number",
+              "default": 0.5,
+              "minimum": 0.1,
+              "maximum": 1,
+              "description": "明确承压或网络故障达到阈值时的并发乘数，向下取整且最低 1；同轮在途失败只降低一次。"
+            },
+            "intervalMs": {
+              "type": "integer",
+              "default": 1000,
+              "minimum": 0,
+              "maximum": 60000,
+              "description": "恢复期间同服务两次 HTTP 发送的最小间隔毫秒数，0 只限制恢复并发。"
+            },
+            "networkFailureWindowMs": {
+              "type": "integer",
+              "default": 30000,
+              "minimum": 1,
+              "maximum": 3600000,
+              "description": "累计网络失败和超时的滑动窗口毫秒数；HTTP 状态和模型输出错误不计入。"
+            },
+            "networkFailureThreshold": {
+              "type": "integer",
+              "default": 3,
+              "minimum": 1,
+              "maximum": 1000,
+              "description": "网络故障窗口内达到多少次失败后降低恢复并发，偶发故障只退避。"
+            }
+          },
+          "default": {}
+        },
         "commentTranslatePlus.maxRequestsPerSecond": {
           "type": "integer",
           "default": 2,

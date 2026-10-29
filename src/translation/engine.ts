@@ -3,7 +3,8 @@ import type { CompiledBatch } from "./planning.ts"
 import { TranslationUnit } from "./unit.ts"
 import type { PreparedInput, TranslationItem } from "../model/translation.ts"
 import type { RequestGate } from "./requestGate.ts"
-import { ModelRetry, TranslationFailure, cancellationReason, failureCode } from "../model/diagnostics.ts"
+import { ModelRetry, RequestRetry, TranslationFailure, cancellationReason, failureCode } from "../model/diagnostics.ts"
+import { requestScope, retryDelay } from "./transport.ts"
 import { request } from "./http.ts"
 import { getProvider } from "./providers/index.ts"
 import type { ProviderTrace, TranslationDetail, TranslationTrace } from "../model/events.ts"
@@ -31,6 +32,7 @@ export class TranslationService {
     settings = { ...settings, sourceLanguage: settings.sourceLanguage.trim() || "auto", targetLanguage: settings.targetLanguage.trim() }
     validateService(settings)
     signal.throwIfAborted()
+    gate.configureScope(requestScope(settings), settings)
     const key = requestPolicyIdentity(settings)
     const policy = settings.adaptiveBatching
       ? (this.policies.get(key) ?? new BatchPolicy(settings, getProvider(settings.provider)))
@@ -164,6 +166,7 @@ class TranslationRun {
     for (const interest of signals) interest.addEventListener("abort", cancelUnused, { once: true })
     cancelUnused()
     const requestSignal = AbortSignal.any([this.combined, abandoned.signal])
+    const notBefore = Math.max(0, ...units.map((unit) => (unit.failure instanceof RequestRetry ? (unit.failure.retryAt ?? 0) : 0)))
     for (const unit of units) unit.beginAttempt()
     const attempt = Math.max(...units.map((unit) => unit.attempts))
     const requestId = this.taskId + "/R" + ++this.requestSequence
@@ -229,6 +232,9 @@ class TranslationRun {
             url,
             init,
             requestSignal,
+            this.settings,
+            attempt,
+            notBefore,
             () => {
               sent++
               this.httpRequests++
@@ -254,6 +260,7 @@ class TranslationRun {
     }
 
     const failed = units.filter((unit) => unit.pending)
+    if (reason instanceof RequestRetry && reason.retryAt === undefined && !requestSignal.aborted) reason.retryAt = performance.now() + retryDelay(this.settings, attempt)
     for (const unit of failed) unit.reject(reasons.get(unit.source.id) ?? reason)
     const record = (nextBatchSize?: number): void => {
       this.emit({
@@ -269,6 +276,9 @@ class TranslationRun {
         completed: units.filter((unit) => unit.translation !== undefined).length,
         failures: failed.map((unit) => unit.diagnostic(unit.failure, reasons.has(unit.source.id) || !reasons.size)),
         nextBatchSize,
+        retryDelayMs: nextBatchSize
+          ? Math.max(0, Math.ceil(Math.max(0, ...failed.map((unit) => (unit.failure instanceof RequestRetry ? (unit.failure.retryAt ?? 0) : 0))) - performance.now()))
+          : undefined,
         sourceCharacters: payload.items.reduce((sum, item) => sum + item.text.length, 0),
         contextCharacters: measurement.referenceCharacters,
         inputCharacters: measurement.characters,
@@ -362,7 +372,8 @@ class TranslationRun {
             active.add(work)
           },
           this.combined,
-          priority
+          priority,
+          requestScope(this.settings)
         )
       }
       await Promise.all(active)

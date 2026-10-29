@@ -283,6 +283,13 @@ const mock = createServer(async (request, response) => {
         cancelled: false
       }
       requests.push(record)
+      if (body.model === "congestion-fixture" && text.includes("CongestionScenario.")) {
+        const attempt = requests.filter((item) => item.model === body.model && item.inputFingerprint === record.inputFingerprint).length
+        if (attempt <= 2) {
+          response.writeHead(attempt === 1 ? 429 : 503, attempt === 1 ? { "Retry-After": "1" } : {}).end()
+          return
+        }
+      }
       if (
         body.model === "transport-retry-fixture" &&
         text.includes("TransportRetryCase.") &&

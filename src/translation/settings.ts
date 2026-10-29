@@ -1,10 +1,12 @@
 import type { ProviderSettings } from "./providers/protocol.ts"
 import { getProvider } from "./providers/index.ts"
+import { transportPolicySchema, transportConfigurationKeys } from "./transport.ts"
 import manifest from "../../package.json" with { type: "json" }
 
 const configuration = manifest.contributes.configuration.properties
 
 export const requestPolicySchema = {
+  ...transportPolicySchema,
   minimumMarkerCharacters: configuration["commentTranslatePlus.minimumMarkerCharacters"],
   maxItemsPerRequest: configuration["commentTranslatePlus.maxItemsPerRequest"],
   maxRequestCharacters: configuration["commentTranslatePlus.maxRequestCharacters"],
@@ -23,20 +25,34 @@ export const requestPolicySchema = {
 
 type RequestPolicy = { readonly [K in keyof typeof requestPolicySchema]: (typeof requestPolicySchema)[K]["default"] }
 
+export const requestPolicyConfigurationKeys = [...transportConfigurationKeys, ...Object.keys(requestPolicySchema).filter((key) => !(key in transportPolicySchema))]
+
+function schedulingValue(root: unknown, path: readonly string[], fallback: number | boolean): unknown {
+  let value = root
+  for (const key of path) {
+    if (value === undefined) return fallback
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw Error("requestScheduling 及其分组必须是对象。")
+    value = (value as Record<string, unknown>)[key]
+  }
+  return value === undefined ? fallback : value
+}
+
 function validPolicyValue(schema: (typeof requestPolicySchema)[keyof RequestPolicy], value: unknown): boolean {
   if (!("minimum" in schema)) return typeof value === "boolean"
   return typeof value === "number" && (schema.type === "integer" ? Number.isInteger(value) : Number.isFinite(value)) && value >= schema.minimum && value <= schema.maximum
 }
 
 /** Native settings and direct service callers use the same manifest constraints. */
-export function readRequestPolicy(read: (key: keyof RequestPolicy, fallback: number | boolean) => unknown): RequestPolicy {
+export function readRequestPolicy(read: (key: string, fallback: unknown) => unknown): RequestPolicy {
+  const scheduling = Object.fromEntries(transportConfigurationKeys.map((key) => [key.slice("requestScheduling.".length), read(key, {})]))
   return Object.fromEntries(
     Object.entries(requestPolicySchema).map(([key, schema]) => {
-      const value = read(key as keyof RequestPolicy, schema.default)
+      const value = "path" in schema ? schedulingValue(scheduling, schema.path, schema.default) : read(key, schema.default)
       if (!validPolicyValue(schema, value)) {
-        if (schema.type === "boolean") throw Error(key + " 必须是布尔值。")
-        if (schema.type === "integer") throw Error("请求限制必须是设置范围内的整数。")
-        throw Error(key + " 必须是设置范围内的数值。")
+        const name = "path" in schema ? "requestScheduling." + schema.path.join(".") : key
+        if (schema.type === "boolean") throw Error(name + " 必须是布尔值。")
+        if (schema.type === "integer") throw Error(name + " 必须是设置范围内的整数。")
+        throw Error(name + " 必须是设置范围内的数值。")
       }
       return [key, value]
     })

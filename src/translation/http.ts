@@ -1,23 +1,36 @@
 import type { RequestGate } from "./requestGate.ts"
 import type { HttpResponse } from "./providers/protocol.ts"
 import { RequestRetry } from "../model/diagnostics.ts"
+import type { ServiceSettings } from "./settings.ts"
+import { requestScope, retryAfterDelay } from "./transport.ts"
 
 export async function request(
   gate: RequestGate,
   url: string,
   init: Omit<RequestInit, "signal">,
   signal: AbortSignal,
+  settings: ServiceSettings,
+  attempt: number,
+  notBefore: number,
   started?: () => void,
   priority?: () => number
 ): Promise<HttpResponse> {
+  const scope = requestScope(settings)
   return gate.run(
     async () => {
       started?.()
+      const version = gate.version(scope)
       const timeout = AbortSignal.timeout(60000)
       try {
         const response = await fetch(url, { ...init, signal: AbortSignal.any([signal, timeout]) })
         if (!response.ok) {
+          const retryAfter = settings.respectRetryAfter ? retryAfterDelay(response.headers.get("retry-after")) : undefined
           await response.body?.cancel()
+          if ((response.status === 429 && settings.retryHttp429) || (response.status === 503 && settings.retryHttp503)) {
+            const error = new RequestRetry("service-http-" + response.status)
+            error.retryAt = gate.failed(scope, settings, attempt, retryAfter, true, version)
+            throw error
+          }
           throw Error("service-http-" + response.status)
         }
         const reader = response.body?.getReader()
@@ -41,6 +54,7 @@ export async function request(
           bytes.set(chunk, offset)
           offset += chunk.byteLength
         }
+        gate.succeeded(scope, version)
         return {
           text: new TextDecoder().decode(bytes),
           url: response.url,
@@ -51,12 +65,17 @@ export async function request(
         }
       } catch (error) {
         if (signal.aborted) throw signal.reason
-        if (timeout.aborted) throw new RequestRetry("service-timeout")
-        if (error instanceof TypeError) throw new RequestRetry("service-network-failed")
+        if (timeout.aborted || error instanceof TypeError) {
+          const retry = new RequestRetry(timeout.aborted ? "service-timeout" : "service-network-failed")
+          retry.retryAt = gate.failed(scope, settings, attempt, 0, false, version)
+          throw retry
+        }
         throw error
       }
     },
     signal,
-    priority
+    priority,
+    scope,
+    notBefore
   )
 }
