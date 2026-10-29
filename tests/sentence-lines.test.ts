@@ -55,6 +55,79 @@ function multilineGrammar(kind: "comment" | "string"): IGrammar {
   } as IGrammar
 }
 
+test("block comment translation rows end before a standalone closing delimiter", async () => {
+  for (const newline of ["\n", "\r\n"]) {
+    for (const decorated of [false, true]) {
+      for (const ending of [".", ""]) {
+        const prefix = decorated ? "\t * " : "\t "
+        const source = ["/**", prefix + "The gallery's visits and tours run one at a time (a guide's", prefix + "arrival may be delayed)" + ending, "\t */"].join(newline)
+        const [unit, ...remaining] = await extractCode(source, "fixture", new CodeTokenizer(multilineGrammar("comment")), () => {})
+        assert.equal(remaining.length, 0)
+        const prepared = prepareTranslation(unit, 32)
+        assert.equal(prepared.text, "The gallery's visits and tours run one at a time (a guide's arrival may be delayed)" + ending)
+        assert.equal(prepared.restore(prepared.text), unit.text)
+        const translated = prepared.restore("画廊参观和导览依次进行（导览员可能延迟到达）。")
+        assert.equal(validateTranslation(unit, translated), undefined)
+        const [row] = displayTranslations(source, [{ ...unit, translation: translated }])
+        assert.equal(source.slice(row.end), newline + "\t */")
+        assert.equal(source.slice(0, unit.start) + translated + source.slice(unit.end), "/**" + newline + prefix + "画廊参观和导览依次进行（导览员可能延迟到达）。" + newline + "\t */")
+      }
+    }
+  }
+})
+
+test("block comments separate paragraphs, list items and fields while preserving continuations and examples", async () => {
+  for (const newline of ["\n", "\r\n"]) {
+    for (const decorated of [false, true]) {
+      const lines = [
+        "Read the museum catalog",
+        "before entering",
+        "",
+        "Keep the ticket",
+        "for the next visit",
+        "",
+        "- Read the map",
+        "  before leaving",
+        "- Keep the guide",
+        "",
+        "Args:",
+        "    ticket: A visitor pass",
+        "        for the gallery",
+        "    guide: A printed map",
+        "",
+        "Example:",
+        "    const untouched = 1;"
+      ]
+      const source = ["/**", ...lines.map((line) => (decorated ? " *" + (line ? " " : "") : " ") + line), " */"].join(newline)
+      const units = await extractCode(source, "fixture", new CodeTokenizer(multilineGrammar("comment")), () => {})
+      assert.deepEqual(
+        units.map((unit) => prepareTranslation(unit, 32).text),
+        [
+          "Read the museum catalog before entering",
+          "Keep the ticket for the next visit",
+          "- Read the map before leaving",
+          "- Keep the guide",
+          "Args:",
+          "ticket: A visitor pass for the gallery",
+          "guide: A printed map",
+          "Example:"
+        ]
+      )
+      let output = source
+      for (const unit of [...units].reverse()) {
+        const prepared = prepareTranslation(unit, 32)
+        assert.equal(prepared.restore(prepared.text), unit.text)
+        const translated = prepared.restore(prepared.text.replaceAll("Read", "阅读").replaceAll("Keep", "保留").replaceAll("visitor", "访客"))
+        assert.equal(validateTranslation(unit, translated), undefined)
+        output = output.slice(0, unit.start) + translated + output.slice(unit.end)
+      }
+      assert.ok(output.endsWith((decorated ? " * " : " ") + "    const untouched = 1;" + newline + " */"))
+      assert.ok(output.includes(newline + (decorated ? " *" : " ") + newline))
+      assert.equal(units.filter((unit) => unit.text.includes("Keep the ticket")).length, 1)
+    }
+  }
+})
+
 test("multiline code prose retains sentence display rows and cross-line comment styles", async () => {
   for (const newline of ["\n", "\r\n"]) {
     for (const kind of ["comment", "string"] as const) {

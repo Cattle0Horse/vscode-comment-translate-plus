@@ -130,7 +130,7 @@
         "units": 2,
         "contains": [
             "// Read the original document.",
-            "/**\n * Keep `sourceId` unchanged.\n */"
+            "/**\n * Keep `sourceId` unchanged."
         ],
         "excludes": [
             "const value",

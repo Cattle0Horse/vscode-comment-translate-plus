@@ -71,11 +71,64 @@ export async function runCommentParagraphs(workspace: vscode.Uri, owner: Applica
       )
       assert((await records()).length === beforeHover, "Comment replacement bypassed its ready cache: " + language)
       await vscode.commands.executeCommand("undo")
-      assert(document.getText() === source, "Comment paragraph replacement did not restore every source line in one undo: " + language)
+      await waitFor(() => document.getText() === source, "comment paragraph replacement restores every source line in one undo: " + language)
       owner.browse.stop(uri, false)
     }
   }
+  for (const [index, newline] of ["\n", "\r\n"].entries()) {
+    for (const language of ["typescript", "javascript", "rust", "css"]) {
+      const paragraphs = [
+        "/**",
+        " * The gallery's visits wait",
+        " * for a guide's arrival",
+        " *",
+        " * Keep the visitor pass",
+        " * for the next visit",
+        " *",
+        " * - Read the map",
+        " *   before leaving",
+        " * - Keep the guide",
+        " */"
+      ].join(newline)
+      const parsed = await owner.documents.parseSource(paragraphs, language)
+      const units = parsed.groups.flatMap((group) => group.units)
+      assert(
+        JSON.stringify(units.map((unit) => prepareTranslation(unit, 32).text)) ===
+          JSON.stringify(["The gallery's visits wait for a guide's arrival", "Keep the visitor pass for the next visit", "- Read the map before leaving", "- Keep the guide"]),
+        "Real block grammar merged blank paragraphs or list items: " + language
+      )
+      assert(
+        units.every((unit) => prepareTranslation(unit, 32).restore(prepareTranslation(unit, 32).text) === paragraphs.slice(unit.start, unit.end)),
+        "Block paragraph mapping lost exact source: " + language
+      )
+    }
+    const source = ["\t/**", "\t * Read the original", "\t * document.", "\t */", "const completed = 1;"].join(newline)
+    const uri = vscode.Uri.joinPath(workspace, "block-comment-" + index + ".ts")
+    await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(source))
+    const document = await vscode.workspace.openTextDocument(uri)
+    const editor = await vscode.window.showTextDocument(document, { preview: false })
+    const parsed = await owner.documents.parse(document)
+    const [unit] = parsed.groups.flatMap((group) => group.units)
+    const prepared = prepareTranslation(unit, 32)
+    assert(prepared.text === "Read the original document." && prepared.restore(prepared.text) === unit.text, "Real block grammar lost continuation prose or exact source restoration.")
+    assert(source.slice(unit.end).startsWith(newline + "\t */"), "Real block grammar included the closing line in its last prose unit.")
+    await owner.browse.start(document)
+    await waitFor(() => owner.browse.inspect(uri)?.status === "ready", "block comment browse")
+    const first = owner.browse.inspect(uri)!.units[0]
+    assert(first.translation?.includes("阅读原始文档。"), "Block comment translation did not complete.")
+    const lenses = await vscode.commands.executeCommand<vscode.CodeLens[]>("vscode.executeCodeLensProvider", uri)
+    assert(lenses?.some((lens) => lens.range.start.line === 3) && !lenses.some((lens) => lens.range.start.line === 4), "Block translation row was placed after its closing delimiter.")
+    assert(document.getText() === source && !document.isDirty, "Block comment browsing modified source.")
+    editor.selection = new vscode.Selection(2, 5, 2, 5)
+    assert(await vscode.commands.executeCommand<boolean>("commentTranslatePlus.translateAndReplace"), "Block comment continuation replacement failed.")
+    assert(document.getText() === source.slice(0, unit.start) + first.translation + source.slice(unit.end), "Block comment replacement changed its closing delimiter or surrounding code.")
+    await vscode.commands.executeCommand("undo")
+    await waitFor(() => document.getText() === source, "block comment replacement undoes exactly")
+    owner.browse.stop(uri, false)
+  }
   return [
+    "real TypeScript, JavaScript, Rust and CSS block comments share docstring paragraph and list continuation boundaries for LF and CRLF",
+    "real TypeScript block comments place translation rows before standalone closing delimiters and preserve the shell through replacement and undo for LF and CRLF",
     "real TypeScript, Rust, Python, Shell and SQL grammars group consecutive standalone comments into paragraphs for LF and CRLF",
     "comment paragraphs share below-source rows, continuation hover, incremental edit invalidation and cached single-range replacement with one-step undo"
   ]

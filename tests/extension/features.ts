@@ -207,7 +207,13 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     "Comment delimiters or documentation stars reached the translation body."
   )
   assert(
-    owner.browse.inspect(typescript.document.uri)!.units.some((unit) => unit.translation === "/**\n * 保留 `sourceId` unchanged.\n */"),
+    owner.browse
+      .inspect(typescript.document.uri)!
+      .units.some(
+        (unit) =>
+          unit.translation === "/**\n * 保留 `sourceId` unchanged." &&
+          code.slice(0, unit.start) + unit.translation + code.slice(unit.end) === code.replace("Keep `sourceId` unchanged.", "保留 `sourceId` unchanged.")
+      ),
     "Documentation comment syntax was not restored locally."
   )
   assert(
@@ -504,7 +510,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     )
     assert(target.document.getText().includes("\\n\\n") && target.document.lineCount === 2, "Replacement changed escaped content breaks into physical source lines.")
     await vscode.commands.executeCommand("undo")
-    assert(target.document.getText() === source, "Decoded paragraph replacement did not undo exactly.")
+    await waitFor(() => target.document.getText() === source, "Decoded paragraph replacement did not undo exactly.")
     await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
     checks.push("decoded Python paragraphs retain independent units, one source-line display block, decoded details and escape-preserving cursor replacement")
   }
@@ -591,7 +597,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     await vscode.commands.executeCommand("commentTranslatePlus.translateAndReplace")
     assert(target.document.getText() === source.slice(0, unit.start) + result + source.slice(unit.end), "Python replacement damaged reordered interpolation syntax.")
     await vscode.commands.executeCommand("undo")
-    assert(target.document.getText() === source, "Python replacement undo failed to restore the original literals.")
+    await waitFor(() => target.document.getText() === source, "Python replacement undo failed to restore the original literals.")
     await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
   }
   checks.push(
@@ -728,7 +734,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
       )
       assert((await requests()).length === afterBrowse, "Docstring replacement discarded the validated cache.")
       await vscode.commands.executeCommand("undo")
-      assert(target.document.getText() === source, "Docstring replacement did not undo in one step.")
+      await waitFor(() => target.document.getText() === source, "Docstring replacement did not undo in one step.")
     }
   }
   await config.update("browse.strings", false, vscode.ConfigurationTarget.Global)
@@ -821,7 +827,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
       "Paragraph replacement changed a label, list, example or neighbouring paragraph."
     )
     await vscode.commands.executeCommand("undo")
-    assert(target.document.getText() === source, "Paragraph replacement did not undo in one step.")
+    await waitFor(() => target.document.getText() === source, "Paragraph replacement did not undo in one step.")
   }
   await config.update("browse.strings", false, vscode.ConfigurationTarget.Global)
   checks.push("Python prose paragraphs and ordered/unordered list and parameter continuations share requests, cache, hover and undoable replacement without translating examples")

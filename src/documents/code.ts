@@ -5,6 +5,8 @@ import { pythonStringUnits, pythonTokens, joinPythonLiterals } from "./python.ts
 import type { PythonLiteral } from "./python.ts"
 import { regionToken, sourceTokens } from "./tokenization.ts"
 import type { CodeTokenizer, CodeSpan, RegionToken } from "./tokenization.ts"
+import { proseBlocks } from "./prose.ts"
+import { SourceMap } from "./sourceMap.ts"
 
 export interface CodeRegion extends TextUnit {
   readonly kind: "comment" | "string"
@@ -59,6 +61,48 @@ function commentParagraphs(source: string, spans: readonly CodeSpan[]): CodeSpan
     paragraphs.push(span)
   }
   return paragraphs
+}
+
+/** Parse block-comment prose with the same paragraph/list/example boundaries as docstrings. */
+function blockCommentSpans(source: string, span: CodeSpan): CodeSpan[] {
+  if (span.kind !== "comment" || !span.scope.startsWith("comment.block")) return [span]
+  const raw = source.slice(span.start, span.end)
+  const opening = raw.match(/^\/\*+!?/u)
+  if (!opening || !raw.includes("\n")) return [span]
+  const closing = raw.match(/\r?\n[\t ]*\*\/[\t ]*$/u)
+  const inlineClosing = !closing && raw.endsWith("*/")
+  let end = raw.length
+  if (closing) end = closing.index!
+  else if (inlineClosing) end -= 2
+  const body = raw.slice(opening[0].length, end)
+  const lines = [...body.matchAll(/[^\n]*(?:\n|$)/gu)].filter((line) => line[0])
+  const decorated = lines.slice(1).every((line) => !line[0].trim() || /^[\t ]*\*(?:[\t ]|$)/u.test(line[0].trimEnd()))
+  const indent = Math.min(...lines.filter((line) => line[0].trim()).map((line) => line[0].match(/^[\t ]*/u)![0].length))
+  const positions = new SourceMap()
+  let text = ""
+  for (const [index, line] of lines.entries()) {
+    let prefix: number
+    if (decorated && index > 0) prefix = line[0].match(/^[\t ]*\*(?:[\t ]|(?=[\r\n]|$))/u)?.[0].length ?? 0
+    else prefix = Math.min(indent, line[0].match(/^[\t ]*/u)![0].length)
+    const start = span.start + opening[0].length + line.index + prefix
+    const content = line[0].slice(prefix)
+    text += content
+    positions.append(content.length, start, start + content.length)
+  }
+  const protectedRanges = span.protected.flatMap((range) => {
+    const start = positions.logical(range.start)
+    const end = positions.logical(range.end, true)
+    return start !== undefined && end !== undefined && end > start ? [{ start, end }] : []
+  })
+  return proseBlocks(text, protectedRanges).map((block, index) => {
+    const mapped = positions.range(block.start, block.end)
+    const lineStart = source.lastIndexOf("\n", mapped.start - 1) + 1
+    const prefix = source.slice(lineStart, mapped.start).match(/^[\t ]*(\*[\t ]*)$/u)
+    let start = prefix ? lineStart + prefix[0].length - prefix[1].length : mapped.start
+    if (index === 0 && !text.slice(0, block.start).trim()) start = span.start
+    const end = inlineClosing && !text.slice(block.end).trim() ? span.end : mapped.end
+    return { ...span, start, end, commentPrefix: prefix && start !== span.start ? "*" : undefined, protected: span.protected.filter((range) => range.start >= start && range.end <= end) }
+  })
 }
 
 /** Split physical prose lines without cutting grammar-owned escapes or interpolations. */
@@ -131,7 +175,9 @@ export async function extractCode(source: string, language: string, tokenizer: C
   const paragraphs = commentParagraphs(source, spans)
   const semantic: readonly (CodeSpan & { readonly literals?: readonly PythonLiteral[] })[] = language === "python" ? joinPythonLiterals(source, paragraphs) : paragraphs
   const regions = semantic
-    .flatMap<CodeSpan & { readonly literals?: readonly PythonLiteral[] }>((span) => (span.literals ? [span] : sentenceSpans(source, span)))
+    .flatMap<CodeSpan & { readonly literals?: readonly PythonLiteral[] }>((span) =>
+      span.literals ? [span] : blockCommentSpans(source, span).flatMap((part) => sentenceSpans(source, part))
+    )
     .filter((span) => /\p{L}/u.test(source.slice(span.start, span.end)))
     .flatMap((span) => {
       const region: CodeRegion = {
