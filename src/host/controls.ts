@@ -147,7 +147,7 @@ export class Controls implements vscode.Disposable {
       items.push(
         {
           label: snapshot.status === "cancelled" ? "继续翻译" : "取消进行中的翻译",
-          command: snapshot.status === "cancelled" ? "retry" : "cancel"
+          command: "cancel"
         },
         { label: "重新翻译当前文件", command: "retranslate" },
         { label: "重试失败批次", command: "retry" }
@@ -165,11 +165,26 @@ export class Controls implements vscode.Disposable {
     )
     if (vscode.window.activeTextEditor && isMarkdownDocument(vscode.window.activeTextEditor.document)) items.push({ label: "打开 Markdown 翻译预览", command: "preview" })
     items.push({ label: "查看缓存使用情况", command: "showCacheUsage" }, { label: "扩展设置", command: "settings" }, { label: "查看日志与错误", command: "showErrors" })
-    const selected = await vscode.window.showQuickPick(items, {
+    const configured = vscode.workspace.getConfiguration("commentTranslatePlus", vscode.window.activeTextEditor?.document.uri).get<unknown>(
+      "actions",
+      items.map((item) => item.command)
+    )
+    if (!Array.isArray(configured)) {
+      void vscode.window.showErrorMessage("commentTranslatePlus.actions 必须是操作 ID 数组。")
+      return
+    }
+    const ordered = [...new Set(configured)].flatMap((id) => {
+      const item = items.find((item) => item.command === id)
+      return item ? [item] : []
+    })
+    const selected = await vscode.window.showQuickPick(ordered, {
       title: "注释翻译+",
       placeHolder: "当前文档的注释浏览操作"
     })
-    if (selected) await vscode.commands.executeCommand("commentTranslatePlus." + selected.command)
+    if (selected) {
+      const command = selected.command === "cancel" && snapshot?.status === "cancelled" ? "retry" : selected.command
+      await vscode.commands.executeCommand("commentTranslatePlus." + command)
+    }
   }
 
   private async addCurrentFileRule(kind: "include" | "exclude"): Promise<void> {
