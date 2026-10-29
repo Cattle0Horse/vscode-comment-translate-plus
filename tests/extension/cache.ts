@@ -69,8 +69,19 @@ export async function runPersistentCache(workspace: vscode.Uri, owner: Applicati
     assert(requested === input.units.length, "Invalidated entries survived store reconstruction.")
     await restored.configure({ ...options, enabled: false })
     const database = new DatabaseSync(path)
-    assert(database.prepare("SELECT COUNT(*) AS count FROM translations").get()?.count === 0, "Disabling persistence left cached records.")
-    database.close()
+    try {
+      assert(database.prepare("SELECT COUNT(*) AS count FROM translations").get()?.count === input.units.length, "Disabling persistence deleted cached records.")
+      await restored.configure(options)
+      restored.set("pending-clear", "待清空")
+      await restored.clear()
+      await restored.flush()
+      assert(database.prepare("SELECT COUNT(*) AS count FROM translations").get()?.count === 0, "Explicit clear left committed or buffered records.")
+      await restored.configure({ ...options, enabled: false })
+      await restored.clear()
+      assert(restored.snapshot().state === "disabled", "Clearing disabled storage enabled persistence.")
+    } finally {
+      database.close()
+    }
     assert(!warnings.length, "Native cache storage reported a read or write failure.")
   } finally {
     await cache.close()
@@ -88,8 +99,12 @@ export async function runPersistentCache(workspace: vscode.Uri, owner: Applicati
     await config.update("persistentCache", true, vscode.ConfigurationTarget.Global)
     await owner.translations.configureCache()
     const result = await owner.translations.translate(document, units, signal())
+    assert(await vscode.commands.executeCommand<boolean>("commentTranslatePlus.clearPersistentCache"), "The registered clear command failed while enabled.")
+    const afterClear = await owner.translations.translate(document, units, signal())
+    assert(JSON.stringify([...result]) === JSON.stringify([...afterClear]), "Clearing disk persistence discarded current memory results.")
     await config.update("persistentCache", false, vscode.ConfigurationTarget.Global)
     await owner.translations.configureCache()
+    assert(await vscode.commands.executeCommand<boolean>("commentTranslatePlus.clearPersistentCache"), "The registered clear command failed while disabled.")
     const recovered = await owner.translations.translate(document, units, signal())
     assert(JSON.stringify([...result]) === JSON.stringify([...recovered]), "Disabling disk persistence discarded current memory results.")
     assert(document.getText().startsWith("Read the original document.") && !document.isDirty, "Cache configuration edited the source.")
@@ -100,6 +115,8 @@ export async function runPersistentCache(workspace: vscode.Uri, owner: Applicati
   return [
     "native desktop SQLite persists independent validated units, restores a fresh store and deletes invalidations before reopening",
     "native cache usage separates pending writes, committed payload and disk files without committing on inspection",
-    "native persistent-cache settings enable and disable the production runtime without discarding memory results or editing source"
+    "native persistent-cache settings enable and disable the production runtime without discarding memory results or editing source",
+    "native cache disable preserves disk records and explicit clearing removes committed and buffered records through shared SQLite connections",
+    "registered clear command works with persistence enabled or disabled while retaining memory translations and source text"
   ]
 }

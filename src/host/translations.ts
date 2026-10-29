@@ -64,6 +64,18 @@ export class TranslationRuntime implements vscode.Disposable {
     return this.persistent.configure({ enabled, maxEntries, maxBytes: maxSize * 1024 * 1024 })
   }
 
+  async clearPersistentCache(): Promise<boolean> {
+    if (this.disposed) return false
+    try {
+      await this.persistent.clear()
+      void vscode.window.showInformationMessage("已清空持久化缓存，当前内存译文仍保留。")
+      return true
+    } catch {
+      void vscode.window.showErrorMessage("无法清空持久化缓存，请检查缓存目录的访问权限或稍后重试。")
+      return false
+    }
+  }
+
   async showCacheUsage(): Promise<void> {
     const size = (bytes: number) => {
       let value = bytes

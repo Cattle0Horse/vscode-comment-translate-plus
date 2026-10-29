@@ -49,6 +49,7 @@ export class Controls implements vscode.Disposable {
     })
     command("showErrors", () => this.translations.showErrors())
     command("showCacheUsage", () => this.translations.showCacheUsage())
+    command("clearPersistentCache", () => this.translations.clearPersistentCache())
     command("translateAndReplace", () => this.replacement.translateAndReplace())
     command("actions", () => this.actions())
     command("setLanguages", () => this.setLanguages())
@@ -164,7 +165,12 @@ export class Controls implements vscode.Disposable {
       { label: "添加当前文件到自动翻译包含规则", command: "addCurrentFileToAutoInclude" }
     )
     if (vscode.window.activeTextEditor && isMarkdownDocument(vscode.window.activeTextEditor.document)) items.push({ label: "打开 Markdown 翻译预览", command: "preview" })
-    items.push({ label: "查看缓存使用情况", command: "showCacheUsage" }, { label: "扩展设置", command: "settings" }, { label: "查看日志与错误", command: "showErrors" })
+    items.push(
+      { label: "查看缓存使用情况", command: "showCacheUsage" },
+      { label: "清空持久化缓存", command: "clearPersistentCache" },
+      { label: "扩展设置", command: "settings" },
+      { label: "查看日志与错误", command: "showErrors" }
+    )
     const configured = vscode.workspace.getConfiguration("commentTranslatePlus", vscode.window.activeTextEditor?.document.uri).get<unknown>(
       "actions",
       items.map((item) => item.command)

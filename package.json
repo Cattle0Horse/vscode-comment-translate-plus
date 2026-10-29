@@ -139,6 +139,11 @@
         "category": "Comment Translate Plus"
       },
       {
+        "command": "commentTranslatePlus.clearPersistentCache",
+        "title": "清空持久化缓存",
+        "category": "Comment Translate Plus"
+      },
+      {
         "command": "commentTranslatePlus.actions",
         "title": "注释浏览操作",
         "category": "Comment Translate Plus",
@@ -710,7 +715,7 @@
           "type": "boolean",
           "default": false,
           "scope": "window",
-          "description": "将译文保存到本机，重载 VS Code 后可继续复用，减少重复请求。译文以明文存放在扩展存储目录，不随设置同步。关闭后删除已保存的副本，当前会话的内存缓存仍可使用。"
+          "description": "将译文保存到本机，重载 VS Code 后可继续复用，减少重复请求。译文以明文存放在扩展存储目录，不随设置同步。关闭后停止读写并保留已保存的译文；需要删除时执行“清空持久化缓存”命令。"
         },
         "commentTranslatePlus.persistentCacheMaxEntries": {
           "type": "integer",
@@ -1360,6 +1365,7 @@
               "addCurrentFileToAutoInclude",
               "preview",
               "showCacheUsage",
+              "clearPersistentCache",
               "settings",
               "showErrors"
             ],
@@ -1381,6 +1387,7 @@
               "添加当前文件到自动翻译包含规则",
               "打开 Markdown 翻译预览",
               "查看缓存使用情况",
+              "清空持久化缓存",
               "扩展设置",
               "查看日志与错误"
             ]
@@ -1404,6 +1411,7 @@
             "addCurrentFileToAutoInclude",
             "preview",
             "showCacheUsage",
+            "clearPersistentCache",
             "settings",
             "showErrors"
           ],

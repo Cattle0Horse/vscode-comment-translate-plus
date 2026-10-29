@@ -88,22 +88,34 @@ export class PersistentCache {
 
   async configure(options: PersistentCacheOptions): Promise<void> {
     if (this.closed) return
-    this.options = options
-    this.failed = false
     this.cancelTimer()
     try {
+      if (!options.enabled) this.write()
+      this.options = options
+      this.failed = false
       if (!options.enabled) {
         this.clearPending()
-        // Clear through SQLite so another connection cannot retain a deleted database inode.
-        const database = this.database ?? this.open(false)
-        database?.exec("DELETE FROM translations; PRAGMA wal_checkpoint(TRUNCATE)")
         this.release()
         return
       }
       this.open(true)
       this.write()
     } catch {
+      this.options = options
       this.fail()
+    }
+  }
+
+  async clear(): Promise<void> {
+    if (this.closed) throw Error("持久化缓存已关闭。")
+    this.cancelTimer()
+    this.clearPending()
+    try {
+      // Delete records through SQLite so other connections see the same database.
+      const database = this.database ?? this.open(false)
+      database?.exec("DELETE FROM translations; PRAGMA wal_checkpoint(TRUNCATE)")
+    } finally {
+      if (!this.options.enabled) this.release()
     }
   }
 

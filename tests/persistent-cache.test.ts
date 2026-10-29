@@ -108,8 +108,8 @@ test("disabled usage does not create storage and still reports remaining databas
   await cache.configure({ ...options, enabled: false })
   const snapshot = cache.snapshot()
   assert.equal(snapshot.state, "disabled")
-  assert.equal(snapshot.entries, 0)
-  assert.equal(snapshot.bytes, 0)
+  assert.equal(snapshot.entries, 1)
+  assert.equal(snapshot.bytes, Buffer.byteLength("合成译文", "utf8") + 64)
   assert.ok(snapshot.diskBytes! > 0)
 })
 
@@ -206,7 +206,7 @@ test("byte limits count UTF-8 payload, evict in batches and reject oversized rep
   assert.equal(await cache.get("escaped"), escaped, "SQLite text should not pay JSON escaping overhead.")
 })
 
-test("disable clears records visible to other connections and close commits the final batch", async (t) => {
+test("disable commits pending results and preserves disk records for re-enabling and reopening", async (t) => {
   const disk = storage(t)
   const cache = await disk.open()
   const other = await disk.open()
@@ -216,9 +216,66 @@ test("disable clears records visible to other connections and close commits the 
   other.set("buffered", "未提交")
   await other.configure({ ...options, enabled: false })
   other.set("ignored", "忽略")
-  assert.equal(disk.query("SELECT * FROM translations").length, 0)
-  await other.configure(options)
   assert.equal(await other.get("source"), undefined)
+  assert.equal(disk.query("SELECT * FROM translations").length, 2)
+  await other.configure(options)
+  assert.equal(await other.get("source"), "译文")
+  assert.equal(await other.get("buffered"), "未提交")
+  assert.equal(await other.get("ignored"), undefined)
+  await other.configure({ ...options, enabled: false })
+  assert.equal(await (await disk.open()).get("source"), "译文")
+})
+
+test("explicit clear removes committed and pending records without disabling future persistence", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] })
+  const disk = storage(t)
+  const cache = await disk.open()
+  const other = await disk.open()
+  cache.set("saved", "已保存")
+  await cache.flush()
+  cache.set("pending", "待写入")
+  await cache.clear()
+  assert.equal(await other.get("saved"), undefined)
+  assert.equal(await cache.get("pending"), undefined)
+  assert.equal(cache.snapshot().pendingChanges, 0)
+  t.mock.timers.tick(3000)
+  await cache.flush()
+  assert.equal(disk.query("SELECT * FROM translations").length, 0)
+  cache.set("fresh", "新译文")
+  await cache.flush()
+  assert.equal(await other.get("fresh"), "新译文")
+})
+
+test("explicit clear works while disabled and does not create an absent database", async (t) => {
+  const disk = storage(t)
+  const cache = await disk.open({ ...options, enabled: false })
+  await cache.clear()
+  assert.equal(existsSync(disk.path), false)
+  await cache.configure(options)
+  cache.set("saved", "已保存")
+  await cache.configure({ ...options, enabled: false })
+  assert.equal(disk.query("SELECT * FROM translations").length, 1)
+  await cache.clear()
+  assert.equal(cache.snapshot().state, "disabled")
+  assert.equal(await (await disk.open()).get("saved"), undefined)
+})
+
+test("clear reports locked storage instead of claiming success or deleting committed data", async (t) => {
+  const disk = storage(t)
+  const cache = await disk.open()
+  cache.set("saved", "已保存")
+  await cache.flush()
+  const lock = new DatabaseSync(disk.path)
+  lock.exec("BEGIN IMMEDIATE")
+  try {
+    await assert.rejects(cache.clear())
+  } finally {
+    lock.exec("ROLLBACK")
+    lock.close()
+  }
+  assert.equal(await cache.get("saved"), "已保存")
+  await cache.clear()
+  assert.equal(await cache.get("saved"), undefined)
 })
 
 test("corrupt databases and locked transactions degrade to misses without destroying committed rows", async (t) => {
