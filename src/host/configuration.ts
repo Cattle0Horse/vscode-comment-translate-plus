@@ -1,4 +1,5 @@
 import * as vscode from "vscode"
+import * as path from "node:path"
 import { validateService, serviceIdentity, readRequestPolicy } from "../translation/settings.ts"
 import { getProvider } from "../translation/providers/index.ts"
 import { defaultLanguageNames } from "../translation/providers/prompts.ts"
@@ -122,23 +123,41 @@ export function displayMode(uri?: vscode.Uri): "contrast" | "inplace" {
 }
 
 export function automatic(document: vscode.TextDocument): boolean {
-  if (!vscode.workspace.getWorkspaceFolder(document.uri)) {
+  let resource = document.uri
+  let folder = vscode.workspace.getWorkspaceFolder(resource)
+  if (!folder) {
     for (const tab of vscode.window.tabGroups.all.flatMap((group) => group.tabs)) {
       if (!(tab.input instanceof vscode.TabInputTextDiff)) continue
       const { original, modified } = tab.input
       const peer = original.toString() === document.uri.toString() ? modified : modified.toString() === document.uri.toString() ? original : undefined
-      if (!peer || !vscode.workspace.getWorkspaceFolder(peer)) continue
-      const workspaceDocument = vscode.workspace.textDocuments.find((candidate) => candidate.uri.toString() === peer.toString())
-      if (!workspaceDocument) continue
-      document = workspaceDocument
-      break
+      if (!peer) continue
+      const scope = document.uri.scheme === "git-graph" ? document.uri : peer
+      resource = gitGraphResource(scope) ?? scope
+      folder = vscode.workspace.getWorkspaceFolder(resource)
+      if (folder) break
     }
   }
-  const config = vscode.workspace.getConfiguration("commentTranslatePlus", document.uri)
-  const folder = vscode.workspace.getWorkspaceFolder(document.uri)
+  const config = vscode.workspace.getConfiguration("commentTranslatePlus", resource)
   if (!config.get<boolean>("auto.enabled", false) || !folder) return false
   const include = config.get<string[]>("auto.include", ["**/*"])
   const exclude = config.get<string[]>("auto.exclude", [])
-  const matches = (pattern: string) => vscode.languages.match({ pattern: new vscode.RelativePattern(folder, pattern) }, document) > 0
+  const scopedDocument = { ...document, uri: resource }
+  const matches = (pattern: string) => vscode.languages.match({ pattern: new vscode.RelativePattern(folder, pattern) }, scopedDocument) > 0
   return include.some(matches) && !exclude.some(matches)
+}
+
+function gitGraphResource(uri: vscode.Uri): vscode.Uri | undefined {
+  if (uri.scheme !== "git-graph") return undefined
+  try {
+    const data: unknown = JSON.parse(Buffer.from(uri.query, "base64").toString("utf8"))
+    if (!data || typeof data !== "object") return undefined
+    const { repo, filePath, exists } = data as Record<string, unknown>
+    if (typeof repo !== "string" || !path.isAbsolute(repo) || typeof filePath !== "string" || !filePath || path.isAbsolute(filePath) || exists !== true) return undefined
+    const absolute = path.resolve(repo, filePath)
+    const relative = path.relative(repo, absolute)
+    if (!relative || relative === ".." || relative.startsWith(".." + path.sep) || path.isAbsolute(relative)) return undefined
+    return vscode.Uri.file(absolute)
+  } catch {
+    return undefined
+  }
 }
