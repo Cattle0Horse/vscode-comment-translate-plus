@@ -872,7 +872,7 @@ test("Python triple quote boundary tokens stay local without masking internal es
   }
 })
 
-test("Python concatenated literals preserve interpolation and ordered syntax through translation", () => {
+test("Python concatenated literals preserve complete interpolations when translated clauses move", () => {
   for (const newline of ["\n", "\r\n"]) {
     const text = ["f\"Museum '{name}' uses shelf {shelf} in this \"", '        "catalog. Continue reading."'].join(newline)
     const boundary = text.indexOf('"' + newline)
@@ -907,7 +907,10 @@ test("Python concatenated literals preserve interpolation and ordered syntax thr
     assert.equal(projectionContent(prose, translated), prepared.text.replace("Museum", "博物馆").replace("Continue reading.", "继续阅读。"))
     assert.equal(validateTranslation(prose, translated), undefined)
     assert.throws(() => prepared.restore(prepared.text.replace("{name}", "")), /structure-invalid/u)
-    assert.throws(() => prepared.restore(prepared.text.replace("{name}", "<SWAP>").replace("{shelf}", "{name}").replace("<SWAP>", "{shelf}")), /structure-invalid/u)
+    const reordered = "在书架 {shelf} 上阅读博物馆 '{name}' 的目录。"
+    const restored = prepared.restore(reordered)
+    assert.equal(projectionContent(prose, restored), reordered)
+    assert.equal(validateTranslation(prose, restored), undefined)
   }
 })
 
@@ -955,17 +958,36 @@ test("block-comment rejection reports the delimiter mismatch that actually faile
   assert.equal(validateTranslation(unit, "/* 阅读。 */"), undefined)
 })
 
-test("string syntax and protected-fragment order reject with their own corrections", () => {
+test("string syntax and HTML fragment order reject with their own corrections", () => {
   const scalar = inputOf(parseYaml('message: "Read this."')).units[1]
   const invalid = validateTranslation(scalar, "[broken")!
   assert.ok(invalid)
   assert.match(invalid.feedback.instruction, /YAML string scalar/)
   assert.equal(validateTranslation(scalar, '"阅读。"'), undefined)
-  const text = "Read [one](https://one.example) then [two](https://two.example)."
+  const text = 'Read <span class="first">one</span> then <span class="second">two</span>.'
   const unit = { id: "text", start: 0, end: text.length, text, format: "text" as const }
-  const reordered = validateTranslation(unit, "阅读 [二](https://two.example)，然后 [一](https://one.example)。")!
+  const reordered = validateTranslation(unit, '阅读 <span class="second">二</span>，然后 <span class="first">一</span>。')!
   assert.ok(reordered)
   assert.match(reordered.feedback.instruction, /original order/)
+})
+
+test("text and comment prose allow complete link and image reordering within the same container", () => {
+  for (const format of ["text", "markdown"] as const)
+    for (const kind of [undefined, "comment"] as const)
+      for (const [source, output] of [
+        ["Read [one](https://one.example) then [two](https://two.example).", "阅读 [二](https://two.example)，然后 [一](https://one.example)。"],
+        ["Read [one](https://one.example) then ![two](https://two.example).", "阅读 ![二](https://two.example)，然后 [一](https://one.example)。"],
+        ["Read ~~[one](https://one.example)~~ then [two](https://two.example).", "阅读 [二](https://two.example)，然后 ~~[一](https://one.example)~~。"]
+      ]) {
+        const unit = { id: "reordered-links", start: 0, end: source.length, text: source, format, kind }
+        const prepared = prepareTranslation(unit, 32)
+        const restored = prepared.restore(output)
+        assert.equal(validateTranslation(unit, restored), undefined)
+        for (const invalid of [output.replace("https://one.example", "https://two.example"), output.replace("https://one.example", "https://other.example")]) {
+          assert.throws(() => prepared.restore(invalid), /structure-invalid|marker-mismatch/u)
+        }
+        if (source.includes("~~")) assert.ok(validateTranslation(unit, "阅读 ~~[二](https://two.example)~~，然后 [一](https://one.example)。"))
+      }
 })
 
 test("broken inline-code boundaries are diagnosed before their apparent HTML or link differences", () => {

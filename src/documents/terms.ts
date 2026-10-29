@@ -90,7 +90,9 @@ export function prepareTranslation(
       if (!range.side && range.kind !== "InlineCode") {
         const previous = nativeLiterals.get(value)
         nativeLiterals.set(value, { count: (previous?.count ?? 0) + 1, technical: range.kind === "Technical" && (previous?.technical ?? true) })
-        orderedTokens?.push(value)
+        // Complete interpolations and technical data move with the translated clause.
+        // Only grammar-owned delimiters and escapes retain their relative order.
+        if (orderedTokens && range.kind === undefined && !(value.startsWith("{") && value.endsWith("}"))) orderedTokens.push(value)
       }
       return value
     }
@@ -98,7 +100,6 @@ export function prepareTranslation(
       value,
       inlineCode: range.kind === "InlineCode"
     })
-    orderedTokens?.push(marker)
     return marker
   }
 
@@ -320,7 +321,10 @@ export function prepareTranslation(
           const found = translated.indexOf(token, cursor)
           if (found < 0)
             throw new ModelRetry(
-              { reason: "The response reordered string syntax.", instruction: "Keep string delimiters and interpolations in their source order." },
+              {
+                reason: "The response reordered string syntax.",
+                instruction: "Keep string delimiters and escapes in their source order; complete interpolations may move within this item."
+              },
               { code: "translation-structure-invalid", difference: { reason: "模型改变了字符串语法的顺序。" } }
             )
           cursor = found + token.length

@@ -61,7 +61,7 @@ test("expanded fragments preserve exact contents and multiplicity alongside mark
   assert.ok(validateTranslation(unit, prepared.restore(source.replace("[guide](", "[guide]"))), "Expansion must not bypass link structure validation.")
 })
 
-test("expanded source data stays literal across namespace collisions, overlapping values and Python ordering", () => {
+test("expanded source data stays literal across namespace collisions, overlapping values and Python clause reordering", () => {
   const code = "`sample-reader <CTP0> --help .*$&`"
   const source = "Keep <CTP1_0> beside " + code + "."
   const unit = inputOf(parseMarkdown(source)).units[0]
@@ -75,7 +75,7 @@ test("expanded source data stays literal across namespace collisions, overlappin
   const ordered = prepareTranslation(python, 32)
   assert.equal(ordered.restore(text.replace("Read", "阅读")), text.replace("Read", "阅读"))
   assert.throws(() => ordered.restore("阅读 " + long), /marker-mismatch/u, "A containing fragment cannot also supply the missing shorter fragment.")
-  assert.throws(() => ordered.restore("阅读 " + long + " and " + short), /structure-invalid/u)
+  assert.equal(ordered.restore("阅读 " + long + " and " + short), "阅读 " + long + " and " + short)
 })
 
 test("response boundaries preserve native CRLF syntax inside each item and retain trailing empty items", () => {

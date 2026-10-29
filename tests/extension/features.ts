@@ -569,6 +569,61 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   checks.push("Python implicit concatenation sends complete f-string prose over HTTP and preserves interpolation and syntax across LF/CRLF without crossing expression boundaries")
 
   await config.update("browse.strings", true, vscode.ConfigurationTarget.Global)
+  for (const [index, expression] of [
+    'f"Missing exhibit {record.title} in {record.gallery}."',
+    '(f"Missing exhibit {record.title} "\n f"in {record.gallery}.")',
+    '("Missing exhibit "\r\n f"{record.title} in {record.gallery}.")',
+    'rf"Missing exhibit {record.title} in {record.gallery}."',
+    "f'''Missing exhibit {record.title} in {record.gallery}.'''"
+  ].entries()) {
+    const source = "notice = " + expression
+    const target = await open("reordered-interpolation-" + index + ".py", "python", source)
+    const parsed = await owner.documents.parse(target.document)
+    const [unit] = parsed.groups.flatMap((group) => group.units)
+    const expected = "在 {record.gallery} 中找不到藏品 {record.title}。"
+    const before = (await requests()).length
+    await start(target.document, 1)
+    const result = owner.browse.inspect(target.document.uri)!.units[0].translation
+    assert(projectionContent(unit, result) === expected && validateTranslation(unit, result) === undefined, "Reordered Python interpolations failed restoration or display.")
+    assert((await requests()).length <= before + 1, "A valid reordered interpolation required recovery requests.")
+    assert(target.document.getText() === source && !target.document.isDirty, "Python browse changed the source.")
+    target.editor.selection = new vscode.Selection(target.document.positionAt(unit.start + 1), target.document.positionAt(unit.start + 1))
+    await vscode.commands.executeCommand("commentTranslatePlus.translateAndReplace")
+    assert(target.document.getText() === source.slice(0, unit.start) + result + source.slice(unit.end), "Python replacement damaged reordered interpolation syntax.")
+    await vscode.commands.executeCommand("undo")
+    assert(target.document.getText() === source, "Python replacement undo failed to restore the original literals.")
+    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  }
+  checks.push(
+    "real Python grammar accepts reordered interpolations over mock HTTP and preserves browse source, replacement syntax and undo across adjacent, plain, raw and triple-quoted literals"
+  )
+
+  for (const [language, source, first, second] of [
+    ["typescript", "const notice = `Missing exhibit ${record.title} in ${record.gallery}.`", "${record.title}", "${record.gallery}"],
+    ["shellscript", 'notice="Missing exhibit ${record_title} in ${record_gallery}."', "${record_title}", "${record_gallery}"],
+    ["json", '{"notice": "Read /gallery before /catalog carefully."}', "/gallery", "/catalog"],
+    ["yaml", 'notice: "Read /gallery before /catalog carefully."', "/gallery", "/catalog"],
+    ["python", 'notice = "Read /gallery before /catalog carefully."', "/gallery", "/catalog"],
+    ["typescript", "// Read [one](https://one.example) before [two](https://two.example).", "[one](https://one.example)", "[two](https://two.example)"]
+  ]) {
+    const parsed = await owner.documents.parseSource(source, language)
+    const unit = parsed.groups.flatMap((group) => group.units).find((unit) => prepareTranslation(unit, 32).text.includes(first))
+    assert(unit, "Cross-language reordering fixture lost its source unit: " + language)
+    const prepared = prepareTranslation(unit, 32)
+    const output = "先查看 " + second + "，再查看 " + first + "。"
+    let restored: string
+    try {
+      restored = prepared.restore(output)
+    } catch (error) {
+      throw Error("Cross-language restoration failed: " + language + " · " + JSON.stringify({ source, body: prepared.text, protected: unit.protected, error }), { cause: error })
+    }
+    assert(validateTranslation(unit, restored) === undefined, "Complete inline fragments could not reorder in " + language)
+    assert(restored.includes(first) && restored.includes(second), "Cross-language restoration lost a protected fragment: " + language)
+    assert(prepared.restore(prepared.text) === unit.text, "Cross-language no-change restoration altered source bytes: " + language)
+  }
+  checks.push("real TypeScript, Shell, JSON, YAML and Python parsers retain complete interpolations, paths and comment links when translated clauses reorder")
+
+  await config.update("browse.strings", true, vscode.ConfigurationTarget.Global)
   for (const quote of ['"""', "'''"]) {
     for (const newline of ["\n", "\r\n"]) {
       const source = [

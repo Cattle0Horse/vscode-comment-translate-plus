@@ -413,6 +413,13 @@ export function validateTranslation(unit: TextUnit, translated: string, code = "
       const expected = fragmentContents(unit)
       const actual = fragmentContents({ ...unit, text: translated })
       if (JSON.stringify(expected) === JSON.stringify(actual)) return
+      // Complete inline containers follow the same reordering contract as Markdown.
+      // Comparing their tree shape retains ownership, nesting and HTML/escape order.
+      if (
+        JSON.stringify(markdownShape(markdownTree(unit.text).topNode, unit.text, false, unit.linkLabels)) ===
+        JSON.stringify(markdownShape(markdownTree(translated).topNode, translated, false, unit.linkLabels))
+      )
+        return
       return (
         validateProtectedFragments(expected, actual, unit.text, translated) ??
         new ModelRetry(

@@ -119,10 +119,22 @@ function expressionSyntax(expression: string, syntax: LiteralSyntax): string {
   return syntax.quote + " f" + syntax.quote + expression + syntax.quote + " " + (syntax.raw ? "r" : "") + syntax.quote
 }
 
+/** Match only complete source-owned expressions, retaining exact multiplicity. */
+function expressionOrder(text: string, expressions: readonly string[]): string[] {
+  if (!expressions.length) return []
+  const pattern = [...new Set(expressions)]
+    .sort((a, b) => b.length - a.length)
+    .map((value) => value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"))
+    .join("|")
+  const ordered = [...text.matchAll(new RegExp(pattern, "gu"))].map((match) => match[0])
+  if (JSON.stringify([...ordered].sort()) !== JSON.stringify([...expressions].sort())) throw Error("translation-structure-invalid")
+  return ordered
+}
+
 function encode(text: string, syntax: LiteralSyntax): string {
   let output = ""
   let cursor = 0
-  for (const expression of [...syntax.expressions, ""]) {
+  for (const expression of [...expressionOrder(text, syntax.expressions), ""]) {
     const end = expression ? text.indexOf(expression, cursor) : text.length
     if (end < cursor) throw Error("translation-structure-invalid")
     const prose = text.slice(cursor, end)
@@ -173,7 +185,7 @@ function stringContent(original: string, syntax: LiteralSyntax, translated: stri
     if (body.startsWith(syntax.quote, index) || (syntax.quote.length === 1 && /[\r\n]/u.test(body[index]))) throw Error("translation-structure-invalid")
   }
   let result = ""
-  decode(body, syntax.raw, syntax.formatted, expressions, (value, _from, _to, protectedToken) => {
+  decode(body, syntax.raw, syntax.formatted, expressionOrder(body, expressions), (value, _from, _to, protectedToken) => {
     const index = protectedToken ? expressions.indexOf(value) : -1
     result += index < 0 ? value : syntax.expressions[index]
   })

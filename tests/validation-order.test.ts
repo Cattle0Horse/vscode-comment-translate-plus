@@ -58,8 +58,13 @@ test("marker syntax precedes marker counts and native content counts precede str
     () => string.restore("阅读 {second}。"),
     (error) => error instanceof ModelRetry && /native source fragment/.test(error.feedback.reason)
   )
+  const escapes = "Read \\t then \\a."
+  const escaped = prepareTranslation(
+    { ...unit, text: escapes, end: escapes.length, protected: [...escapes.matchAll(/\\[ta]/gu)].map((match) => ({ start: match.index, end: match.index + 2 })) },
+    32
+  )
   assert.throws(
-    () => string.restore("阅读 {second} 和 {first}。"),
+    () => escaped.restore("阅读 \\a 然后 \\t。"),
     (error) => error instanceof ModelRetry && /string syntax/.test(error.feedback.reason)
   )
   assert.throws(

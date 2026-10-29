@@ -31,6 +31,60 @@ const grammar = {
   }
 } as IGrammar
 
+test("Python reordered interpolations restore complete expressions across literal kinds and cache the first response", async (t) => {
+  const first = "{record.title}"
+  const second = "{record.exhibition_catalog_gallery_names[location_index]!r:>{width}}"
+  const output = "在 " + second + " 中找不到藏品 " + first + "。"
+  for (const parts of [
+    ['f"Missing exhibit ' + first + " in " + second + '."'],
+    ['f"Missing exhibit ' + first + ' "', 'f"in ' + second + '."'],
+    ['"Missing exhibit "', 'f"' + first + " in " + second + '."'],
+    ['rf"Missing exhibit ' + first + " in " + second + '."'],
+    ['f"""Missing exhibit ' + first + " in " + second + '."""']
+  ]) {
+    const source = parts.join("\n")
+    let offset = 0
+    const literals = parts.map((part) => {
+      const start = offset
+      offset += part.length + 1
+      return {
+        start,
+        end: start + part.length,
+        protected: [first, second].filter((value) => part.includes(value)).map((value) => ({ start: start + part.indexOf(value), end: start + part.indexOf(value) + value.length }))
+      }
+    })
+    const region: TextUnit = { id: "reordered", text: source, start: 0, end: source.length, format: "text", kind: "string", language: "python" }
+    const units = pythonStringUnits(source, region, literals)
+    assert.equal(units.length, 1)
+    const unit = units[0]
+    for (const threshold of [32, 1000]) {
+      const prepared = prepareTranslation(unit, threshold)
+      assert.equal(prepared.restore(prepared.text), unit.text)
+      const restored = prepared.restore(output)
+      assert.equal(validateTranslation(unit, restored), undefined)
+      assert.equal(projectionContent(unit, restored), output)
+      assert.ok(restored.indexOf(second) < restored.indexOf(first))
+      for (const invalid of [
+        output.replace(first, ""),
+        output.replace(first, second),
+        output.replace("record.title", "record.name"),
+        output.replace("!r", "!s"),
+        output.replace("{width}", "{height}")
+      ])
+        assert.throws(() => prepared.restore(invalid), /structure-invalid|marker-mismatch/u)
+    }
+    const fixture = await chatFixture(t, () => output)
+    const store = new TranslationStore()
+    t.after(() => store.clear())
+    const run = () =>
+      store.translate("reordered-python", { units }, (input, signal) => requestTranslation(fixture.service, fixture.settings, input, signal, fixture.gate), new AbortController().signal)
+    const result = await run()
+    assert.equal(projectionContent(unit, result.get(unit.id)!), output)
+    assert.deepEqual(await run(), result)
+    assert.equal(fixture.seen.length, 1)
+  }
+})
+
 test("Python path enumerations accept Chinese separators on the first response and cache the result", async (t) => {
   const source = 'notice = "a document in /gallery, /catalog, or the /archive/files store"'
   const output = "/gallery、/catalog 或 /archive/files 存储中的文档"
@@ -518,7 +572,7 @@ test("Python interpolation smart quotes restore source syntax without changing p
     protected: [...text.matchAll(/\{[^}]+\}/gu)].map((match) => ({ start: match.index, end: match.index + match[0].length }))
   }
   const smart = expression.replace(/'/gu, "’")
-  assert.throws(() => prepareTranslation(unit, 200).restore("概览：{exhibit_count} 和 " + smart + "。"), /structure-invalid/u)
+  assert.equal(prepareTranslation(unit, 200).restore("概览：{exhibit_count} 和 " + smart + "。"), "概览：{exhibit_count} 和 " + expression + "。")
   const prose = { ...unit, language: undefined, protected: undefined }
   const ordinary = "概览：" + smart + " 和 {exhibit_count}。"
   assert.equal(prepareTranslation(prose, 200).restore(ordinary), ordinary)
