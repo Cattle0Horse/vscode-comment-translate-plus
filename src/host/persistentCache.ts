@@ -112,8 +112,7 @@ export class PersistentCache {
     this.clearPending()
     try {
       // Delete records through SQLite so other connections see the same database.
-      const database = this.database ?? this.open(false)
-      database?.exec("DELETE FROM translations; PRAGMA wal_checkpoint(TRUNCATE)")
+      this.open(false)?.exec("DELETE FROM translations; PRAGMA wal_checkpoint(TRUNCATE)")
     } finally {
       if (!this.options.enabled) this.release()
     }
