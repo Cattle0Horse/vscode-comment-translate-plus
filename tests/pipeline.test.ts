@@ -662,30 +662,25 @@ test("configured shrink factor and attempt budget retain verified neighbours and
   }
 })
 
-test("unit reference budget can exceed the old fixed limit, disables at zero and retains whole blocks within request budgets", async (t) => {
+test("request context budget keeps complete blocks without a unit-specific limit", async (t) => {
   const fixture = await chatFixture(t, (_body, items) => items.join("\n\n%%\n\n"))
   const reference = "Reference " + "x".repeat(1200)
   const unit = { id: "one", start: 0, end: 14, text: "Original text.", format: "text" as const, reference: [{ kind: "Source", text: reference }] }
-  for (const [limit, requestLimit, included] of [
-    [1500, 2000, true],
-    [1000, 2000, false],
-    [0, 2000, false],
-    [1500, 1000, false]
+  for (const [includeContext, requestLimit, included] of [
+    [true, 2000, true],
+    [true, 1000, false],
+    [false, 2000, false]
   ] as const) {
-    await requestTranslation(
-      fixture.service,
-      { ...fixture.settings, maxUnitContextCharacters: limit, maxContextCharacters: requestLimit },
-      { units: [unit] },
-      new AbortController().signal,
-      fixture.gate
-    )
+    await requestTranslation(fixture.service, { ...fixture.settings, includeContext, maxContextCharacters: requestLimit }, { units: [unit] }, new AbortController().signal, fixture.gate)
     assert.equal(
       fixture.seen.at(-1)!.body.messages.some((message) => message.content.includes(reference)),
       included
     )
   }
-  const prepared = prepareInput({ ...fixture.settings, maxUnitContextCharacters: 1500 }, { units: [{ ...unit, reference: [...unit.reference, { kind: "Extra", text: "y".repeat(400) }] }] })
-  assert.equal(referenceText(prepared.units), reference, "An overflowing reference block was truncated or displaced a higher-priority complete block.")
+  const prepared = prepareInput({ ...fixture.settings, maxContextCharacters: 2000 }, { units: [{ ...unit, reference: [...unit.reference, { kind: "Extra", text: "y".repeat(400) }] }] })
+  assert.equal(referenceText(prepared.units), reference + "\n\n" + "y".repeat(400), "A complete reference block was discarded by a unit-specific limit.")
+  const bounded = prepareInput({ ...fixture.settings, maxContextCharacters: 1500 }, { units: [{ ...unit, reference: [...unit.reference, { kind: "Extra", text: "y".repeat(400) }] }] })
+  assert.equal(referenceText(bounded.units), reference, "The total request context budget did not keep the highest-priority complete block.")
 })
 
 test("identical actual system messages are defined once across retries and tasks while changed prompts remain visible", async (t) => {

@@ -12,7 +12,7 @@ export function prepareInput(settings: ServiceSettings, input: TranslationInput)
     units: input.units.map((unit) => {
       const reference: ReferenceBlock[] = []
       const source: PreparedInput["units"][number] = { ...unit, reference, preserved: isPreservedTerm(unit, settings.preserveTerms) ? true : undefined }
-      if (source.preserved || settings.maxContextCharacters <= 0) return source
+      if (source.preserved || !settings.includeContext || settings.maxContextCharacters <= 0) return source
       const original = prepareTranslation(unit, settings.minimumMarkerCharacters)
       // Folding prose line breaks alone does not require a duplicate source reference.
       for (const blocks of referenceCandidates(unit, original)) {
@@ -21,7 +21,6 @@ export function prepareInput(settings: ServiceSettings, input: TranslationInput)
         if (first.kind === "Original" && reference.some((selected) => selected.range && selected.range.start <= unit.start && selected.range.end >= unit.end)) continue
         const candidate = [...reference, ...blocks]
         const context = referenceText([{ source: { ...unit, reference: candidate }, hasMarkers: original.hasMarkers }])
-        if (context.length > settings.maxUnitContextCharacters) continue
         // Reference text can affect only marker namespace selection. Reuse the
         // prepared body unless it introduces a possible namespace collision.
         const item = context.includes("<CTP") ? prepareTranslation(unit, settings.minimumMarkerCharacters, context) : original

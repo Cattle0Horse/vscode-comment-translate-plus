@@ -2469,8 +2469,13 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     "Local reference hover failed."
   )
   const localSent = (await requests()).slice(beforeLocalReference)
-  const localFingerprint = await requestFingerprint("- Billing: statements and invoices for customer accounts.")
-  assert(localSent.length === 1 && localSent[0].count === 1 && localSent[0].contextFingerprint === localFingerprint, "A distant title displaced the hovered target's direct parent.")
+  assert(
+    localSent.length === 1 &&
+      localSent[0].count === 1 &&
+      localSent[0].referenceIncluded === true &&
+      localSent[0].contextCharacters! > "- Billing: statements and invoices for customer accounts.".length,
+    "The total context budget discarded a complete title or parent block that still fit."
+  )
   assert(localReference.document.getText() === localReferenceSource && !localReference.document.isDirty, "Local reference selection changed source.")
   const introductionSource = "# Electrical manual\n\n## Read the original document.\n\nApply an electrical charge to the capacitor."
   const introduction = await open("heading-meaning-reference.md", "markdown", introductionSource)
@@ -2509,7 +2514,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     batchGrowthFactor: 1.5,
     batchShrinkFactor: 0.25,
     maxTranslationAttempts: 2,
-    maxUnitContextCharacters: 1500,
+    includeContext: true,
     maxConcurrentRequests: 1
   }
   const previous = Object.fromEntries(Object.keys(policy).map((key) => [key, config.get(key)]))
@@ -2540,15 +2545,15 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     )
     const referenceRequests = (await requests()).slice(beforeReference).filter((request) => request.inputFingerprint === fingerprint)
     assert(referenceRequests.length === 1 && referenceRequests[0].contextCharacters === longTitle.length, "A configured unit reference above 1000 characters was still discarded.")
-    await updateObserved("maxUnitContextCharacters", 0)
+    await updateObserved("includeContext", false)
     const beforeDisabledUnit = (await requests()).length
     assert(
       values(await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", referenceTarget.document.uri, new vscode.Position(2, 10))).includes("阅读原始文档"),
       "Reference policy change lost hover translation."
     )
     const disabledUnitRequests = (await requests()).slice(beforeDisabledUnit).filter((request) => request.inputFingerprint === fingerprint)
-    assert(disabledUnitRequests.length === 1 && disabledUnitRequests[0].contextCharacters === 0, "Changing the unit reference budget reused the old reference or hover result.")
-    checks.push("native unit reference settings accept more than 1000 characters and disabling them invalidates prior hover reference selection")
+    assert(disabledUnitRequests.length === 1 && disabledUnitRequests[0].contextCharacters === 0, "Disabling context reused the old reference or hover result.")
+    checks.push("native context settings retain complete references under the total budget and disabling context invalidates prior hover reference selection")
   } finally {
     for (const [key, value] of Object.entries(previous)) await config.update(key, value, vscode.ConfigurationTarget.Global)
   }

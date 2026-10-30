@@ -101,16 +101,27 @@ test("local meaning wins over distant titles and YAML ancestors under a tight re
     const source = ["# " + "General ".repeat(120), "", "- Billing: statements and invoices for customer accounts.", "  - Charge"].join(newline)
     const child = inputOf(parseMarkdown(source)).units.at(-1)!
     const context = referenceText([{ ...child, reference: unitReferences(child, 2000) }])
-    assert.equal(context, "- Billing: statements and invoices for customer accounts.")
+    assert.ok(
+      context.startsWith("# General") && context.includes("- Billing: statements and invoices for customer accounts."),
+      "The total context budget discarded a complete structural block that still fit."
+    )
     const yaml = "root_" + "x".repeat(970) + ":" + newline + "  state: State of the electrical switch"
     const field = inputOf(parseYaml(yaml)).units.find((unit) => unit.content === "state")!
-    assert.equal(referenceText([{ ...field, reference: unitReferences(field, 2000) }]), "  state: State of the electrical switch")
+    const fieldContext = referenceText([{ ...field, reference: unitReferences(field, 2000) }])
+    assert.ok(
+      fieldContext.startsWith("root_") && fieldContext.includes("  state: State of the electrical switch"),
+      "The total context budget discarded a complete YAML ancestor that still fit."
+    )
     assert.equal(child.text.trim(), "- Charge")
     assert.equal(field.content, "state")
     const continuation = inputOf(parseMarkdown(["- Billing: statements and invoices for customer accounts.", "", "  " + "General ".repeat(120), "", "  Charge."].join(newline))).units.at(
       -1
     )!
-    assert.equal(referenceText([{ ...continuation, reference: unitReferences(continuation, 2000) }]), "- Billing: statements and invoices for customer accounts.")
+    const continuationContext = referenceText([{ ...continuation, reference: unitReferences(continuation, 2000) }])
+    assert.ok(
+      continuationContext.includes("- Billing: statements and invoices for customer accounts.") && continuationContext.includes("General"),
+      "The total context budget discarded a complete neighbouring block that still fit."
+    )
   }
 })
 
@@ -174,7 +185,7 @@ test("isolated Markdown targets retain neighbouring rules, section guidance and 
   }
 })
 
-test("Markdown neighbours use complete blocks for long prose and fall back within the unit budget", () => {
+test("Markdown neighbours use complete blocks within the total context budget", () => {
   const previous = "Explain the electrical meaning of charge."
   const target = "Apply the charge to the capacitor and keep the connection stable until the next operation completes."
   const next = "Disconnect the supply after charging."
@@ -185,7 +196,7 @@ test("Markdown neighbours use complete blocks for long prose and fall back withi
   const oversized = "- " + "Remote detail ".repeat(120)
   const tight = inputOf(parseMarkdown(["## Circuit", "", oversized, "- Disconnect the supply.", "- Keep it disconnected."].join("\n"))).units.at(-1)!
   const fallback = referenceText([{ ...tight, reference: unitReferences(tight, 2000) }])
-  assert.ok(fallback.includes("- Disconnect the supply.") && !fallback.includes("Remote detail"), "An oversized window prevented a smaller complete neighbour from fitting.")
+  assert.ok(fallback.includes("Remote detail") && fallback.includes("- Disconnect the supply."), "A complete reference block within the total budget was discarded.")
 })
 
 test("reference output follows global source order across headings and list containers regardless of target order", () => {

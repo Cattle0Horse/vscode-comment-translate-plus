@@ -66,7 +66,7 @@ test("later batches exclude abandoned units while retaining the request item lim
     maxItemsPerRequest: 2,
     maxRequestCharacters: 12000,
     maxContextCharacters: 0,
-    maxUnitContextCharacters: 0,
+    includeContext: false,
     adaptiveBatching: false,
     batchBySemanticScope: false,
     initialItemsPerRequest: 2,

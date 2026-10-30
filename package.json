@@ -1279,13 +1279,11 @@
           "scope": "window",
           "description": "一次请求最多附带多少个字符的上下文参考，帮助模型理解正文；0 表示不附带参考。按 UTF-16 字符计数，并受总请求长度限制。Google/Bing 不发送参考；通常保持默认。"
         },
-        "commentTranslatePlus.maxUnitContextCharacters": {
-          "type": "integer",
-          "default": 1000,
-          "minimum": 0,
-          "maximum": 200000,
+        "commentTranslatePlus.includeContext": {
+          "type": "boolean",
+          "default": true,
           "scope": "window",
-          "description": "为每个独立翻译片段最多选取多少个字符的上下文参考；0 表示不附带参考。仅选择放得下的完整参考块，仍受整次请求的参考和总长度限制。按 UTF-16 字符计数；Google/Bing 不发送参考。"
+          "description": "是否在翻译请求中附带上下文参考。关闭后不生成或发送 context；开启时仍受 maxContextCharacters 的单次请求总字符上限约束。Google/Bing 不发送参考。"
         },
         "commentTranslatePlus.adaptiveBatching": {
           "type": "boolean",

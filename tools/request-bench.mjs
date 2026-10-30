@@ -29,7 +29,7 @@ const settings = {
   maxItemsPerRequest: 20,
   maxRequestCharacters: 12000,
   maxContextCharacters: 2000,
-  maxUnitContextCharacters: 1000,
+  includeContext: true,
   maxConcurrentRequests: 2
 }
 

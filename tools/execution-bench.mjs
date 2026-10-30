@@ -28,7 +28,7 @@ const settings = {
   maxItemsPerRequest: 20,
   maxRequestCharacters: 12000,
   maxContextCharacters: 0,
-  maxUnitContextCharacters: 0,
+  includeContext: false,
   adaptiveBatching: true,
   batchBySemanticScope: true,
   initialItemsPerRequest: 5,

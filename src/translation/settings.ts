@@ -11,7 +11,7 @@ export const requestPolicySchema = {
   maxItemsPerRequest: configuration["commentTranslatePlus.maxItemsPerRequest"],
   maxRequestCharacters: configuration["commentTranslatePlus.maxRequestCharacters"],
   maxContextCharacters: configuration["commentTranslatePlus.maxContextCharacters"],
-  maxUnitContextCharacters: configuration["commentTranslatePlus.maxUnitContextCharacters"],
+  includeContext: configuration["commentTranslatePlus.includeContext"],
   adaptiveBatching: configuration["commentTranslatePlus.adaptiveBatching"],
   batchBySemanticScope: configuration["commentTranslatePlus.batchBySemanticScope"],
   initialItemsPerRequest: configuration["commentTranslatePlus.initialItemsPerRequest"],
