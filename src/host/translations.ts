@@ -139,11 +139,10 @@ export class TranslationRuntime implements vscode.Disposable {
           action: "refresh"
         },
         { label: "待写入变更", description: `${snapshot.pendingChanges} 项`, detail: "当前窗口尚未提交的新增、更新或删除；不计入上方已提交统计。", action: "flush" },
-        { label: "刷新", action: "refresh" },
         { label: "打开缓存目录", description: snapshot.directory, action: "directory" },
         { label: "打开缓存设置", action: "settings" }
       ]
-      const selected = await vscode.window.showQuickPick(items, { title: "注释翻译+：缓存使用情况", placeHolder: "按需查看持久化缓存统计，选择刷新获取最新数据" })
+      const selected = await vscode.window.showQuickPick(items, { title: "注释翻译+：缓存使用情况", placeHolder: "持久化缓存统计" })
       if (!selected || this.disposed) return
       if (selected.action === "toggle") {
         await this.togglePersistentCache()
