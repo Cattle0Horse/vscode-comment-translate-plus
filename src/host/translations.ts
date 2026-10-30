@@ -91,6 +91,15 @@ export class TranslationRuntime implements vscode.Disposable {
     }
   }
 
+  async togglePersistentCache(): Promise<void> {
+    if (this.disposed) return
+    const uri = vscode.window.activeTextEditor?.document.uri
+    const config = vscode.workspace.getConfiguration("commentTranslatePlus", uri)
+    const target = vscode.workspace.workspaceFolders?.length ? vscode.ConfigurationTarget.Workspace : vscode.ConfigurationTarget.Global
+    await config.update("persistentCache", !config.get<boolean>("persistentCache", false), target)
+    await this.configureCache()
+  }
+
   async showCacheUsage(): Promise<void> {
     const size = (bytes: number) => {
       let value = bytes
@@ -106,29 +115,45 @@ export class TranslationRuntime implements vscode.Disposable {
     }
     while (!this.disposed) {
       const snapshot = this.persistent.snapshot()
-      const items: (vscode.QuickPickItem & { action?: "refresh" | "directory" | "settings" })[] = [
+      const items: (vscode.QuickPickItem & { action?: "toggle" | "refresh" | "flush" | "directory" | "settings" })[] = [
         {
           label: "持久化缓存",
-          description: snapshot.state === "failed" ? "存储故障，仅使用内存缓存" : snapshot.state === "ready" ? "已开启" : "已关闭"
+          description: snapshot.state === "failed" ? "存储故障，仅使用内存缓存" : snapshot.state === "ready" ? "已开启" : "已关闭",
+          action: "toggle"
         },
-        { label: "缓存条目", description: snapshot.entries === undefined ? "无法读取" : `${snapshot.entries.toLocaleString("zh-CN")} / ${snapshot.maxEntries.toLocaleString("zh-CN")} 项` },
+        {
+          label: "缓存条目",
+          description: snapshot.entries === undefined ? "无法读取" : `${snapshot.entries.toLocaleString("zh-CN")} / ${snapshot.maxEntries.toLocaleString("zh-CN")} 项`,
+          action: "refresh"
+        },
         {
           label: "缓存容量",
           description: snapshot.bytes === undefined ? "无法读取" : `${size(snapshot.bytes)} / ${size(snapshot.maxBytes)}（${((snapshot.bytes / snapshot.maxBytes) * 100).toFixed(1)}%）`,
-          detail: "已提交的摘要与译文有效载荷，受条数和容量上限约束。"
+          detail: "已提交的摘要与译文有效载荷，受条数和容量上限约束。",
+          action: "refresh"
         },
         {
           label: "磁盘文件大小",
           description: snapshot.diskBytes === undefined ? "无法读取" : size(snapshot.diskBytes),
-          detail: "数据库、WAL 与 SHM 文件合计，包含索引、空闲页及事务日志，可能大于缓存容量。"
+          detail: "数据库、WAL 与 SHM 文件合计，包含索引、空闲页及事务日志，可能大于缓存容量。",
+          action: "refresh"
         },
-        { label: "待写入变更", description: `${snapshot.pendingChanges} 项`, detail: "当前窗口尚未提交的新增、更新或删除；不计入上方已提交统计。" },
+        { label: "待写入变更", description: `${snapshot.pendingChanges} 项`, detail: "当前窗口尚未提交的新增、更新或删除；不计入上方已提交统计。", action: "flush" },
         { label: "刷新", action: "refresh" },
         { label: "打开缓存目录", description: snapshot.directory, action: "directory" },
         { label: "打开缓存设置", action: "settings" }
       ]
       const selected = await vscode.window.showQuickPick(items, { title: "注释翻译+：缓存使用情况", placeHolder: "按需查看持久化缓存统计，选择刷新获取最新数据" })
       if (!selected || this.disposed) return
+      if (selected.action === "toggle") {
+        await this.togglePersistentCache()
+        continue
+      }
+      if (selected.action === "flush") {
+        await this.persistent.flush()
+        continue
+      }
+      if (selected.action === "refresh") continue
       if (selected.action === "settings") {
         await vscode.commands.executeCommand("workbench.action.openSettings", "@ext:cattle-horse.vscode-comment-translate-plus persistentCache")
         return
