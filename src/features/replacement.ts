@@ -61,25 +61,17 @@ export class SourceReplacementAction implements vscode.Disposable {
         void vscode.window.showWarningMessage("请先选择要翻译的文本，或将光标放入注释、字符串或 Markdown 单元。")
         return false
       }
-      return await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: "注释翻译+：翻译并替换", cancellable: true }, async (_progress, token) => {
-        const cancellation = token.onCancellationRequested(() => controller.abort("user-cancelled"))
-        try {
-          if (token.isCancellationRequested) controller.abort("user-cancelled")
-          let translated: string | undefined
-          if (selected) {
-            translated = await this.translations.translateSelection(document, selected, controller.signal)
-          } else {
-            const settings = await this.translations.settings(document.uri, false)
-            const result = await this.translations.translate(document, { units: [unit] }, controller.signal, false, undefined, settings)
-            translated = result.get(unit.id)
-          }
-          controller.signal.throwIfAborted()
-          if (translated === undefined) return false
-          return this.replace({ uri, version, start: unit.start, end: unit.end, source: unit.text, text: translated, identity })
-        } finally {
-          cancellation.dispose()
-        }
-      })
+      let translated: string | undefined
+      if (selected) {
+        translated = await this.translations.translateSelection(document, selected, controller.signal)
+      } else {
+        const settings = await this.translations.settings(document.uri, false)
+        const result = await this.translations.translate(document, { units: [unit] }, controller.signal, false, undefined, settings)
+        translated = result.get(unit.id)
+      }
+      controller.signal.throwIfAborted()
+      if (translated === undefined) return false
+      return await this.replace({ uri, version, start: unit.start, end: unit.end, source: unit.text, text: translated, identity })
     } catch (error) {
       if (!controller.signal.aborted) {
         const code = this.translations.diagnose(error, document.uri)

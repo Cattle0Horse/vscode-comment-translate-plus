@@ -19,7 +19,7 @@ interface PendingUnit {
   readonly unit: PreparedInput["units"][number]
   readonly group: RequestGroup
   readonly interest: AbortController
-  readonly consumers: Map<symbol, { accept(text: string): void; priority(): number; readonly background: boolean }>
+  readonly consumers: Map<symbol, { accept(text: string): void; priority(): number; readonly background: boolean; readonly resource?: string }>
   readonly promise: Promise<string>
   readonly resolve: (text: string) => void
   readonly reject: (error: unknown) => void
@@ -43,7 +43,26 @@ export class TranslationStore {
   private readonly groups = new Set<RequestGroup>()
   private size = 0
 
-  constructor(private readonly persistent?: PersistentTranslations) {}
+  constructor(
+    private readonly persistent?: PersistentTranslations,
+    private readonly changed?: () => void
+  ) {}
+
+  progress(resource?: string): { readonly pending: number; readonly current: number } {
+    let pending = 0
+    let current = 0
+    for (const task of this.pending.values()) {
+      if (task.value !== undefined || !task.consumers.size || task.interest.signal.aborted || task.group.controller.signal.aborted) continue
+      pending++
+      if (resource === undefined) continue
+      for (const consumer of task.consumers.values()) {
+        if (consumer.resource !== resource) continue
+        current++
+        break
+      }
+    }
+    return { pending, current }
+  }
 
   translate(
     identity: string,
@@ -62,7 +81,8 @@ export class TranslationStore {
     reused?: (event: { readonly kind: "cache" | "pending"; readonly count: number; readonly total: number }) => void,
     interests?: ReadonlyMap<string, AbortSignal>,
     priority?: (unit: TextUnit) => number,
-    background = false
+    background = false,
+    resource?: string
   ): Promise<ReadonlyMap<string, string>> {
     signal.throwIfAborted()
     if (force) this.invalidate(identity, [{ units: input.units.filter((unit) => !interests?.get(unit.id)?.aborted) }])
@@ -117,6 +137,7 @@ export class TranslationStore {
     for (const [task, targets] of waiting)
       task.consumers.set(consumer, {
         background,
+        resource,
         priority: () => {
           let highest = Infinity
           for (const unit of targets) highest = Math.min(highest, priority?.(unit) ?? 2)
@@ -149,6 +170,7 @@ export class TranslationStore {
         this.releaseReservation(task)
         for (const notify of task.consumers.values()) notify.accept(item.text)
         task.value = item.text
+        this.changed?.()
         task.resolve(item.text)
       }
       void Promise.resolve()
@@ -213,8 +235,10 @@ export class TranslationStore {
             this.releaseReservation(task)
             if (this.pending.get(task.key) === task) this.pending.delete(task.key)
           }
+          this.changed?.()
         })
     }
+    this.changed?.()
     if (!waiting.size) return Promise.resolve(values)
     return new Promise((resolve, reject) => {
       const subscriptions: (() => void)[] = []
@@ -240,6 +264,7 @@ export class TranslationStore {
           groups.add(task.group)
         }
         for (const group of groups) abortUnusedGroup(group, reason)
+        this.changed?.()
       }
       const cancel = (): void => {
         release()
@@ -263,6 +288,7 @@ export class TranslationStore {
               detach()
               releaseTask(task, interest.reason)
               abortUnusedGroup(task.group, interest.reason)
+              this.changed?.()
             }
           }
           interest.addEventListener("abort", cancelTarget, { once: true })
@@ -306,6 +332,7 @@ export class TranslationStore {
       this.cache.clear()
       this.size = 0
     }
+    this.changed?.()
   }
 
   invalidate(identity: string, inputs: readonly TranslationInput[]): void {

@@ -13,7 +13,7 @@ async function waitFor(check, message) {
 }
 
 async function toggleMode(page) {
-  await page.getByRole("button", { name: /段译文/ }).click()
+  await page.getByRole("button", { name: /已处理：/ }).click()
   const input = page.locator(".quick-input-widget input")
   await input.fill("切换对照 / 占位模式")
   await input.press("Enter")
@@ -109,7 +109,7 @@ export async function runUiChecks({ debugPort, origin, packaged }) {
       screenshots.push(path)
     }
 
-    await page.getByRole("button", { name: /2 段译文/ }).waitFor({ timeout: 30000 })
+    await page.getByRole("button", { name: /已处理：2\/2/ }).waitFor({ timeout: 30000 })
     const firstTranslation = await attachment(page, "阅读原始文档。")
     const secondTranslation = await attachment(page, "保留")
     await capture("browse")
@@ -131,12 +131,22 @@ export async function runUiChecks({ debugPort, origin, packaged }) {
     try {
       assert.equal(await page.getByRole("button", { name: "注释浏览操作", exact: true }).count(), 0, "The editor title still exposes the browse actions button.")
       assert.equal(await page.getByRole("button", { name: /^切换对照或占位模式/ }).count(), 0, "The editor title still exposes the mode switch button.")
-      await page.getByRole("button", { name: /2 段译文/ }).click()
+      await page.getByRole("button", { name: /已处理：2\/2/ }).click()
       await page.getByText("重新翻译当前文件", { exact: true }).click()
       await waitFor(async () => (await loadingIcons(page)).length === 2, "Pending source units did not show their loading icons.")
       const iconUrl = (await loadingIcons(page))[0].url
       assert.ok(iconUrl, "Rendered loading icon has no image URL.")
-      assert.equal((await page.request.get(iconUrl)).status(), 200, "Rendered loading asset is unavailable in this build.")
+      const iconSize = await page.evaluate(
+        (url) =>
+          new Promise((resolve, reject) => {
+            const image = new Image()
+            image.onload = () => resolve({ width: image.naturalWidth, height: image.naturalHeight })
+            image.onerror = () => reject(Error("Rendered loading asset is unavailable in this build."))
+            image.src = url
+          }),
+        iconUrl
+      )
+      assert.ok(iconSize.width > 0 && iconSize.height > 0, "Rendered loading asset has no decoded dimensions.")
       assert.ok(
         (await loadingIcons(page)).every((icon) => icon.width > 0 && icon.height > 0),
         "Loading icons occupy no visible area."
@@ -144,11 +154,39 @@ export async function runUiChecks({ debugPort, origin, packaged }) {
       const pendingGlyph = await sourceGlyph(page.locator(".view-lines .view-line").filter({ hasText: "Keep" }), "Keep")
       assert.deepEqual(pendingGlyph, beforeLoadingGlyph, "Loading icons moved the original source text.")
       await capture("loading")
+      await page.getByRole("treeitem", { name: "progress-neighbor.md", exact: true }).dblclick()
+      await page.getByRole("tab", { name: /^progress-neighbor.md/ }).waitFor()
+      await page.getByRole("button", { name: "切换当前文档注释浏览模式", exact: true }).click()
+      const combinedProgress = page.getByRole("button", { name: /全局剩余：3 项/ })
+      await combinedProgress.waitFor()
+      await waitFor(async () => (await combinedProgress.getAttribute("aria-label")).includes("已处理：0/1"), "Neighbor tooltip shows another document's count.")
+      assert.ok((await combinedProgress.innerText()).includes("剩余 3"), "Status text does not include other tabs' pending work.")
+      await page.getByRole("tab", { name: /^local-browse.md/ }).click()
+      await waitFor(async () => (await combinedProgress.getAttribute("aria-label")).includes("已处理：0/2"), "Tooltip lost the active file's processed counts.")
+      assert.ok((await combinedProgress.innerText()).includes("剩余 3"), "Switching tabs changed the global pending status text.")
+      await combinedProgress.hover()
+      await page.getByRole("tooltip").filter({ hasText: "全局剩余：3 项" }).waitFor()
+      await capture("current-global-progress")
+      await page.keyboard.press("Escape")
+      await page.getByRole("treeitem", { name: "progress-idle.txt", exact: true }).dblclick()
+      await page.getByRole("tab", { name: /^progress-idle.txt/ }).waitFor()
+      await combinedProgress.waitFor()
+      await waitFor(async () => !(await combinedProgress.getAttribute("aria-label")).includes("已处理："), "A non-source tab retained another file's tooltip counts.")
+      assert.ok((await combinedProgress.innerText()).includes("剩余 3"), "A zero current-file count hid other tabs' pending work.")
+      assert.ok((await combinedProgress.getAttribute("aria-label")).includes("当前文件：剩余 0 项"), "Tooltip lost the zero current-file count.")
+      await capture("shared-progress")
+      await page.getByRole("tab", { name: /^local-browse.md/ }).click()
+      checks.push("one status item shows global pending work across tabs and separates current/global counts in its tooltip, hiding the pending suffix only when all work completes")
     } finally {
       await control(false)
     }
-    await page.getByRole("button", { name: /2 段译文/ }).waitFor()
+    await page.getByRole("button", { name: /已处理：2\/2/ }).waitFor()
     await waitFor(async () => (await loadingIcons(page)).length === 0, "Completed translations retained loading icons.")
+    await waitFor(async () => !(await page.getByRole("button", { name: /全局剩余：[1-9]/ }).count()), "Finished background work retained global pending progress.")
+    assert.ok(!(await page.getByRole("button", { name: /已处理：2\/2/ }).innerText()).includes("剩余"), "Completed global progress retained a zero suffix.")
+    await page.getByRole("tab", { name: /^progress-neighbor.md/ }).click()
+    await page.getByRole("button", { name: "切换当前文档注释浏览模式", exact: true }).click()
+    await page.getByRole("tab", { name: /^local-browse.md/ }).click()
     checks.push("in-flight source units display the packaged animated icon without moving source glyphs, and completion removes it")
     await firstSource.hover({ position: { x: 90, y: firstSourceBox.height / 2 } })
     const hover = page.getByRole("tooltip").filter({ has: page.getByText("[注释翻译+]", { exact: true }) })
@@ -157,7 +195,7 @@ export async function runUiChecks({ debugPort, origin, packaged }) {
     await capture("hover")
     checks.push("mouse hover on source opens a native popup with the matching translation")
     await page.keyboard.press("Escape")
-    await page.getByRole("button", { name: /2 段译文/ }).click()
+    await page.getByRole("button", { name: /已处理：2\/2/ }).click()
     await page.getByText("源语言与目标语言", { exact: true }).waitFor()
     await capture("actions")
     await page.getByText("源语言与目标语言", { exact: true }).click()
@@ -167,7 +205,7 @@ export async function runUiChecks({ debugPort, origin, packaged }) {
     await input.press("Enter")
     await waitFor(async () => (await (await fetch(origin + "/state")).json()).requests.at(-1)?.target === "ja", "Language controls did not change the real HTTP request.")
     checks.push("status bar actions remain available without an editor title actions button and language input changes actual HTTP targets")
-    await page.getByRole("button", { name: /2 段译文/ }).waitFor()
+    await page.getByRole("button", { name: /已处理：2\/2/ }).waitFor()
     await attachment(page, "阅读原始文档。")
     const sourceRequests = (await (await fetch(origin + "/state")).json()).requests
     const requestsBeforeStop = sourceRequests.length
@@ -343,7 +381,7 @@ export async function runUiChecks({ debugPort, origin, packaged }) {
     await page.getByRole("treeitem", { name: "below-wrapped.md", exact: true }).dblclick()
     await page.getByRole("button", { name: "切换当前文档注释浏览模式", exact: true }).click()
     await page.keyboard.press("Control+End")
-    await page.getByRole("button", { name: /1 段译文/ }).waitFor()
+    await page.getByRole("button", { name: /已处理：1\/1/ }).waitFor()
     const wrappedEditor = page.locator(".monaco-editor").filter({ has: page.locator(".view-lines").filter({ hasText: "EndOfWrappedSource." }) })
     await wrappedEditor.hover()
     await page.mouse.wheel(0, 10000)
@@ -363,7 +401,7 @@ export async function runUiChecks({ debugPort, origin, packaged }) {
     await page.getByRole("treeitem", { name: "unchanged-browse.md", exact: true }).dblclick()
     const unchangedEditor = page.locator(".monaco-editor").filter({ has: page.locator(".view-lines").filter({ hasText: "AcmeSDK keeps its original product name." }) })
     await page.getByRole("button", { name: "切换当前文档注释浏览模式", exact: true }).click()
-    await page.getByRole("button", { name: /1 段译文 · 1 段保留原文/ }).waitFor()
+    await page.getByRole("button", { name: /已处理：2\/2/ }).waitFor()
     await attachment(unchangedEditor, "阅读原始文档。")
     assert.ok(!(await attachments(unchangedEditor)).some((item) => item.text.includes("AcmeSDK")), "An unchanged unit painted a duplicate translation.")
     assert.equal(await unchangedEditor.locator(".codelens-decoration").count(), 0, "An unchanged first paragraph left a blank translation row.")
@@ -385,7 +423,7 @@ export async function runUiChecks({ debugPort, origin, packaged }) {
     const cachedUnchanged = (await (await fetch(origin + "/state")).json()).requests.length
     await page.getByRole("button", { name: "切换当前文档注释浏览模式", exact: true }).click()
     await page.getByRole("button", { name: "切换当前文档注释浏览模式", exact: true }).click()
-    await page.getByRole("button", { name: /1 段译文 · 1 段保留原文/ }).waitFor()
+    await page.getByRole("button", { name: /已处理：2\/2/ }).waitFor()
     assert.equal((await (await fetch(origin + "/state")).json()).requests.length, cachedUnchanged, "Reopening an unchanged result requested translation again.")
     checks.push("unchanged results create no duplicate or blank row, remain visible in inplace mode, clear loading and reuse cache")
     await page.getByRole("treeitem", { name: "preview-loading.md", exact: true }).dblclick()

@@ -10,6 +10,7 @@ import { runParsing } from "./parsing.ts"
 import { runPersistentCache } from "./cache.ts"
 import { runTransport } from "./transport.ts"
 import { runBackgroundRules } from "./background.ts"
+import { runProgress } from "./progress.ts"
 
 function assert(value: unknown, message: string): asserts value {
   if (!value) throw Error(message)
@@ -293,6 +294,7 @@ export async function run(): Promise<void> {
     checks.push("cancel and stop discard delayed responses")
 
     await control({ slow: false })
+    checks.push(...(await runProgress(workspace, controller, test.origin)))
     await config.update("hover.enabled", true, vscode.ConfigurationTarget.Global)
     const skillUri = vscode.Uri.joinPath(workspace, "SKILL.md")
     await vscode.workspace.fs.writeFile(

@@ -40,6 +40,8 @@ async function inject(): Promise<void> {
       vscode.Uri.joinPath(workspace, "preview.svg"),
       new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"><rect width="24" height="24" fill="#409060"/></svg>')
     )
+    await vscode.workspace.fs.writeFile(vscode.Uri.joinPath(workspace, "progress-idle.txt"), new TextEncoder().encode("This tab does not request translations."))
+    await vscode.workspace.fs.writeFile(vscode.Uri.joinPath(workspace, "progress-neighbor.md"), new TextEncoder().encode("Read the original document. SharedProgressFirst."))
     const wrapped =
       "```ts\n" +
       "const untouched = 1;\n".repeat(60) +

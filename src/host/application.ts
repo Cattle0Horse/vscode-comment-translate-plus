@@ -51,7 +51,7 @@ export class Application implements vscode.Disposable {
       }
     )
     this.replacement = new SourceReplacementAction(this.documents, this.translations)
-    this.background = new BackgroundWorkspace(this.documents, this.translations)
+    this.background = new BackgroundWorkspace(this.documents, this.translations, () => this.controls?.render())
     this.hover = new TranslationHover(this.documents, this.translations, (uri) => this.timers.has(uri.toString()))
     this.preview = new MarkdownPreview(this.documents, this.translations, (document) => this.retranslate(document))
     this.controls = new Controls(this.documents, this.translations, this.browse, this.background, this.hover, this.preview, this.replacement, () => this.retranslate())

@@ -14,6 +14,7 @@ export class Controls implements vscode.Disposable {
   private readonly status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100)
   private readonly subscriptions: vscode.Disposable[] = []
   private disposed = false
+  private renderTimer: ReturnType<typeof setTimeout> | undefined
   constructor(
     private readonly documents: DocumentReader,
     private readonly translations: TranslationRuntime,
@@ -71,20 +72,32 @@ export class Controls implements vscode.Disposable {
     command("addCurrentFileToAutoInclude", () => this.addCurrentFileRule("include"))
     command("preview", () => this.preview.open())
     command("settings", () => vscode.commands.executeCommand("workbench.action.openSettings", "@ext:cattle-horse.vscode-comment-translate-plus"))
+    this.subscriptions.push(this.translations.onDidChangeProgress(() => this.render()))
 
     this.status.name = "注释翻译+"
     this.status.command = "commentTranslatePlus.actions"
   }
 
   render(): void {
+    if (this.disposed || this.renderTimer !== undefined) return
+    this.renderTimer = setTimeout(() => {
+      this.renderTimer = undefined
+      this.updateStatus()
+    }, 0)
+  }
+
+  private updateStatus(): void {
     if (this.disposed) return
     const document = vscode.window.activeTextEditor?.document
     const snapshot = document ? this.browse.inspect(document.uri) : undefined
-    void vscode.commands.executeCommand("setContext", "commentTranslatePlus.supported", !!document && this.documents.supports(document))
+    const progress = this.translations.progress(document?.uri)
+    const supported = !!document && this.documents.supports(document)
+    void vscode.commands.executeCommand("setContext", "commentTranslatePlus.supported", supported)
     void vscode.commands.executeCommand("setContext", "commentTranslatePlus.markdown", !!document && isMarkdownDocument(document))
     const browsing = snapshot?.scope === "document"
     void vscode.commands.executeCommand("setContext", "commentTranslatePlus.browse", browsing)
-    if (!document || !this.documents.supports(document)) {
+    const busy = this.translations.isWorking || this.background.isRunning
+    if (!supported && !busy) {
       this.status.hide()
       return
     }
@@ -95,28 +108,27 @@ export class Controls implements vscode.Disposable {
       switch (snapshot.status) {
         case "working":
           icon = "loading~spin"
-          suffix = " · 剩余 " + snapshot.loading.length
-          state = "翻译中，当前剩余 " + snapshot.loading.length + " 项"
+          state = "翻译中"
           break
         case "ready":
           state = browsing ? "浏览就绪" : "局部译文就绪"
           break
         case "cancelled":
-          suffix = " · 已取消"
+          suffix = " · 当前已取消"
           state = "已取消"
           break
         case "error":
           icon = "warning"
-          suffix = snapshot.failedUnits.length ? " · 重试 " + snapshot.failedUnits.length : " · 异常"
+          suffix = snapshot.failedUnits.length ? " · 当前重试 " + snapshot.failedUnits.length : " · 当前异常"
           state = snapshot.failedUnits.length ? snapshot.failedUnits.length + " 项需重试" : "浏览异常"
           break
       }
     }
     let label = "配置翻译"
-    const details = ["注释翻译+：" + state]
+    const details = ["当前文件：剩余 " + progress.current + " 项", "注释翻译+：" + state]
     try {
-      const settings = getTranslationSettings(document.uri, emptyPreserveTerms)
-      label = settings.targetLanguage + suffix
+      const settings = getTranslationSettings(document?.uri, emptyPreserveTerms)
+      label = settings.targetLanguage
       details.push("配置：" + settings.name, "语言：" + (settings.sourceLanguage === "auto" ? "自动检测" : settings.sourceLanguage) + " → " + settings.targetLanguage)
     } catch {
       /* Incomplete settings must not send requests or interrupt opening a file. */
@@ -124,13 +136,18 @@ export class Controls implements vscode.Disposable {
       details.push("翻译配置不完整或无效，请检查设置。")
     }
     if (snapshot) {
-      const unchanged = snapshot.units.filter((unit) => unit.translation === unit.text).length
-      details.push(snapshot.units.length - unchanged + " 段译文" + (unchanged ? " · " + unchanged + " 段保留原文" : ""), "已处理：" + snapshot.units.length + "/" + snapshot.total)
+      details.push("已处理：" + snapshot.units.length + "/" + snapshot.total)
       if (snapshot.failedUnits.length) details.push("需重试：" + snapshot.failedUnits.length + " 项")
       for (const code of snapshot.errors) details.push(describeError(code))
     }
+    if (busy) {
+      icon = "loading~spin"
+    }
+    if (progress.pending) suffix = " · 剩余 " + progress.pending
+    details.push("", "全局剩余：" + progress.pending + " 项")
+    if (busy && !progress.pending) details.push("全局任务仍在处理中。")
     details.push("点击打开操作菜单")
-    this.status.text = "$(" + icon + ") " + label
+    this.status.text = "$(" + icon + ") " + label + suffix
     this.status.tooltip = details.join("\n")
     this.status.accessibilityInformation = { label: details.join("；") }
     this.status.show()
@@ -148,7 +165,7 @@ export class Controls implements vscode.Disposable {
       { label: "翻译全文", command: "translateAll" },
       { label: "重新翻译当前块", command: "retranslateBlock" }
     ]
-    if (snapshot || this.background.isRunning)
+    if (snapshot || this.background.isRunning || this.translations.isWorking)
       items.push({
         label: !this.background.isRunning && snapshot?.status === "cancelled" ? "继续翻译" : "取消进行中的翻译",
         command: "cancel"
@@ -257,6 +274,7 @@ export class Controls implements vscode.Disposable {
 
   dispose(): void {
     this.disposed = true
+    if (this.renderTimer !== undefined) clearTimeout(this.renderTimer)
     for (const subscription of this.subscriptions) subscription.dispose()
     this.status.dispose()
   }

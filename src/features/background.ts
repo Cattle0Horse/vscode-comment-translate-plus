@@ -20,7 +20,8 @@ export class BackgroundWorkspace implements vscode.Disposable {
 
   constructor(
     private readonly documents: DocumentReader,
-    private readonly translations: TranslationRuntime
+    private readonly translations: TranslationRuntime,
+    private readonly changed: () => void
   ) {}
 
   get isRunning(): boolean {
@@ -37,69 +38,52 @@ export class BackgroundWorkspace implements vscode.Disposable {
     const tokenSource = new vscode.CancellationTokenSource()
     const run = { controller, tokenSource }
     this.run = run
+    this.changed()
+    const result = { translated: 0, skipped: 0, failed: 0 }
     try {
-      await vscode.window.withProgress(
-        {
-          location: vscode.ProgressLocation.Notification,
-          title: "后台翻译所有文件",
-          cancellable: true
-        },
-        async (progress, token) => {
-          const cancellation = token.onCancellationRequested(() => {
-            controller.abort("background-cancelled")
-            tokenSource.cancel()
-          })
-          const result = { files: 0, translated: 0, skipped: 0, failed: 0 }
-          try {
-            for await (const uri of this.findFiles(tokenSource.token)) {
-              controller.signal.throwIfAborted()
-              result.files++
-              progress.report({ message: "已处理 " + (result.files - 1) + " 个文件：" + vscode.workspace.asRelativePath(uri, false) })
-              const fileController = new AbortController()
-              const signal = AbortSignal.any([controller.signal, fileController.signal])
-              this.activeFile = { uri, controller: fileController }
-              try {
-                const document = await vscode.workspace.openTextDocument(uri)
-                signal.throwIfAborted()
-                if (!this.documents.supports(document)) {
-                  result.skipped++
-                  continue
-                }
-                const parsed = await this.documents.parse(document, false, { cache: false, signal })
-                for (const diagnostic of parsed.errors) this.translations.diagnose(new ParseFailure(diagnostic), uri)
-                const units = parsed.groups.flatMap((group) => group.units)
-                if (!units.length) {
-                  result.skipped++
-                  continue
-                }
-                await this.translations.translate(document, { units }, signal, false, undefined, undefined, undefined, () => 3, true)
-                result.translated++
-              } catch (error) {
-                if (controller.signal.aborted || (error instanceof Error && error.message.startsWith("background-cache-full-"))) throw error
-                if (signal.aborted) result.skipped++
-                else {
-                  result.failed++
-                  this.translations.diagnose(error, uri)
-                }
-              } finally {
-                this.activeFile = undefined
-              }
-            }
-            void vscode.window.showInformationMessage(`后台翻译完成：${result.translated} 个文件，跳过 ${result.skipped} 个，失败 ${result.failed} 个。`)
-          } catch (error) {
-            if (error instanceof Error && error.message === "background-cache-full-memory")
-              void vscode.window.showWarningMessage("后台翻译已停止：内存缓存空间不足。已完成结果保留，请开启持久化缓存后重试。")
-            else if (error instanceof Error && error.message === "background-cache-full-persistent")
-              void vscode.window.showWarningMessage("后台翻译已停止：持久化缓存空间不足或不可用。已完成结果保留，请提高缓存容量或检查缓存状态后重试。")
-            else if (!controller.signal.aborted) void vscode.window.showErrorMessage("后台翻译所有文件失败：" + (error instanceof Error ? error.message : String(error)))
-          } finally {
-            cancellation.dispose()
+      for await (const uri of this.findFiles(tokenSource.token)) {
+        controller.signal.throwIfAborted()
+        const fileController = new AbortController()
+        const signal = AbortSignal.any([controller.signal, fileController.signal])
+        this.activeFile = { uri, controller: fileController }
+        try {
+          const document = await vscode.workspace.openTextDocument(uri)
+          signal.throwIfAborted()
+          if (!this.documents.supports(document)) {
+            result.skipped++
+            continue
           }
+          const parsed = await this.documents.parse(document, false, { cache: false, signal })
+          for (const diagnostic of parsed.errors) this.translations.diagnose(new ParseFailure(diagnostic), uri)
+          const units = parsed.groups.flatMap((group) => group.units)
+          if (!units.length) {
+            result.skipped++
+            continue
+          }
+          await this.translations.translate(document, { units }, signal, false, undefined, undefined, undefined, () => 3, true)
+          result.translated++
+        } catch (error) {
+          if (controller.signal.aborted || (error instanceof Error && error.message.startsWith("background-cache-full-"))) throw error
+          if (signal.aborted) result.skipped++
+          else {
+            result.failed++
+            this.translations.diagnose(error, uri)
+          }
+        } finally {
+          this.activeFile = undefined
         }
-      )
+      }
+      void vscode.window.showInformationMessage(`后台翻译完成：${result.translated} 个文件，跳过 ${result.skipped} 个，失败 ${result.failed} 个。`)
+    } catch (error) {
+      if (error instanceof Error && error.message === "background-cache-full-memory")
+        void vscode.window.showWarningMessage("后台翻译已停止：内存缓存空间不足。已完成结果保留，请开启持久化缓存后重试。")
+      else if (error instanceof Error && error.message === "background-cache-full-persistent")
+        void vscode.window.showWarningMessage("后台翻译已停止：持久化缓存空间不足或不可用。已完成结果保留，请提高缓存容量或检查缓存状态后重试。")
+      else if (!controller.signal.aborted) void vscode.window.showErrorMessage("后台翻译所有文件失败：" + (error instanceof Error ? error.message : String(error)))
     } finally {
       tokenSource.dispose()
       if (this.run === run) this.run = undefined
+      this.changed()
     }
   }
 

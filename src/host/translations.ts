@@ -30,15 +30,30 @@ export class TranslationRuntime implements vscode.Disposable {
   private activeDocument: vscode.TextDocument | undefined
   private visibleRanges: readonly { start: number; end: number }[] = []
   private disposed = false
+  private translating = 0
+  private readonly changes = new vscode.EventEmitter<void>()
+  readonly onDidChangeProgress = this.changes.event
   constructor(context: vscode.ExtensionContext, home?: string) {
     this.persistent = new PersistentCache(join(context.globalStorageUri.fsPath, "translation-cache.sqlite"), () => {
       this.log.write("warning", "持久化翻译缓存读写失败或数据损坏，未命中项将继续正常翻译。")
       if (!this.disposed) void vscode.window.showWarningMessage("持久化翻译缓存读写失败或数据损坏，未命中项将继续正常翻译。")
     })
-    this.store = new TranslationStore(this.persistent)
+    this.store = new TranslationStore(this.persistent, () => this.progressChanged())
     this.terms = new TermFiles(context, home)
     this.configureLog()
     void this.configureCache()
+  }
+
+  progress(uri?: vscode.Uri): { readonly pending: number; readonly current: number } {
+    return this.store.progress(uri?.toString())
+  }
+
+  get isWorking(): boolean {
+    return this.translating > 0
+  }
+
+  private progressChanged(): void {
+    if (!this.disposed) this.changes.fire()
   }
 
   configureCache(): Promise<void> {
@@ -170,50 +185,58 @@ export class TranslationRuntime implements vscode.Disposable {
     background = false
   ): Promise<ReadonlyMap<string, string>> {
     if (this.disposed) throw Error("extension-disposed")
-    settings ??= await this.settings(document.uri)
-    signal.throwIfAborted()
-    this.gate.configure(settings.rate, settings.maxConcurrentRequests)
-    const units: PreparedInput["units"][number][] = []
-    let started = performance.now()
-    for (let index = 0; index < batch.units.length; index += 100) {
+    this.translating++
+    this.progressChanged()
+    try {
+      const configured = settings ?? (await this.settings(document.uri))
       signal.throwIfAborted()
-      units.push(...prepareInput(settings, { units: batch.units.slice(index, index + 100) }).units)
-      if (performance.now() - started >= 8) {
-        await new Promise((resolve) => setTimeout(resolve, 0))
-        started = performance.now()
+      this.gate.configure(configured.rate, configured.maxConcurrentRequests)
+      const units: PreparedInput["units"][number][] = []
+      let started = performance.now()
+      for (let index = 0; index < batch.units.length; index += 100) {
+        signal.throwIfAborted()
+        units.push(...prepareInput(configured, { units: batch.units.slice(index, index + 100) }).units)
+        if (performance.now() - started >= 8) {
+          await new Promise((resolve) => setTimeout(resolve, 0))
+          started = performance.now()
+        }
       }
+      signal.throwIfAborted()
+      return await this.store.translate(
+        configured.identity,
+        { units },
+        (canonical, requestSignal, accepted, interests, priority, admit) =>
+          this.service.request(
+            configured,
+            canonical,
+            requestSignal,
+            this.gate,
+            accepted,
+            {
+              details: this.log.detailsEnabled,
+              emit: (event) => this.logTranslation(event, configured, document)
+            },
+            interests,
+            priority,
+            admit
+          ),
+        signal,
+        force,
+        completed,
+        (event) => this.log.reused(event, vscode.workspace.asRelativePath(document.uri), configured.apiKey),
+        interests,
+        priority ??
+          ((unit: TextUnit) => {
+            if (this.activeDocument !== document) return 2
+            return this.visibleRanges.some((range) => unit.start <= range.end && unit.end >= range.start) ? 0 : 1
+          }),
+        background,
+        document.uri.toString()
+      )
+    } finally {
+      this.translating--
+      this.progressChanged()
     }
-    signal.throwIfAborted()
-    return this.store.translate(
-      settings.identity,
-      { units },
-      (canonical, requestSignal, accepted, interests, priority, admit) =>
-        this.service.request(
-          settings,
-          canonical,
-          requestSignal,
-          this.gate,
-          accepted,
-          {
-            details: this.log.detailsEnabled,
-            emit: (event) => this.logTranslation(event, settings, document)
-          },
-          interests,
-          priority,
-          admit
-        ),
-      signal,
-      force,
-      completed,
-      (event) => this.log.reused(event, vscode.workspace.asRelativePath(document.uri), settings.apiKey),
-      interests,
-      priority ??
-        ((unit: TextUnit) => {
-          if (this.activeDocument !== document) return 2
-          return this.visibleRanges.some((range) => unit.start <= range.end && unit.end >= range.start) ? 0 : 1
-        }),
-      background
-    )
   }
 
   async translateSelection(document: vscode.TextDocument, selection: ReturnType<typeof prepareSelection>, signal: AbortSignal): Promise<string> {
@@ -320,6 +343,7 @@ export class TranslationRuntime implements vscode.Disposable {
 
   async dispose(): Promise<void> {
     this.disposed = true
+    this.changes.dispose()
     this.terms.dispose()
     this.store.clear()
     this.service.clear()
