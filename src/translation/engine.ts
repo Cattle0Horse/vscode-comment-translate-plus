@@ -3,7 +3,7 @@ import type { CompiledBatch } from "./planning.ts"
 import { TranslationUnit } from "./unit.ts"
 import type { PreparedInput, TranslationItem } from "../model/translation.ts"
 import type { RequestGate } from "./requestGate.ts"
-import { ModelRetry, RequestRetry, TranslationFailure, cancellationReason, failureCode } from "../model/diagnostics.ts"
+import { CacheCapacityFailure, ModelRetry, RequestRetry, TranslationFailure, cancellationReason, failureCode } from "../model/diagnostics.ts"
 import { requestScope, retryDelay } from "./transport.ts"
 import { request } from "./http.ts"
 import { getProvider } from "./providers/index.ts"
@@ -27,7 +27,8 @@ export class TranslationService {
     completed?: (item: TranslationItem) => void,
     trace?: TranslationTrace,
     interests?: ReadonlyMap<string, AbortSignal>,
-    priority?: (id: string) => number
+    priority?: (id: string) => number,
+    admit?: (ids: readonly string[]) => void
   ): Promise<readonly TranslationItem[]> {
     settings = { ...settings, sourceLanguage: settings.sourceLanguage.trim() || "auto", targetLanguage: settings.targetLanguage.trim() }
     validateService(settings)
@@ -42,7 +43,7 @@ export class TranslationService {
       this.policies.set(key, policy)
       while (this.policies.size > 16) this.policies.delete(this.policies.keys().next().value!)
     }
-    return new TranslationRun(settings, batch, signal, gate, policy, "T" + ++this.sequence, completed, trace, interests, priority).execute()
+    return new TranslationRun(settings, batch, signal, gate, policy, "T" + ++this.sequence, completed, trace, interests, priority, admit).execute()
   }
 }
 
@@ -78,7 +79,8 @@ class TranslationRun {
     private readonly completed?: (item: TranslationItem) => void,
     private readonly trace?: TranslationTrace,
     interests?: ReadonlyMap<string, AbortSignal>,
-    private readonly priority: (id: string) => number = () => 2
+    private readonly priority: (id: string) => number = () => 2,
+    private readonly admit?: (ids: readonly string[]) => void
   ) {
     const provider = getProvider(settings.provider)
     this.units = batch.units.map((unit) => new TranslationUnit(unit, settings, provider, interests?.get(unit.id)))
@@ -125,7 +127,17 @@ class TranslationRun {
     this.combined.throwIfAborted()
     if (!unit.pending) return
     unit.accept(text, (review) => this.policy.fits(this.policy.compile([unit], review, text)), diagnosticCodes)
-    this.completed?.({ id: unit.source.id, text: unit.translation! })
+    this.deliver(unit)
+  }
+
+  private deliver(unit: TranslationUnit): void {
+    try {
+      this.completed?.({ id: unit.source.id, text: unit.translation! })
+    } catch (error) {
+      unit.translation = undefined
+      unit.reject(error)
+      throw error
+    }
   }
 
   private async prepare(): Promise<void> {
@@ -141,7 +153,7 @@ class TranslationRun {
       this.combined.throwIfAborted()
       if (!unit.wanted) continue
       unit.prepare(collisions)
-      if (unit.translation !== undefined) this.completed?.({ id: unit.source.id, text: unit.translation })
+      if (unit.translation !== undefined) this.deliver(unit)
       else if (!unit.prepared!.needsTranslation) this.publish(unit, unit.prepared!.text)
     }
   }
@@ -166,6 +178,7 @@ class TranslationRun {
       } else units[0].reject(this.policy.oversized(measurement.characters))
       return
     }
+    this.admit?.(units.map((unit) => unit.source.id))
     const abandoned = new AbortController()
     const signals = units.flatMap((unit) => (unit.interest ? [unit.interest] : []))
     const cancelUnused = (): void => {
@@ -296,6 +309,11 @@ class TranslationRun {
       modelRequest = undefined
       modelResponse = undefined
     }
+    const capacityFailure = [...reasons.values(), reason].find((error) => error instanceof CacheCapacityFailure)
+    if (capacityFailure) {
+      record()
+      throw capacityFailure
+    }
     if (this.combined.aborted) {
       record()
       this.combined.throwIfAborted()
@@ -347,6 +365,7 @@ class TranslationRun {
         // viewport can then overtake the unplanned tail of a whole document.
         await this.gate.plan(
           () => {
+            if (failure) return
             let highest = Infinity
             let candidates: TranslationUnit[] = []
             for (const unit of remaining) {
@@ -372,7 +391,7 @@ class TranslationRun {
             const work = this.run(batch.units, batch.reason, batch.compiled)
               .catch((error) => {
                 failure ??= { error }
-                this.controller.abort("request-failed")
+                if (!(error instanceof CacheCapacityFailure)) this.controller.abort("request-failed")
               })
               .finally(() => active.delete(work))
             active.add(work)
@@ -390,7 +409,7 @@ class TranslationRun {
       this.finish()
       return this.units.filter((unit) => unit.translation !== undefined).map((unit) => ({ id: unit.source.id, text: unit.translation! }))
     } catch (error) {
-      this.controller.abort("request-failed")
+      if (!(error instanceof CacheCapacityFailure)) this.controller.abort("request-failed")
       await Promise.allSettled(active)
       this.finish(error)
       throw this.signal.aborted ? error : new TranslationFailure(failureCode(error), !!this.trace)

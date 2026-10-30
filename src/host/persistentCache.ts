@@ -36,6 +36,7 @@ export class PersistentCache {
   private options: PersistentCacheOptions = { enabled: false, maxEntries: 10000, maxBytes: 20 * 1024 * 1024 }
   private readonly changes = new Map<string, Change>()
   private readonly touches = new Map<string, number>()
+  private readonly reservations = new Map<string, number>()
   private database: DatabaseSync | undefined
   private select: StatementSync | undefined
   private upsert: StatementSync | undefined
@@ -141,10 +142,75 @@ export class PersistentCache {
     }
   }
 
-  set(key: string, text: string): void {
+  set(key: string, text: string, allowEviction = true): boolean | undefined {
     if (!this.active) return
     const bytes = Buffer.byteLength(text, "utf8") + 64
-    this.change(digest(key), bytes > this.options.maxBytes ? undefined : text, bytes)
+    const hash = digest(key)
+    this.reservations.delete(hash)
+    if (!allowEviction) {
+      try {
+        this.write()
+        const database = this.database!
+        database.exec("BEGIN IMMEDIATE")
+        try {
+          const totals = database.prepare("SELECT COUNT(*) AS count, COALESCE(SUM(bytes), 0) AS bytes FROM translations").get()!
+          const previous = this.select!.get(hash)
+          const reserved = [...this.reservations.values()].reduce((sum, size) => sum + size, 0)
+          if (
+            Number(totals.count) + (previous ? 0 : 1) + this.reservations.size > this.options.maxEntries ||
+            Number(totals.bytes) - Number(previous?.bytes ?? 0) + bytes + reserved > this.options.maxBytes
+          ) {
+            database.exec("ROLLBACK")
+            return false
+          }
+          this.upsert!.run(hash, text, bytes, this.stamp())
+          database.exec("COMMIT")
+          return true
+        } catch (error) {
+          database.exec("ROLLBACK")
+          throw error
+        }
+      } catch {
+        this.fail()
+        return false
+      }
+    }
+    this.change(hash, bytes > this.options.maxBytes ? undefined : text, bytes)
+    return true
+  }
+
+  reserve(units: readonly { readonly key: string; readonly text: string }[], allowEviction: boolean): "reserved" | "disabled" | "full" {
+    if (!this.active) return "disabled"
+    const additions = new Map(units.map((unit) => [digest(unit.key), Buffer.byteLength(unit.text, "utf8") * 2 + 64]))
+    try {
+      if (!allowEviction) {
+        // Commit buffered foreground writes before measuring; they retain their normal LRU policy.
+        this.write()
+        const totals = this.database!.prepare("SELECT COUNT(*) AS count, COALESCE(SUM(bytes), 0) AS bytes FROM translations").get()!
+        let entries = Number(totals.count)
+        let bytes = Number(totals.bytes)
+        for (const [hash, size] of this.reservations) {
+          if (additions.has(hash)) continue
+          entries++
+          bytes += size
+        }
+        for (const [hash, size] of additions) {
+          const previous = this.select!.get(hash)
+          if (!previous) entries++
+          bytes += Math.max(0, size - Number(previous?.bytes ?? 0))
+        }
+        if (entries > this.options.maxEntries || bytes > this.options.maxBytes) return "full"
+      }
+      for (const [hash, size] of additions) this.reservations.set(hash, size)
+      return "reserved"
+    } catch {
+      this.fail()
+      return "full"
+    }
+  }
+
+  releaseReservation(key: string): void {
+    this.reservations.delete(digest(key))
   }
 
   remove(key: string): void {
@@ -258,6 +324,7 @@ export class PersistentCache {
   }
 
   private release(): void {
+    this.reservations.clear()
     this.select = undefined
     this.upsert = undefined
     this.erase = undefined

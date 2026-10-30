@@ -9,6 +9,7 @@ import { runCommentParagraphs } from "./comments.ts"
 import { runParsing } from "./parsing.ts"
 import { runPersistentCache } from "./cache.ts"
 import { runTransport } from "./transport.ts"
+import { runBackgroundRules } from "./background.ts"
 
 function assert(value: unknown, message: string): asserts value {
   if (!value) throw Error(message)
@@ -69,6 +70,7 @@ export async function run(): Promise<void> {
   }
   try {
     for (const [key, value] of Object.entries(settings)) await config.update(key, value, vscode.ConfigurationTarget.Global)
+    checks.push(...(await runBackgroundRules(workspace, controller, test.origin)))
     await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
     await waitFor(() => controller.browse.inspect(uri)?.status === "ready" && controller.browse.inspect(uri)?.units.length === 2, "initial HTTP translation")
     assert(document.getText() === source && !document.isDirty, "Browse changed source.")

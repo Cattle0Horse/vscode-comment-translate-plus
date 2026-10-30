@@ -44,6 +44,12 @@ export class TranslationFailure extends Error {
   }
 }
 
+export class CacheCapacityFailure extends TranslationFailure {
+  constructor(storage: "memory" | "persistent") {
+    super("background-cache-full-" + storage)
+  }
+}
+
 /** English model-facing feedback stays structured until the provider renders its request. */
 export interface ModelFeedback {
   readonly reason: string
@@ -75,6 +81,8 @@ export function failureCode(error: unknown): string {
 export function describeError(code: string): string {
   if (code.startsWith("service-http-")) return "服务请求失败（HTTP " + code.slice("service-http-".length) + "），请检查地址、密钥、权限或限流设置。"
   const descriptions: Record<string, string> = {
+    "background-cache-full-memory": "后台翻译已停止：内存缓存空间不足，请开启持久化缓存。",
+    "background-cache-full-persistent": "后台翻译已停止：持久化缓存空间不足或不可用，请扩大容量或检查缓存状态。",
     "prompt-template-invalid": "提示词条件片段无效，请使用固定变量名称，并配对 {{#if context}} 与 {{/if}}。",
     "translation-items-mismatch": "返回条目数量不匹配，无法确认对应关系的内容保留原文。",
     "translation-item-invalid": "服务返回了无效条目，对应内容保留原文。",

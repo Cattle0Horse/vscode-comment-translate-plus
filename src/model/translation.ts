@@ -21,7 +21,9 @@ export interface TranslationItem {
 
 export interface PersistentTranslations {
   get(key: string): Promise<string | undefined>
-  set(key: string, text: string): void
+  set(key: string, text: string, allowEviction?: boolean): boolean | undefined
   remove(key: string): void
   touch(key: string): void
+  reserve(units: readonly { readonly key: string; readonly text: string }[], allowEviction: boolean): "reserved" | "disabled" | "full"
+  releaseReservation(key: string): void
 }

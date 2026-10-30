@@ -1,8 +1,7 @@
 import * as vscode from "vscode"
 import type { DocumentReader } from "../host/documents.ts"
 import type { TranslationRuntime } from "../host/translations.ts"
-import type { ParsedDocument } from "../model/document.ts"
-import { memoryCacheMaxBytes, memoryCacheMaxEntries } from "../translation/store.ts"
+import { ParseFailure } from "../model/diagnostics.ts"
 
 interface BackgroundRun {
   readonly controller: AbortController
@@ -14,17 +13,9 @@ interface ActiveFile {
   readonly controller: AbortController
 }
 
-interface BackgroundFile {
-  readonly uri: vscode.Uri
-  readonly document: vscode.TextDocument
-  readonly parsed: ParsedDocument
-  readonly version: number
-}
-
 export class BackgroundWorkspace implements vscode.Disposable {
   private run: BackgroundRun | undefined
   private activeFile: ActiveFile | undefined
-  private readonly invalidated = new Set<string>()
   private disposed = false
 
   constructor(
@@ -42,7 +33,6 @@ export class BackgroundWorkspace implements vscode.Disposable {
       void vscode.window.showInformationMessage("后台翻译所有文件已在进行中。")
       return
     }
-    this.invalidated.clear()
     const controller = new AbortController()
     const tokenSource = new vscode.CancellationTokenSource()
     const run = { controller, tokenSource }
@@ -61,41 +51,47 @@ export class BackgroundWorkspace implements vscode.Disposable {
           })
           const result = { files: 0, translated: 0, skipped: 0, failed: 0 }
           try {
-            const files = await this.prepareFiles(controller, tokenSource.token, progress, result)
-            if (!this.capacity(files)) return
-            for (const file of files) {
+            for await (const uri of this.findFiles(tokenSource.token)) {
               controller.signal.throwIfAborted()
-              if (this.invalidated.has(file.uri.toString()) || file.document.isClosed || file.document.version !== file.version) {
-                result.skipped++
-                continue
-              }
+              result.files++
+              progress.report({ message: "已处理 " + (result.files - 1) + " 个文件：" + vscode.workspace.asRelativePath(uri, false) })
               const fileController = new AbortController()
-              const abortFile = () => fileController.abort(controller.signal.reason)
-              controller.signal.addEventListener("abort", abortFile, { once: true })
-              this.activeFile = { uri: file.uri, controller: fileController }
+              const signal = AbortSignal.any([controller.signal, fileController.signal])
+              this.activeFile = { uri, controller: fileController }
               try {
-                await this.translations.translate(
-                  file.document,
-                  { units: file.parsed.groups.flatMap((group) => group.units) },
-                  fileController.signal,
-                  false,
-                  undefined,
-                  undefined,
-                  undefined,
-                  () => 3
-                )
+                const document = await vscode.workspace.openTextDocument(uri)
+                signal.throwIfAborted()
+                if (!this.documents.supports(document)) {
+                  result.skipped++
+                  continue
+                }
+                const parsed = await this.documents.parse(document, false, { cache: false, signal })
+                for (const diagnostic of parsed.errors) this.translations.diagnose(new ParseFailure(diagnostic), uri)
+                const units = parsed.groups.flatMap((group) => group.units)
+                if (!units.length) {
+                  result.skipped++
+                  continue
+                }
+                await this.translations.translate(document, { units }, signal, false, undefined, undefined, undefined, () => 3, true)
                 result.translated++
               } catch (error) {
-                if (controller.signal.aborted) throw error
-                result.failed++
+                if (controller.signal.aborted || (error instanceof Error && error.message.startsWith("background-cache-full-"))) throw error
+                if (signal.aborted) result.skipped++
+                else {
+                  result.failed++
+                  this.translations.diagnose(error, uri)
+                }
               } finally {
-                controller.signal.removeEventListener("abort", abortFile)
-                if (this.activeFile?.uri.toString() === file.uri.toString()) this.activeFile = undefined
+                this.activeFile = undefined
               }
             }
             void vscode.window.showInformationMessage(`后台翻译完成：${result.translated} 个文件，跳过 ${result.skipped} 个，失败 ${result.failed} 个。`)
           } catch (error) {
-            if (!controller.signal.aborted) void vscode.window.showErrorMessage("后台翻译所有文件失败：" + (error instanceof Error ? error.message : String(error)))
+            if (error instanceof Error && error.message === "background-cache-full-memory")
+              void vscode.window.showWarningMessage("后台翻译已停止：内存缓存空间不足。已完成结果保留，请开启持久化缓存后重试。")
+            else if (error instanceof Error && error.message === "background-cache-full-persistent")
+              void vscode.window.showWarningMessage("后台翻译已停止：持久化缓存空间不足或不可用。已完成结果保留，请提高缓存容量或检查缓存状态后重试。")
+            else if (!controller.signal.aborted) void vscode.window.showErrorMessage("后台翻译所有文件失败：" + (error instanceof Error ? error.message : String(error)))
           } finally {
             cancellation.dispose()
           }
@@ -104,7 +100,6 @@ export class BackgroundWorkspace implements vscode.Disposable {
     } finally {
       tokenSource.dispose()
       if (this.run === run) this.run = undefined
-      this.invalidated.clear()
     }
   }
 
@@ -116,92 +111,33 @@ export class BackgroundWorkspace implements vscode.Disposable {
   }
 
   cancelDocument(uri: vscode.Uri, reason = "document-changed"): void {
-    if (!this.run) return
-    this.invalidated.add(uri.toString())
     if (this.activeFile?.uri.toString() === uri.toString()) this.activeFile.controller.abort(reason)
   }
 
   dispose(): void {
     this.disposed = true
     this.activeFile = undefined
-    this.invalidated.clear()
     this.cancel("extension-disposed")
   }
 
-  private async prepareFiles(
-    controller: AbortController,
-    token: vscode.CancellationToken,
-    progress: vscode.Progress<{ message?: string; increment?: number }>,
-    result: { files: number; translated: number; skipped: number; failed: number }
-  ): Promise<readonly BackgroundFile[]> {
-    const uris = await this.findFiles(token)
-    const files: BackgroundFile[] = []
-    for (const uri of uris) {
-      controller.signal.throwIfAborted()
-      result.files++
-      progress.report({ message: `扫描 ${result.files}/${uris.length}：${vscode.workspace.asRelativePath(uri, false)}` })
-      try {
-        const document = await vscode.workspace.openTextDocument(uri)
-        if (!this.documents.supports(document)) {
-          result.skipped++
-          continue
-        }
-        const parsed = await this.documents.parse(document)
-        if (!parsed.groups.some((group) => group.units.length)) {
-          result.skipped++
-          continue
-        }
-        files.push({ uri, document, parsed, version: document.version })
-      } catch (error) {
-        if (controller.signal.aborted) throw error
-        result.failed++
-      }
-    }
-    return files
-  }
-
-  private capacity(files: readonly BackgroundFile[]): boolean {
-    let entries = 0
-    let bytes = 0
-    for (const file of files)
-      for (const group of file.parsed.groups)
-        for (const unit of group.units) {
-          entries++
-          bytes += unit.text.length * 4 + 512
-        }
-    const config = vscode.workspace.getConfiguration("commentTranslatePlus")
-    const persistent = config.get<boolean>("persistentCache", false)
-    if (!persistent && (entries > memoryCacheMaxEntries || bytes > memoryCacheMaxBytes)) {
-      void vscode.window.showWarningMessage("后台翻译已停止：预计译文超过当前内存缓存容量。请开启持久化缓存后重试。")
-      return false
-    }
-    const configuredEntries = config.get<unknown>("persistentCacheMaxEntries", 10000)
-    const configuredSize = config.get<unknown>("persistentCacheMaxSizeMB", 20)
-    const maxEntries = typeof configuredEntries === "number" && Number.isInteger(configuredEntries) && configuredEntries >= 1 ? configuredEntries : 10000
-    const maxBytes = (typeof configuredSize === "number" && Number.isInteger(configuredSize) && configuredSize >= 1 ? configuredSize : 20) * 1024 * 1024
-    if (persistent && (entries > maxEntries || bytes > maxBytes)) {
-      void vscode.window.showWarningMessage("后台翻译已停止：预计译文超过持久化缓存容量。请提高 persistentCacheMaxEntries 或 persistentCacheMaxSizeMB 后重试。")
-      return false
-    }
-    return true
-  }
-
-  private async findFiles(token: vscode.CancellationToken): Promise<readonly vscode.Uri[]> {
-    const files: vscode.Uri[] = []
+  private async *findFiles(token: vscode.CancellationToken): AsyncGenerator<vscode.Uri> {
     const seen = new Set<string>()
     for (const folder of vscode.workspace.workspaceFolders ?? []) {
       const config = vscode.workspace.getConfiguration("commentTranslatePlus", folder.uri)
+      const include = config.get<string[]>("auto.include", ["**/*"])
       const configured = config.get<unknown>("auto.exclude", [])
       const patterns = Array.isArray(configured) ? configured.filter((value): value is string => typeof value === "string" && value.length > 0) : []
-      const excluded = patterns.length ? new vscode.RelativePattern(folder, "{" + patterns.join(",") + "}") : undefined
-      for (const uri of await vscode.workspace.findFiles(new vscode.RelativePattern(folder, "**/*"), excluded, undefined, token)) {
+      const excluded = patterns.length ? new vscode.RelativePattern(folder, "{" + patterns.join(",") + "}") : null
+      for (const pattern of include) {
         if (token.isCancellationRequested) throw Error("background-cancelled")
-        const id = uri.toString()
-        if (seen.has(id)) continue
-        seen.add(id)
-        files.push(uri)
+        for (const uri of await vscode.workspace.findFiles(new vscode.RelativePattern(folder, pattern), excluded, undefined, token)) {
+          if (token.isCancellationRequested) throw Error("background-cancelled")
+          const id = uri.toString()
+          if (seen.has(id)) continue
+          seen.add(id)
+          yield uri
+        }
       }
     }
-    return files
   }
 }

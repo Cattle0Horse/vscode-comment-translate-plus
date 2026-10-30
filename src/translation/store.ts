@@ -7,6 +7,7 @@ import type { TextUnit } from "../model/document.ts"
 import type { CancellationReason } from "../model/diagnostics.ts"
 import type { TranslationItem } from "../model/translation.ts"
 import type { PersistentTranslations } from "../model/translation.ts"
+import { CacheCapacityFailure } from "../model/diagnostics.ts"
 
 interface RequestGroup {
   readonly controller: AbortController
@@ -18,12 +19,13 @@ interface PendingUnit {
   readonly unit: PreparedInput["units"][number]
   readonly group: RequestGroup
   readonly interest: AbortController
-  readonly consumers: Map<symbol, { accept(text: string): void; priority(): number }>
+  readonly consumers: Map<symbol, { accept(text: string): void; priority(): number; readonly background: boolean }>
   readonly promise: Promise<string>
   readonly resolve: (text: string) => void
   readonly reject: (error: unknown) => void
   value?: string
   cacheable: boolean
+  reservation?: "memory" | "persistent"
 }
 
 function unitKey(identity: string, unit: TextUnit): string {
@@ -33,7 +35,7 @@ function unitKey(identity: string, unit: TextUnit): string {
 
 export const memoryCacheMaxEntries = 1024
 
-export const memoryCacheMaxBytes = 1_000_000
+export const memoryCacheMaxCharacters = 1_000_000
 
 export class TranslationStore {
   private readonly cache = new Map<string, string>()
@@ -51,14 +53,16 @@ export class TranslationStore {
       signal: AbortSignal,
       completed: (item: TranslationItem) => void,
       interests: ReadonlyMap<string, AbortSignal>,
-      priority: (id: string) => number
+      priority: (id: string) => number,
+      admit: (ids: readonly string[]) => void
     ) => Promise<readonly TranslationItem[]>,
     signal: AbortSignal,
     force = false,
     completed?: (item: TranslationItem) => void,
     reused?: (event: { readonly kind: "cache" | "pending"; readonly count: number; readonly total: number }) => void,
     interests?: ReadonlyMap<string, AbortSignal>,
-    priority?: (unit: TextUnit) => number
+    priority?: (unit: TextUnit) => number,
+    background = false
   ): Promise<ReadonlyMap<string, string>> {
     signal.throwIfAborted()
     if (force) this.invalidate(identity, [{ units: input.units.filter((unit) => !interests?.get(unit.id)?.aborted) }])
@@ -112,6 +116,7 @@ export class TranslationStore {
     const consumer = Symbol()
     for (const [task, targets] of waiting)
       task.consumers.set(consumer, {
+        background,
         priority: () => {
           let highest = Infinity
           for (const unit of targets) highest = Math.min(highest, priority?.(unit) ?? 2)
@@ -137,7 +142,11 @@ export class TranslationStore {
         const failure = validateTranslation(task.unit, item.text)
         if (failure) throw failure
         if (task.value !== undefined) return
-        if (task.cacheable) this.remember(task.key, item.text, persist)
+        if (task.cacheable) {
+          const allowEviction = [...task.consumers.values()].some((consumer) => !consumer.background)
+          this.remember(task.key, item.text, persist, allowEviction)
+        }
+        this.releaseReservation(task)
         for (const notify of task.consumers.values()) notify.accept(item.text)
         task.value = item.text
         task.resolve(item.text)
@@ -164,12 +173,33 @@ export class TranslationStore {
             units: units.filter((task) => task.value === undefined && !task.interest.signal.aborted).map((task) => task.unit)
           }
           if (!remaining.units.length) return
-          const content = await action(remaining, created.controller.signal, accept, new Map(units.map((task) => [task.unit.id, task.interest.signal])), (id) => {
-            const task = byId.get(id)
-            let highest = Infinity
-            if (task) for (const consumer of task.consumers.values()) highest = Math.min(highest, consumer.priority())
-            return highest === Infinity ? 2 : highest
-          })
+          const content = await action(
+            remaining,
+            created.controller.signal,
+            accept,
+            new Map(units.map((task) => [task.unit.id, task.interest.signal])),
+            (id) => {
+              const task = byId.get(id)
+              let highest = Infinity
+              if (task) for (const consumer of task.consumers.values()) highest = Math.min(highest, consumer.priority())
+              return highest === Infinity ? 2 : highest
+            },
+            (ids) => {
+              const requested = ids.map((id) => byId.get(id)).filter((task): task is PendingUnit => !!task && task.value === undefined && !task.interest.signal.aborted)
+              for (const allowEviction of [true, false]) {
+                const tasks = requested.filter((task) => [...task.consumers.values()].some((consumer) => !consumer.background) === allowEviction)
+                if (!tasks.length) continue
+                const reserved = this.persistent?.reserve(
+                  tasks.map((task) => ({ key: task.key, text: task.unit.text })),
+                  allowEviction
+                )
+                if (reserved === "full") throw new CacheCapacityFailure("persistent")
+                if (reserved !== "reserved" && !allowEviction && !this.memoryFits(tasks.map((task) => ({ key: task.key, size: this.estimate(task) }))))
+                  throw new CacheCapacityFailure("memory")
+                for (const task of tasks) task.reservation = reserved === "reserved" ? "persistent" : "memory"
+              }
+            }
+          )
           created.controller.signal.throwIfAborted()
           if (units.every((task) => task.value !== undefined || task.interest.signal.aborted)) return
           for (const [id, text] of validateTranslations(remaining, content)) accept({ id, text })
@@ -179,7 +209,10 @@ export class TranslationStore {
         })
         .finally(() => {
           this.groups.delete(created)
-          for (const task of units) if (this.pending.get(task.key) === task) this.pending.delete(task.key)
+          for (const task of units) {
+            this.releaseReservation(task)
+            if (this.pending.get(task.key) === task) this.pending.delete(task.key)
+          }
         })
     }
     if (!waiting.size) return Promise.resolve(values)
@@ -189,6 +222,7 @@ export class TranslationStore {
         task.consumers.delete(consumer)
         if (!task.consumers.size && task.value === undefined) {
           task.cacheable = false
+          this.releaseReservation(task)
           task.interest.abort(reason)
           task.reject(task.interest.signal.reason)
         }
@@ -260,7 +294,10 @@ export class TranslationStore {
 
   clear(reason: CancellationReason = "extension-disposed", keepCache = false): void {
     for (const group of this.groups) {
-      for (const task of group.units) task.cacheable = false
+      for (const task of group.units) {
+        task.cacheable = false
+        this.releaseReservation(task)
+      }
       group.controller.abort(reason)
     }
     this.groups.clear()
@@ -300,13 +337,40 @@ export class TranslationStore {
     this.cache.delete(key)
   }
 
-  private remember(key: string, text: string, persist = true): void {
-    if (persist) this.persistent?.set(key, text)
+  private releaseReservation(task: PendingUnit): void {
+    if (task.reservation === "persistent") this.persistent?.releaseReservation(task.key)
+    task.reservation = undefined
+  }
+
+  private estimate(task: PendingUnit): number {
+    return task.key.length + task.unit.text.length * 2 + 256
+  }
+
+  private memoryFits(additions: readonly { readonly key: string; readonly size: number }[]): boolean {
+    const sizes = new Map(additions.map(({ key, size }) => [key, size]))
+    for (const task of this.pending.values()) if (task.reservation === "memory" && task.value === undefined && !sizes.has(task.key)) sizes.set(task.key, this.estimate(task))
+    let entries = this.cache.size
+    let size = this.size
+    for (const [key, next] of sizes) {
+      const previous = this.cache.get(key)
+      if (previous === undefined) entries++
+      size += next - (previous === undefined ? 0 : key.length + previous.length)
+    }
+    return entries <= memoryCacheMaxEntries && size <= memoryCacheMaxCharacters
+  }
+
+  private remember(key: string, text: string, persist = true, allowEviction = true): void {
+    const stored = persist ? this.persistent?.set(key, text, allowEviction) : undefined
+    if (!allowEviction && stored === false) throw new CacheCapacityFailure("persistent")
     const size = key.length + text.length
-    if (size > 1_000_000) return
+    if (!allowEviction && !this.memoryFits([{ key, size }])) {
+      if (persist && stored !== true) throw new CacheCapacityFailure("memory")
+      return
+    }
+    if (size > memoryCacheMaxCharacters) return
     this.remove(key)
     this.cache.set(key, text)
     this.size += size
-    while (this.cache.size > memoryCacheMaxEntries || this.size > memoryCacheMaxBytes) this.remove(this.cache.keys().next().value!)
+    while (this.cache.size > memoryCacheMaxEntries || this.size > memoryCacheMaxCharacters) this.remove(this.cache.keys().next().value!)
   }
 }

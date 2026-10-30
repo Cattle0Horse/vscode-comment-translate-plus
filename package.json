@@ -745,7 +745,7 @@
           "minimum": 0,
           "maximum": 60000,
           "scope": "window",
-          "description": "阅读模式或翻译预览中，停止编辑后等待多久再翻译，单位为毫秒。增大可减少连续输入时的重复请求，0 表示不等待；等待期间悬停也不会提前发起翻译。修改从下一次编辑生效。"
+          "description": "翻译模式或翻译预览中，停止编辑后等待多久再翻译，单位为毫秒。增大可减少连续输入时的重复请求，0 表示不等待；等待期间悬停也不会提前发起翻译。修改从下一次编辑生效。"
         },
         "commentTranslatePlus.requestScheduling.slowStart": {
           "type": "object",
@@ -1135,7 +1135,7 @@
           ],
           "default": "contrast",
           "scope": "window",
-          "description": "阅读模式下译文的显示方式：contrast 在完整原文下方显示译文，inplace 在原文位置显示译文，编辑对应内容时恢复原文。两种方式均不修改源文件。",
+          "description": "翻译模式下译文的显示方式：contrast 在完整原文下方显示译文，inplace 在原文位置显示译文，编辑对应内容时恢复原文。两种方式均不修改源文件。",
           "enumDescriptions": [
             "对照：在完整原文下方显示译文",
             "占位：在原文位置显示译文，编辑时恢复原文"
@@ -1145,19 +1145,19 @@
           "type": "boolean",
           "default": true,
           "scope": "window",
-          "description": "开启当前文档的阅读模式后，翻译代码注释。此选项只控制阅读模式中的内容，悬停翻译由 hover.comments 单独控制。"
+          "description": "开启当前文档的翻译模式后，翻译代码注释。此选项只控制翻译模式中的内容，悬停翻译由 hover.comments 单独控制。"
         },
         "commentTranslatePlus.browse.strings": {
           "type": "boolean",
           "default": true,
           "scope": "window",
-          "description": "开启当前文档的阅读模式后，翻译代码中引号内的字符串，保留引号、转义和模板中的变量。悬停字符串是否翻译由 hover.strings 单独控制。"
+          "description": "开启当前文档的翻译模式后，翻译代码中引号内的字符串，保留引号、转义和模板中的变量。悬停字符串是否翻译由 hover.strings 单独控制。"
         },
         "commentTranslatePlus.hover.enabled": {
           "type": "boolean",
           "default": true,
           "scope": "window",
-          "description": "鼠标停留在内容上时显示译文，无需先开启阅读模式。关闭后停止悬停翻译；下方各类悬停选项仅在此开关开启时生效。"
+          "description": "鼠标停留在内容上时显示译文，无需先开启翻译模式。关闭后停止悬停翻译；下方各类悬停选项仅在此开关开启时生效。"
         },
         "commentTranslatePlus.hover.comments": {
           "type": "boolean",
@@ -1193,7 +1193,7 @@
           "type": "boolean",
           "default": false,
           "scope": "window",
-          "description": "打开受支持的工作区文件时，自动开启阅读模式并翻译可见内容。翻译范围由 auto.include 和 auto.exclude 决定；默认关闭，需要手动开启阅读模式。"
+          "description": "打开受支持的工作区文件时，自动开启翻译模式并翻译可见内容。翻译范围由 auto.include 和 auto.exclude 决定；默认关闭，需要手动开启翻译模式。"
         },
         "commentTranslatePlus.auto.include": {
           "type": "array",
@@ -1205,7 +1205,7 @@
             "**/*"
           ],
           "scope": "resource",
-          "description": "选择哪些工作区文件自动开启阅读模式，需要开启 auto.enabled。使用相对工作区根目录的通配路径，并以 / 分隔，例如 **/*.md 匹配所有 Markdown 文件、docs/** 匹配 docs 目录内文件。任意一条匹配即可；默认 **/* 包含全部文件，空列表不包含任何文件，auto.exclude 优先。"
+          "description": "选择自动翻译和后台翻译所有文件的工作区范围；自动翻译需要开启 auto.enabled，后台命令可独立执行。使用相对工作区根目录的通配路径，并以 / 分隔，例如 **/*.md 匹配所有 Markdown 文件、docs/** 匹配 docs 目录内文件。任意一条匹配即可；默认 **/* 包含全部文件，空列表不包含任何文件，auto.exclude 优先。"
         },
         "commentTranslatePlus.auto.exclude": {
           "type": "array",
@@ -1229,7 +1229,7 @@
             "**/coverage/**"
           ],
           "scope": "resource",
-          "description": "选择哪些工作区文件不自动开启阅读模式，优先于 auto.include；后台翻译所有文件也遵循此列表。默认排除 .git、.venv、node_modules、Python 缓存和常见构建输出。使用相对工作区根目录的通配路径，以 / 分隔；手动翻译仍可使用。"
+          "description": "选择哪些工作区文件不自动开启翻译模式，优先于 auto.include；后台翻译所有文件也遵循此列表。默认排除 .git、.venv、node_modules、Python 缓存和常见构建输出。使用相对工作区根目录的通配路径，以 / 分隔；手动翻译仍可使用。"
         },
         "commentTranslatePlus.preserveTermsWriteFile": {
           "type": "string",
@@ -1245,7 +1245,7 @@
           },
           "default": [],
           "scope": "resource",
-          "description": "阅读模式和翻译预览使用的保留词文件列表，填写 JSON/JSONC 文件路径或 HTTPS 地址，多个文件会合并。未设置时使用内置词表，自定义列表替换内置词表，空列表禁用词表。仅整段待译内容匹配时跳过翻译，句子中出现词条不会跳过整句；悬停和“翻译并替换”不使用词表。支持工作区相对路径、绝对路径、网络共享路径、~/ 和文件系统 URI；HTTP 仅支持本机回环地址。"
+          "description": "翻译模式和翻译预览使用的保留词文件列表，填写 JSON/JSONC 文件路径或 HTTPS 地址，多个文件会合并。未设置时使用内置词表，自定义列表替换内置词表，空列表禁用词表。仅整段待译内容匹配时跳过翻译，句子中出现词条不会跳过整句；悬停和“翻译并替换”不使用词表。支持工作区相对路径、绝对路径、网络共享路径、~/ 和文件系统 URI；HTTP 仅支持本机回环地址。"
         },
         "commentTranslatePlus.minimumMarkerCharacters": {
           "type": "integer",

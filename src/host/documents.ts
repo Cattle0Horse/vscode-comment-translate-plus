@@ -70,29 +70,40 @@ export class DocumentReader implements vscode.Disposable {
     }
   }
 
-  async parse(document: vscode.TextDocument, allCode = false): Promise<ParsedDocument> {
-    const id = document.uri.toString()
-    const version = document.version
-    let existing = this.parsed.get(id)
-    if (existing?.version !== version) {
+  async parse(document: vscode.TextDocument, allCode = false, options?: { readonly cache: boolean; readonly signal: AbortSignal }): Promise<ParsedDocument> {
+    let parsed: ParsedDocument
+    if (options?.cache === false) {
+      const version = document.version
       const checkCurrent = () => {
-        if (document.isClosed || document.version !== version || this.parsed.get(id)?.promise !== promise) throw Error("document-stale")
+        options.signal.throwIfAborted()
+        if (document.isClosed || document.version !== version) throw Error("document-stale")
       }
-      const tokenization = { previous: this.tokenized.get(id) ?? new Map<string, CodeTokenizer>(), next: new Map<string, CodeTokenizer>() }
-      const source = document.getText()
-      const language = isMarkdownDocument(document) ? "markdown" : document.languageId
-      const promise = Promise.resolve()
-        .then(() => this.parseSource(source, language, checkCurrent, tokenization))
-        .then((parsed) => {
-          checkCurrent()
-          this.tokenized.set(id, tokenization.next)
-          return parsed
-        })
-      existing = { version, promise }
-      this.parsed.set(id, existing)
+      parsed = await this.parseSource(document.getText(), isMarkdownDocument(document) ? "markdown" : document.languageId, checkCurrent)
+      checkCurrent()
+    } else {
+      const id = document.uri.toString()
+      const version = document.version
+      let existing = this.parsed.get(id)
+      if (existing?.version !== version) {
+        const checkCurrent = () => {
+          if (document.isClosed || document.version !== version || this.parsed.get(id)?.promise !== promise) throw Error("document-stale")
+        }
+        const tokenization = { previous: this.tokenized.get(id) ?? new Map<string, CodeTokenizer>(), next: new Map<string, CodeTokenizer>() }
+        const source = document.getText()
+        const language = isMarkdownDocument(document) ? "markdown" : document.languageId
+        const promise = Promise.resolve()
+          .then(() => this.parseSource(source, language, checkCurrent, tokenization))
+          .then((parsed) => {
+            checkCurrent()
+            this.tokenized.set(id, tokenization.next)
+            return parsed
+          })
+        existing = { version, promise }
+        this.parsed.set(id, existing)
+      }
+      parsed = await existing.promise
+      if (this.parsed.get(id) !== existing || document.isClosed || document.version !== version) throw Error("document-stale")
     }
-    const parsed = await existing.promise
-    if (this.parsed.get(id) !== existing || document.isClosed || document.version !== version) throw Error("document-stale")
     if (allCode) return parsed
     const config = vscode.workspace.getConfiguration("commentTranslatePlus", document.uri)
     return {

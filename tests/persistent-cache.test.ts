@@ -13,7 +13,7 @@ import { serviceIdentity } from "../src/translation/settings.ts"
 import { parseMarkdown } from "../src/documents/markdown.ts"
 import { parsePreserveTerms } from "../src/documents/terms.ts"
 import { defaultLanguageNames, defaultSystemPrompt, defaultUserPrompt } from "../src/translation/providers/prompts.ts"
-import { inputOf, limits } from "./support/fixtures.ts"
+import { chatFixture, inputOf, limits } from "./support/fixtures.ts"
 
 const options: PersistentCacheOptions = { enabled: true, maxEntries: 10000, maxBytes: 20 * 1024 * 1024 }
 
@@ -448,4 +448,109 @@ test("result identity ignores unrelated settings while preserving prompts, langu
   assert.equal([...(await run(["Widget"])).values()][0], "Widget")
   await run([])
   assert.equal(calls, 2)
+})
+
+test("background disk admission counts buffered writes and inflight reservations without evicting records", async (t) => {
+  const disk = storage(t)
+  const cache = await disk.open({ ...options, maxEntries: 2, maxBytes: 1024 })
+  cache.set("existing", "saved")
+  assert.equal(cache.snapshot().pendingChanges, 1)
+  assert.equal(cache.reserve([{ key: "foreground", text: "pending" }], true), "reserved")
+  assert.equal(cache.reserve([{ key: "background", text: "next" }], false), "full")
+  cache.releaseReservation("foreground")
+  assert.equal(cache.reserve([{ key: "background", text: "next" }], false), "reserved")
+  assert.equal(cache.set("background", "x".repeat(1025), false), false)
+  assert.equal(await cache.get("existing"), "saved")
+  assert.equal(await cache.get("background"), undefined)
+  assert.equal(cache.reserve([{ key: "background", text: "next" }], false), "reserved")
+  assert.equal(cache.set("background", "stored", false), true)
+  assert.equal(cache.reserve([{ key: "third", text: "next" }], false), "full")
+  assert.equal(await cache.get("existing"), "saved")
+  assert.equal(await cache.get("background"), "stored")
+})
+
+test("disk hits need no background capacity while misses are rejected before provider work", async (t) => {
+  const signal = () => new AbortController().signal
+  const disk = storage(t)
+  const cache = await disk.open({ ...options, maxEntries: 1 })
+  const first = inputOf(parseMarkdown("First paragraph."))
+  const action: Parameters<TranslationStore["translate"]>[2] = async (input, _signal, _accepted, _interests, _priority, admit) => {
+    admit(input.units.map((unit) => unit.id))
+    return input.units.map((unit) => ({ id: unit.id, text: unit.text }))
+  }
+  await new TranslationStore(cache).translate("background", first, action, signal())
+  await cache.flush()
+  const store = new TranslationStore(cache)
+  t.after(() => store.clear())
+  const run = (input: typeof first, callback = action) => store.translate("background", input, callback, signal(), false, undefined, undefined, undefined, () => 3, true)
+  await run(first, () => assert.fail("Disk hit issued a provider request."))
+  await assert.rejects(run(inputOf(parseMarkdown("Second paragraph."))), /background-cache-full-persistent/)
+  await new TranslationStore(cache).translate("background", first, () => assert.fail("A background miss evicted the previous disk result."), signal())
+})
+
+test("background writes recheck capacity atomically after another connection fills reserved space", async (t) => {
+  const disk = storage(t)
+  const cache = await disk.open({ ...options, maxEntries: 1 })
+  const other = await disk.open({ ...options, maxEntries: 1 })
+  assert.equal(cache.reserve([{ key: "background", text: "pending" }], false), "reserved")
+  other.set("foreground", "existing")
+  await other.flush()
+  assert.equal(cache.set("background", "result", false), false)
+  assert.equal(await other.get("foreground"), "existing")
+  assert.equal(await other.get("background"), undefined)
+})
+
+test("real batch admission stops HTTP at disk capacity and reuses completed units on a later background run", async (t) => {
+  const disk = storage(t)
+  const cache = await disk.open({ ...options, maxEntries: 3 })
+  const fixture = await chatFixture(t, (_body, items) => items.join("\n%%\n"))
+  t.after(() => fixture.gate.dispose())
+  const settings = { ...fixture.settings, targetLanguage: "en", maxItemsPerRequest: 1, initialItemsPerRequest: 1 }
+  const input = prepareInput(settings, inputOf(parseMarkdown(Array.from({ length: 8 }, (_, index) => "Original paragraph " + index + ".").join("\n\n"))))
+  const store = new TranslationStore(cache)
+  t.after(() => store.clear())
+  const action: Parameters<TranslationStore["translate"]>[2] = (batch, signal, accepted, interests, priority, admit) =>
+    fixture.service.request(settings, batch, signal, fixture.gate, accepted, undefined, interests, priority, admit)
+  const run = () => store.translate("http-background", input, action, new AbortController().signal, false, undefined, undefined, undefined, () => 3, true)
+  await assert.rejects(run(), /background-cache-full-persistent/)
+  assert.equal(fixture.seen.length, 3)
+  assert.equal(cache.snapshot().entries, 3)
+  await assert.rejects(run(), /background-cache-full-persistent/)
+  assert.equal(fixture.seen.length, 3, "The second run repeated HTTP for already cached units.")
+})
+
+test("a rejected background batch lets previously reserved HTTP finish and retain its result", async (t) => {
+  const disk = storage(t)
+  const cache = await disk.open({ ...options, maxEntries: 1 })
+  let release!: () => void
+  const held = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  t.after(() => release())
+  const fixture = await chatFixture(t, async (_body, items) => {
+    await held
+    return items.join("\n%%\n")
+  })
+  fixture.gate.configure(100, 2)
+  t.after(() => fixture.gate.dispose())
+  const settings = { ...fixture.settings, targetLanguage: "en", maxItemsPerRequest: 1, initialItemsPerRequest: 1, slowStart: false }
+  const input = prepareInput(settings, inputOf(parseMarkdown("First paragraph.\n\nLater paragraph.")))
+  const store = new TranslationStore(cache)
+  t.after(() => store.clear())
+  const action: Parameters<TranslationStore["translate"]>[2] = (batch, signal, accepted, interests, priority, admit) =>
+    fixture.service.request(settings, batch, signal, fixture.gate, accepted, undefined, interests, priority, (ids) => {
+      try {
+        admit(ids)
+      } catch (error) {
+        release()
+        throw error
+      }
+    })
+  await assert.rejects(
+    store.translate("reserved-http", input, action, new AbortController().signal, false, undefined, undefined, undefined, () => 3, true),
+    /background-cache-full-persistent/
+  )
+  assert.equal(fixture.seen.length, 1)
+  assert.equal(cache.snapshot().entries, 1, "Capacity refusal cancelled a previously admitted request.")
+  await store.translate("reserved-http", { units: [input.units[0]] }, () => assert.fail("An admitted result was discarded."), new AbortController().signal)
 })

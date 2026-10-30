@@ -166,7 +166,8 @@ export class TranslationRuntime implements vscode.Disposable {
     completed?: (item: TranslationItem) => void,
     settings?: TranslationSettings,
     interests?: ReadonlyMap<string, AbortSignal>,
-    priority?: (unit: TextUnit) => number
+    priority?: (unit: TextUnit) => number,
+    background = false
   ): Promise<ReadonlyMap<string, string>> {
     if (this.disposed) throw Error("extension-disposed")
     settings ??= await this.settings(document.uri)
@@ -186,7 +187,7 @@ export class TranslationRuntime implements vscode.Disposable {
     return this.store.translate(
       settings.identity,
       { units },
-      (canonical, requestSignal, accepted, interests, priority) =>
+      (canonical, requestSignal, accepted, interests, priority, admit) =>
         this.service.request(
           settings,
           canonical,
@@ -198,7 +199,8 @@ export class TranslationRuntime implements vscode.Disposable {
             emit: (event) => this.logTranslation(event, settings, document)
           },
           interests,
-          priority
+          priority,
+          admit
         ),
       signal,
       force,
@@ -209,7 +211,8 @@ export class TranslationRuntime implements vscode.Disposable {
         ((unit: TextUnit) => {
           if (this.activeDocument !== document) return 2
           return this.visibleRanges.some((range) => unit.start <= range.end && unit.end >= range.start) ? 0 : 1
-        })
+        }),
+      background
     )
   }
 
