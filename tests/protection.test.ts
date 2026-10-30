@@ -734,6 +734,33 @@ test("only long copy-only fragments are masked across indentation and repeated t
   }
 })
 
+test("short Markdown escapes and compact technical labels remain model-owned", () => {
+  for (const [source, translated] of [
+    ["点击标记\\&\\#34;已取消\\&\\#34;。", "单击标记“已取消”。"],
+    ["保存到 123@example\\.com。", "保存至 123@example.com。"],
+    ["其中右侧邮件预览的交互和 6\\-1 保持一致。", "右侧预览的交互和 6-1 保持一致。"]
+  ]) {
+    const unit = parseMarkdown(source).groups[0].units[0]
+    const prepared = prepareTranslation(unit, 32)
+    assert.equal(prepared.hasMarkers, false, source)
+    assert.equal(prepared.restore(translated), translated)
+    assert.equal(validateTranslation(unit, translated), undefined)
+  }
+  const range = "Transitions are smooth (150-300ms)"
+  const rangeUnit = parseMarkdown(range).groups[0].units[0]
+  const prepared = prepareTranslation(rangeUnit, 32)
+  assert.equal(prepared.hasMarkers, false)
+  assert.equal(prepared.restore("过渡效果流畅 (150-300毫秒)"), "过渡效果流畅 (150-300毫秒)")
+  assert.equal(validateTranslation(rangeUnit, "过渡效果流畅 (150-300毫秒)"), undefined)
+
+  const identifier = "ADR 0003: Eval Module Ownership and Run Upload Seam"
+  const identifierUnit = parseMarkdown(identifier).groups[0].units[0]
+  const identifierPrepared = prepareTranslation(identifierUnit, 32)
+  assert.equal(identifierPrepared.hasMarkers, false)
+  assert.equal(identifierPrepared.restore("ADR 0003：评估模块的所有权与运行上传流程的整合"), "ADR 0003：评估模块的所有权与运行上传流程的整合")
+  assert.equal(validateTranslation(identifierUnit, "ADR 0003：评估模块的所有权与运行上传流程的整合"), undefined)
+})
+
 test("placeholder namespaces avoid literal source, preserved terms and reference markers and restore them literally", () => {
   const term = "<CTP1_0> $& ${targetLang}"
   const source = "Keep <CTP0> and " + term + " beside `pages_abcdefghijklmnopqrstuvwxyz_0123456789`."

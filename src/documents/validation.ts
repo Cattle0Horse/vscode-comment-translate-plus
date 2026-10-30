@@ -193,6 +193,7 @@ function validateProtectedFragments(expected: ReturnType<typeof fragmentContents
         { code: "translation-structure-invalid", difference: { reason: "引用前缀或嵌套与原文不一致。", ...details } }
       )
     case "Escape":
+      if (/^\\[&.#_+-]$/u.test(value)) return
       return retry(
         {
           reason: "Markdown escape sequences no longer match the source.",
@@ -280,8 +281,12 @@ function markdownShape(node: MarkdownNode, source: string, embedded = false, lin
         .filter((child) => ["CodeMark", "CodeInfo"].includes(child.name))
         .map((child) => [child.name, source.slice(child.from, child.to)])
     ]
-  if (node.name === "URL") return [node.name, linkTargetText(node, source)]
-  if (["FencedCode", "CodeBlock", "HTMLTag", "HTMLBlock", "LinkLabel", "ListMark", "TaskMarker", "Escape"].includes(node.name)) return [node.name, source.slice(node.from, node.to)]
+  if (node.name === "URL") {
+    const target = linkTargetText(node, source)
+    return /^[A-Za-z\d.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z\d](?:[A-Za-z\d-]*[A-Za-z\d])?(?:\.[A-Za-z\d](?:[A-Za-z\d-]*[A-Za-z\d])?)+$/u.test(target) ? ["Text", []] : [node.name, target]
+  }
+  if (["FencedCode", "CodeBlock", "HTMLTag", "HTMLBlock", "LinkLabel", "ListMark", "TaskMarker"].includes(node.name)) return [node.name, source.slice(node.from, node.to)]
+  if (node.name === "Escape") return /^\\[&.#_+-]$/u.test(source.slice(node.from, node.to)) ? ["Text", []] : [node.name, source.slice(node.from, node.to)]
   const content: MarkdownNode[] = []
 
   function append(child: MarkdownNode): void {
@@ -289,13 +294,21 @@ function markdownShape(node: MarkdownNode, source: string, embedded = false, lin
       for (const nested of children(child)) if (nested.name !== "LinkMark") append(nested)
       return
     }
+    if (child.name === "Escape" && /^\\[&.#_+-]$/u.test(source.slice(child.from, child.to))) return
+    if (child.name === "URL" && source.slice(child.from, child.to).includes("@") && !/^https?:/iu.test(source.slice(child.from, child.to))) return
     // Emphasis is model-owned; compare its contents without losing nested links or other syntax.
     if (["StrongEmphasis", "Emphasis"].includes(child.name)) for (const nested of children(child)) append(nested)
     else if (!["HardBreak", "QuoteMark", "InlineCode", "EmphasisMark"].includes(child.name)) content.push(child)
   }
 
   for (const child of children(node)) append(child)
-  const shapes = content.map((child) => markdownShape(child, source, embedded, linkLabels))
+  const shapes: unknown[] = []
+  for (const child of content) {
+    const shape = markdownShape(child, source, embedded, linkLabels)
+    const previous = shapes.at(-1)
+    if (Array.isArray(shape) && shape[0] === "Text" && Array.isArray(previous) && previous[0] === "Text") continue
+    shapes.push(shape)
+  }
   const inline = content.length > 1 && content.every((child) => ["Strikethrough", "Link", "Image"].includes(child.name))
   return [node.name, inline ? shapes.map((shape) => JSON.stringify(shape)).sort() : shapes]
 }

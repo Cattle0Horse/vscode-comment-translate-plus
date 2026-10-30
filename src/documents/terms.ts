@@ -85,8 +85,10 @@ export function prepareTranslation(
     const marker = prefix + markers.size + ">"
     // Native syntax is easier to read and repeat than a marker. Mask only long
     // indivisible fragments when the body saves at least three quarters of its size.
+    const flexibleEscape = range.kind === "Escape" && /^\\[&.#_+-]$/u.test(value)
+    const flexibleTechnical = range.kind === "Technical" && (/^\d{3,}:$/u.test(value) || /^\d+-\d+[A-Za-z]+$/u.test(value) || /\.patch$/iu.test(value))
     if (range.side || range.kind === undefined || range.kind === "LineBoundary" || value.length < minimumMarkerCharacters || marker.length * 4 > value.length) {
-      if (!range.side && range.kind !== "InlineCode") {
+      if (!range.side && range.kind !== "InlineCode" && !flexibleTechnical && !flexibleEscape) {
         const previous = nativeLiterals.get(value)
         nativeLiterals.set(value, { count: (previous?.count ?? 0) + 1, technical: range.kind === "Technical" && (previous?.technical ?? true) })
       }
