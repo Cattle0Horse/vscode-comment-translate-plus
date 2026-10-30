@@ -99,7 +99,7 @@
       },
       {
         "command": "commentTranslatePlus.cancel",
-        "title": "取消当前文件翻译",
+        "title": "取消进行中的翻译",
         "category": "Comment Translate Plus",
         "icon": "$(debug-stop)"
       },
@@ -108,6 +108,12 @@
         "title": "翻译全文",
         "category": "Comment Translate Plus",
         "enablement": "commentTranslatePlus.supported"
+      },
+      {
+        "command": "commentTranslatePlus.translateWorkspace",
+        "title": "后台翻译所有文件",
+        "category": "Comment Translate Plus",
+        "icon": "$(cloud-download)"
       },
       {
         "command": "commentTranslatePlus.retranslate",
@@ -1207,9 +1213,23 @@
             "type": "string",
             "minLength": 1
           },
-          "default": [],
+          "default": [
+            "**/.git/**",
+            "**/.venv/**",
+            "**/node_modules/**",
+            "**/.ruff_cache/**",
+            "**/.pytest_cache/**",
+            "**/__pycache__/**",
+            "**/.mypy_cache/**",
+            "**/.tox/**",
+            "**/.nox/**",
+            "**/dist/**",
+            "**/build/**",
+            "**/out/**",
+            "**/coverage/**"
+          ],
           "scope": "resource",
-          "description": "选择哪些工作区文件不自动开启阅读模式，优先于 auto.include。例如 **/node_modules/** 排除依赖目录、**/*.min.js 排除压缩脚本。使用相对工作区根目录的通配路径，以 / 分隔；空列表不排除文件，手动翻译仍可使用。"
+          "description": "选择哪些工作区文件不自动开启阅读模式，优先于 auto.include；后台翻译所有文件也遵循此列表。默认排除 .git、.venv、node_modules、Python 缓存和常见构建输出。使用相对工作区根目录的通配路径，以 / 分隔；手动翻译仍可使用。"
         },
         "commentTranslatePlus.preserveTermsWriteFile": {
           "type": "string",
@@ -1350,6 +1370,7 @@
             "enum": [
               "toggleDocumentBrowseMode",
               "translateAll",
+              "translateWorkspace",
               "retranslateBlock",
               "cancel",
               "retranslate",
@@ -1372,6 +1393,7 @@
             "enumDescriptions": [
               "切换当前文档注释浏览模式",
               "翻译全文",
+              "后台翻译所有文件",
               "重新翻译当前块",
               "取消进行中的翻译；已取消时继续翻译",
               "重新翻译当前文件",
@@ -1396,6 +1418,7 @@
           "default": [
             "toggleDocumentBrowseMode",
             "translateAll",
+            "translateWorkspace",
             "retranslateBlock",
             "cancel",
             "retranslate",
@@ -1460,6 +1483,10 @@
         {
           "command": "commentTranslatePlus.translateAll",
           "group": "browse@1"
+        },
+        {
+          "command": "commentTranslatePlus.translateWorkspace",
+          "group": "browse@1.1"
         },
         {
           "command": "commentTranslatePlus.toggleDocumentBrowseMode",

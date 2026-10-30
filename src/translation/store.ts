@@ -31,6 +31,10 @@ function unitKey(identity: string, unit: TextUnit): string {
   return JSON.stringify([identity, unitContentKey(unit), references, "preserved" in unit && unit.preserved === true])
 }
 
+export const memoryCacheMaxEntries = 1024
+
+export const memoryCacheMaxBytes = 1_000_000
+
 export class TranslationStore {
   private readonly cache = new Map<string, string>()
   private readonly pending = new Map<string, PendingUnit>()
@@ -109,9 +113,9 @@ export class TranslationStore {
     for (const [task, targets] of waiting)
       task.consumers.set(consumer, {
         priority: () => {
-          let highest = 2
+          let highest = Infinity
           for (const unit of targets) highest = Math.min(highest, priority?.(unit) ?? 2)
-          return highest
+          return highest === Infinity ? 2 : highest
         },
         accept: (text) => {
           if (signal.aborted) return
@@ -162,9 +166,9 @@ export class TranslationStore {
           if (!remaining.units.length) return
           const content = await action(remaining, created.controller.signal, accept, new Map(units.map((task) => [task.unit.id, task.interest.signal])), (id) => {
             const task = byId.get(id)
-            let highest = 2
+            let highest = Infinity
             if (task) for (const consumer of task.consumers.values()) highest = Math.min(highest, consumer.priority())
-            return highest
+            return highest === Infinity ? 2 : highest
           })
           created.controller.signal.throwIfAborted()
           if (units.every((task) => task.value !== undefined || task.interest.signal.aborted)) return
@@ -303,6 +307,6 @@ export class TranslationStore {
     this.remove(key)
     this.cache.set(key, text)
     this.size += size
-    while (this.cache.size > 1024 || this.size > 1_000_000) this.remove(this.cache.keys().next().value!)
+    while (this.cache.size > memoryCacheMaxEntries || this.size > memoryCacheMaxBytes) this.remove(this.cache.keys().next().value!)
   }
 }

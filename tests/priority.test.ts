@@ -244,3 +244,53 @@ test("Google and Bing prioritize a new viewport inside queued batches and beyond
     assert.deepEqual(seen, [input.units[0].text, input.units[2].text, input.units[1].text])
   }
 })
+
+test("workspace prewarming waits behind ordinary background consumers through the shared store", async (t) => {
+  const gate = new RequestGate(100, 1)
+  const store = new TranslationStore()
+  let release!: () => void
+  t.after(() => {
+    release?.()
+    store.clear()
+    gate.dispose()
+  })
+  const signal = new AbortController().signal
+  const held = gate.run(
+    () =>
+      new Promise<void>((resolve) => {
+        release = resolve
+      }),
+    signal
+  )
+  const order: string[] = []
+  const action: Parameters<TranslationStore["translate"]>[2] = (input, requestSignal, _accepted, _interests, priority) =>
+    gate.run(
+      async () => {
+        order.push(input.units[0].text)
+        return input.units.map((unit) => ({ id: unit.id, text: unit.text }))
+      },
+      requestSignal,
+      () => priority(input.units[0].id)
+    )
+  const input = paragraphs(2)
+  const prewarming = store.translate("shared", { units: [input.units[0]] }, action, signal, false, undefined, undefined, undefined, () => 3)
+  const ordinary = store.translate("shared", { units: [input.units[1]] }, action, signal, false, undefined, undefined, undefined, () => 2)
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  release()
+  await Promise.all([held, prewarming, ordinary])
+  assert.deepEqual(order, [input.units[1].text, input.units[0].text])
+})
+
+test("workspace priority reaches provider requests without dropping pending units", async (t) => {
+  const fixture = await chatFixture(t, (_body, items) => items.join("\n%%\n"))
+  const gate = new RequestGate(100, 1)
+  t.after(() => gate.dispose())
+  const input = paragraphs(2)
+  const settings = { ...fixture.settings, targetLanguage: "en", maxItemsPerRequest: 1 }
+  const result = await fixture.service.request(settings, prepareInput(settings, input), new AbortController().signal, gate, undefined, undefined, undefined, () => 3)
+  assert.equal(result.length, input.units.length)
+  assert.deepEqual(
+    fixture.seen.flatMap(({ items }) => items),
+    input.units.map((unit) => unit.text)
+  )
+})

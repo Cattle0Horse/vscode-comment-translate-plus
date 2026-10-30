@@ -11,6 +11,7 @@ import type { SourceEdit } from "../documents/edits.ts"
 import { requestPolicyConfigurationKeys } from "../translation/settings.ts"
 import { TranslationFailure } from "../model/diagnostics.ts"
 import { addPreserveTerm } from "./addPreserveTerm.ts"
+import { BackgroundWorkspace } from "../features/background.ts"
 
 interface PendingEdit {
   readonly timer: ReturnType<typeof setTimeout>
@@ -26,6 +27,7 @@ export class Application implements vscode.Disposable {
   readonly hover: TranslationHover
   readonly preview: MarkdownPreview
   readonly replacement: SourceReplacementAction
+  readonly background: BackgroundWorkspace
   private readonly controls: Controls
   private readonly subscriptions: vscode.Disposable[]
   private readonly timers = new Map<string, PendingEdit>()
@@ -49,9 +51,10 @@ export class Application implements vscode.Disposable {
       }
     )
     this.replacement = new SourceReplacementAction(this.documents, this.translations)
+    this.background = new BackgroundWorkspace(this.documents, this.translations)
     this.hover = new TranslationHover(this.documents, this.translations, (uri) => this.timers.has(uri.toString()))
     this.preview = new MarkdownPreview(this.documents, this.translations, (document) => this.retranslate(document))
-    this.controls = new Controls(this.documents, this.translations, this.browse, this.hover, this.preview, this.replacement, () => this.retranslate())
+    this.controls = new Controls(this.documents, this.translations, this.browse, this.background, this.hover, this.preview, this.replacement, () => this.retranslate())
     const refresh = () => {
       this.translations.refreshPriorities()
       this.browse.refreshVisible()
@@ -77,16 +80,23 @@ export class Application implements vscode.Disposable {
         this.browse.refreshVisible()
       }),
       vscode.workspace.onDidCloseTextDocument((document) => {
+        this.background.cancelDocument(document.uri, "document-closed")
         this.browse.stop(document.uri, false, "document-closed")
         this.browse.forget(document.uri)
         this.documents.invalidate(document.uri)
         this.preview.close(document.uri)
       }),
       vscode.workspace.onDidChangeTextDocument((event) => {
-        if (event.contentChanges.length) this.edited(event)
+        if (event.contentChanges.length) {
+          this.background.cancelDocument(event.document.uri, "document-changed")
+          this.edited(event)
+        }
       }),
       vscode.workspace.onDidChangeConfiguration((event) => {
-        if (event.affectsConfiguration("commentTranslatePlus")) void this.reconfigure(event)
+        if (event.affectsConfiguration("commentTranslatePlus")) {
+          this.background.cancel("configuration-changed")
+          void this.reconfigure(event)
+        }
       })
     ]
     refresh()
@@ -193,6 +203,7 @@ export class Application implements vscode.Disposable {
     this.browse.dispose()
     this.hover.dispose()
     this.replacement.dispose()
+    this.background.dispose()
     this.preview.dispose()
     this.documents.dispose()
     await this.translations.dispose()

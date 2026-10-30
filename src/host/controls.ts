@@ -6,6 +6,7 @@ import { describeError } from "../model/diagnostics.ts"
 import type { DocumentReader } from "./documents.ts"
 import type { TranslationRuntime } from "./translations.ts"
 import type { BrowseWorkspace } from "../features/browse/workspace.ts"
+import type { BackgroundWorkspace } from "../features/background.ts"
 import type { SourceReplacementAction } from "../features/replacement.ts"
 import { emptyPreserveTerms } from "../documents/terms.ts"
 
@@ -17,6 +18,7 @@ export class Controls implements vscode.Disposable {
     private readonly documents: DocumentReader,
     private readonly translations: TranslationRuntime,
     private readonly browse: BrowseWorkspace,
+    private readonly background: BackgroundWorkspace,
     private readonly hover: TranslationHover,
     private readonly preview: MarkdownPreview,
     private readonly replacement: SourceReplacementAction,
@@ -34,10 +36,12 @@ export class Controls implements vscode.Disposable {
         this.replacement.cancel(uri, "user-cancelled")
         this.preview.cancel(uri, "user-cancelled")
       }
+      this.background.cancel("user-cancelled")
       return vscode.commands.executeCommand("editor.action.hideHover")
     })
     command("retranslate", () => this.retranslate())
     command("translateAll", () => this.browse.translateAll())
+    command("translateWorkspace", () => this.background.translateAll())
     command("retranslateBlock", () => this.browse.retranslateBlock())
     command("retranslatePreview", (value) => this.preview.retranslate(value))
     command("retry", () => {
@@ -144,16 +148,14 @@ export class Controls implements vscode.Disposable {
       { label: "翻译全文", command: "translateAll" },
       { label: "重新翻译当前块", command: "retranslateBlock" }
     ]
-    if (snapshot)
-      items.push(
-        {
-          label: snapshot.status === "cancelled" ? "继续翻译" : "取消进行中的翻译",
-          command: "cancel"
-        },
-        { label: "重新翻译当前文件", command: "retranslate" },
-        { label: "重试失败批次", command: "retry" }
-      )
+    if (snapshot || this.background.isRunning)
+      items.push({
+        label: !this.background.isRunning && snapshot?.status === "cancelled" ? "继续翻译" : "取消进行中的翻译",
+        command: "cancel"
+      })
+    if (snapshot) items.push({ label: "重新翻译当前文件", command: "retranslate" }, { label: "重试失败批次", command: "retry" })
     items.push(
+      { label: "后台翻译所有文件", command: "translateWorkspace" },
       { label: "翻译并替换", command: "translateAndReplace" },
       { label: "添加保留词", command: "addPreserveTerm" },
       { label: "源语言与目标语言", command: "setLanguages" },
@@ -188,7 +190,7 @@ export class Controls implements vscode.Disposable {
       placeHolder: "当前文档的注释浏览操作"
     })
     if (selected) {
-      const command = selected.command === "cancel" && snapshot?.status === "cancelled" ? "retry" : selected.command
+      const command = selected.command === "cancel" && !this.background.isRunning && snapshot?.status === "cancelled" ? "retry" : selected.command
       await vscode.commands.executeCommand("commentTranslatePlus." + command)
     }
   }

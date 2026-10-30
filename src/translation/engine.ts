@@ -231,9 +231,9 @@ class TranslationRun {
         request: (url, init = {}, itemId) => {
           const priority = (): number => {
             if (itemId !== undefined) return this.priority(itemId)
-            let highest = 2
+            let highest = Infinity
             for (const unit of units) if (unit.wanted) highest = Math.min(highest, this.priority(unit.source.id))
-            return highest
+            return highest === Infinity ? 2 : highest
           }
           return request(
             this.gate,
@@ -336,9 +336,9 @@ class TranslationRun {
       await this.prepare()
       const remaining = new Set(this.units.filter((unit) => unit.pending))
       const priority = (): number => {
-        let highest = 2
+        let highest = Infinity
         for (const unit of remaining) if (unit.pending) highest = Math.min(highest, this.priority(unit.source.id))
-        return highest
+        return highest === Infinity ? 2 : highest
       }
       while (remaining.size) {
         if (failure) throw failure.error
@@ -347,7 +347,7 @@ class TranslationRun {
         // viewport can then overtake the unplanned tail of a whole document.
         await this.gate.plan(
           () => {
-            let highest = 2
+            let highest = Infinity
             let candidates: TranslationUnit[] = []
             for (const unit of remaining) {
               if (!unit.pending) continue
