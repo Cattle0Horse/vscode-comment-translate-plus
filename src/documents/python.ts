@@ -59,6 +59,9 @@ interface LiteralSyntax {
   readonly raw: boolean
   readonly formatted: boolean
   readonly expressions: readonly string[]
+  readonly orderExpressions: (text: string) => string[]
+  readonly serializedExpressions: readonly string[]
+  readonly orderSerializedExpressions: (text: string) => string[]
 }
 
 const escapes: Readonly<Record<string, string>> = { n: "\n", r: "\r", t: "\t", a: "\x07", b: "\b", f: "\f", v: "\v", "\\": "\\", '"': '"', "'": "'" }
@@ -114,30 +117,33 @@ function decode(text: string, raw: boolean, formatted: boolean, expressions: rea
   if (expressionIndex !== expressions.length) throw Error("translation-structure-invalid")
 }
 
-function expressionSyntax(expression: string, syntax: LiteralSyntax): string {
+function expressionSyntax(expression: string, syntax: Pick<LiteralSyntax, "formatted" | "quote" | "raw">): string {
   if (syntax.formatted) return expression
   // An interpolation from a later f-string must remain executable when the paragraph starts in a plain literal.
   return syntax.quote + " f" + syntax.quote + expression + syntax.quote + " " + (syntax.raw ? "r" : "") + syntax.quote
 }
 
 /** Match only complete source-owned expressions, retaining exact multiplicity. */
-function expressionOrder(text: string, expressions: readonly string[]): string[] {
-  if (!expressions.length) return []
-  const pattern = [...new Set(expressions)]
+function compileExpressionOrder(expressions: readonly string[]): (text: string) => string[] {
+  if (!expressions.length) return () => []
+  const source = [...new Set(expressions)]
     .sort((a, b) => b.length - a.length)
     .map((value) => value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"))
     .join("|")
-  const ordered = [...text.matchAll(new RegExp(pattern, "gu"))].map((match) => match[0])
+  const pattern = new RegExp(source, "gu")
   const expected = [...expressions].sort()
-  const actual = [...ordered].sort()
-  if (actual.length !== expected.length || actual.some((expression, index) => expression !== expected[index])) throw Error("translation-structure-invalid")
-  return ordered
+  return (text) => {
+    const ordered = [...text.matchAll(pattern)].map((match) => match[0])
+    const actual = [...ordered].sort()
+    if (actual.length !== expected.length || actual.some((expression, index) => expression !== expected[index])) throw Error("translation-structure-invalid")
+    return ordered
+  }
 }
 
 function encode(text: string, syntax: LiteralSyntax): string {
   let output = ""
   let cursor = 0
-  for (const expression of [...expressionOrder(text, syntax.expressions), ""]) {
+  for (const expression of [...syntax.orderExpressions(text), ""]) {
     const end = expression ? text.indexOf(expression, cursor) : text.length
     if (end < cursor) throw Error("translation-structure-invalid")
     const prose = text.slice(cursor, end)
@@ -172,7 +178,7 @@ function stringContent(original: string, syntax: LiteralSyntax, translated: stri
   const suffix = syntax.continuation
   if (!translated.startsWith(syntax.prefix) || !translated.endsWith(suffix) || translated.length < syntax.prefix.length + suffix.length) throw Error("translation-structure-invalid")
   const body = translated.slice(syntax.prefix.length, translated.length - suffix.length)
-  const expressions = syntax.expressions.map((expression) => expressionSyntax(expression, syntax))
+  const expressions = syntax.serializedExpressions
   // A local serializer may escape quotes; a model cannot close the source literal.
   for (let index = 0; index < body.length; index++) {
     const expression = expressions.find((value) => body.startsWith(value, index))
@@ -188,7 +194,7 @@ function stringContent(original: string, syntax: LiteralSyntax, translated: stri
     if (body.startsWith(syntax.quote, index) || (syntax.quote.length === 1 && /[\r\n]/u.test(body[index]))) throw Error("translation-structure-invalid")
   }
   let result = ""
-  decode(body, syntax.raw, syntax.formatted, expressionOrder(body, expressions), (value, _from, _to, protectedToken) => {
+  decode(body, syntax.raw, syntax.formatted, syntax.orderSerializedExpressions(body), (value, _from, _to, protectedToken) => {
     const index = protectedToken ? expressions.indexOf(value) : -1
     result += index < 0 ? value : syntax.expressions[index]
   })
@@ -286,6 +292,9 @@ export function pythonStringUnits(source: string, region: TextUnit, literals: re
       // If a paragraph crosses unlike literals, reopen the final literal for the untouched suffix.
       const transition = firstFormat.opener === lastFormat.opener ? "" : firstFormat.quote + " " + lastFormat.opener
       const original = source.slice(start, end)
+      const expressionValues = expressions.map((range) => range.text)
+      const serializedExpressions = expressionValues.map((expression) => expressionSyntax(expression, firstFormat))
+      const orderExpressions = compileExpressionOrder(expressionValues)
       const syntax: LiteralSyntax = {
         unit,
         prefix: source.slice(start, mapped.start),
@@ -293,7 +302,10 @@ export function pythonStringUnits(source: string, region: TextUnit, literals: re
         quote: firstFormat.quote,
         raw: firstFormat.raw,
         formatted: firstFormat.formatted,
-        expressions: expressions.map((range) => range.text)
+        expressions: expressionValues,
+        orderExpressions,
+        serializedExpressions,
+        orderSerializedExpressions: firstFormat.formatted ? orderExpressions : compileExpressionOrder(serializedExpressions)
       }
       units.push({
         ...region,

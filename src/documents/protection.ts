@@ -22,6 +22,7 @@ const BASE_TECHNICAL_PATTERNS = [URL_PATTERN, UUID_PATTERN, EMAIL_PATTERN, HEX_P
 const CODE_TECHNICAL_PATTERNS = [...BASE_TECHNICAL_PATTERNS, STATUS_PATTERN] as const
 const PYTHON_STRING_TECHNICAL_PATTERNS = [...CODE_TECHNICAL_PATTERNS, STRING_PLACEHOLDER_PATTERN, FORMAT_ARGUMENT_PATTERN] as const
 // These global patterns are consumed only by matchAll, which uses its own iterator state.
+const fragmentAnalyses = new WeakMap<TextUnit, readonly ProtectedFragment[]>()
 
 function addressText(text: string, preserveEllipsis = false): string {
   text = text.replace(/[.,!?;:]+$/u, (tail) => (preserveEllipsis && /^\.{2,}$/u.test(tail) ? tail : ""))
@@ -62,10 +63,20 @@ export function linkReferenceKind(node: MarkdownNode, source: string, labels: re
 }
 
 export function protectedFragments(unit: TextUnit, tree?: MarkdownNode): readonly ProtectedFragment[] {
+  if (tree) return analyzeProtectedFragments(unit, tree)
+  let fragments = fragmentAnalyses.get(unit)
+  if (!fragments) {
+    fragments = analyzeProtectedFragments(unit)
+    fragmentAnalyses.set(unit, fragments)
+  }
+  return fragments
+}
+
+function analyzeProtectedFragments(unit: TextUnit, tree?: MarkdownNode): readonly ProtectedFragment[] {
   if (unit.format === "yaml") return []
   const input = standalone(unit.text)
-  const root = tree ?? markdownTree(input).topNode
-  const labels = unit.linkLabels ?? markdownLinkLabels(input, root)
+  const root = unit.kind === "string" ? undefined : (tree ?? markdownTree(input).topNode)
+  const labels = unit.linkLabels ?? (root ? markdownLinkLabels(input, root) : [])
   let fragments: ProtectedFragment[] = []
   const lines: { input: number; source: number }[] = []
   if (input !== unit.text) {
@@ -121,7 +132,7 @@ export function protectedFragments(unit: TextUnit, tree?: MarkdownNode): readonl
     } else for (const child of children(node)) visit(child)
   }
 
-  if (unit.kind !== "string") visit(root)
+  if (root) visit(root)
   // Markdown splits a template URL at its angle-bracket parameter. Preserve the
   // complete address, but never replace a containing code span or link target.
   for (const match of unit.text.matchAll(TEMPLATE_URL_PATTERN)) {

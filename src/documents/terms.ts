@@ -8,6 +8,17 @@ import { protectedFragments } from "./protection.ts"
 
 const markerFeedback = "Keep every <CTP...> marker unchanged and exactly once in its own item."
 
+/** Count non-overlapping literal matches without allocating the split substrings. */
+function occurrences(value: string, content: string, limit = Infinity): number {
+  let count = 0
+  let position = content.indexOf(value)
+  while (position >= 0) {
+    if (++count >= limit) return count
+    position = content.indexOf(value, position + value.length)
+  }
+  return count
+}
+
 /** Compile one validated list once, with absolute body boundaries even in multiline mode. */
 export function parsePreserveTerms(value: unknown): PreserveTerms {
   if (!Array.isArray(value)) throw Error("preserveTerms 必须是字符串或正则对象的数组。")
@@ -158,13 +169,13 @@ export function prepareTranslation(
     let repaired = translated
     for (const [placeholder, literal] of nativeLiterals) {
       if (!/^\{[A-Za-z_][^{}\r\n]*\}$/u.test(placeholder)) continue
-      let missing = literal.count - (repaired.split(placeholder).length - 1)
+      let missing = literal.count - occurrences(placeholder, repaired)
       while (missing > 0) {
         let replacement: string | undefined
         for (const keepClosingBrace of [true, false]) {
           for (let length = placeholder.length - 1; length >= 3 && !replacement; length--) {
             const candidate = placeholder.slice(0, length) + (keepClosingBrace ? "}" : "")
-            if (candidate !== placeholder && repaired.split(candidate).length - 1 === 1) replacement = candidate
+            if (candidate !== placeholder && occurrences(candidate, repaired, 2) === 1) replacement = candidate
           }
         }
         if (!replacement) break
@@ -295,7 +306,6 @@ export function prepareTranslation(
       }
       // TextMate ranges have no translated offsets. Verify their exact content and
       // multiplicity before parsing the surrounding translated document.
-      const occurrences = (value: string, content: string) => content.split(value).length - 1
       const technicalCounts = new Map<string, number>()
       if ([...nativeLiterals.values()].some((literal) => literal.technical)) {
         // Parse complete fragments, including paths newly wrapped in inline code.

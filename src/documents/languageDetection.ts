@@ -2,6 +2,9 @@ import { detectAll, validateISO2 } from "tinyld"
 import { protectedFragments } from "./protection.ts"
 import type { TextUnit } from "../model/document.ts"
 
+const cjk = /[\p{Script_Extensions=Han}\p{Script_Extensions=Hiragana}\p{Script_Extensions=Katakana}\p{Script_Extensions=Hangul}]/u
+const sourceAnalyses = new WeakMap<TextUnit, ReturnType<typeof analyzeSource>>()
+
 /** Negative evidence is advisory; failure to confirm the target language is not enough. */
 export function unlikelyTargetLanguage(text: string, target: string): { language: string; score: number; targetScore: number } | undefined {
   const language = target.toLowerCase().split(/[-_]/, 1)[0]
@@ -10,7 +13,7 @@ export function unlikelyTargetLanguage(text: string, target: string): { language
   // so their original offsets cannot accidentally hide translated prose.
   text = text.replace(/<CTP(?:\d+_)?\d+>/g, " ").trim()
   const letters = text.match(/\p{L}/gu) ?? []
-  const eastern = letters.filter((letter) => /[\p{Script_Extensions=Han}\p{Script_Extensions=Hiragana}\p{Script_Extensions=Katakana}\p{Script_Extensions=Hangul}]/u.test(letter)).length
+  const eastern = letters.filter((letter) => cjk.test(letter)).length
   if (eastern && eastern !== letters.length) return
   if (letters.length < (eastern ? 20 : 80) || (!eastern && (text.match(/\p{L}+/gu)?.length ?? 0) < 12)) return
   const scores = detectAll(text)
@@ -21,10 +24,8 @@ export function unlikelyTargetLanguage(text: string, target: string): { language
   return { language: first.lang, score: first.accuracy, targetScore }
 }
 
-export function isTargetLanguage(unit: TextUnit, target: string): boolean {
-  while (unit.projection) unit = unit.projection.unit
+function analyzeSource(unit: TextUnit) {
   if (unit.content !== undefined) unit = { ...unit, text: unit.content, format: "text", protected: undefined }
-  if (unit.text.length > 4096) return false
   let text = ""
   let cursor = 0
   const ranges = [...(unit.protected ?? []), ...protectedFragments(unit)].sort((a, b) => a.start - b.start)
@@ -35,10 +36,21 @@ export function isTargetLanguage(unit: TextUnit, target: string): boolean {
   }
   text += unit.text.slice(cursor)
   text = text.replace(/(?:https?:\/\/|www\.)[^\s<>]+/g, " ").trim()
+  return text
+}
+
+export function isTargetLanguage(unit: TextUnit, target: string): boolean {
+  while (unit.projection) unit = unit.projection.unit
+  if ((unit.content ?? unit.text).length > 4096) return false
+  let analysis = sourceAnalyses.get(unit)
+  if (analysis === undefined) {
+    analysis = analyzeSource(unit)
+    sourceAnalyses.set(unit, analysis)
+  }
+  const text = analysis
   if (!text) return false
   const language = target.toLowerCase().split(/[-_]/, 1)[0]
   const letters = text.match(/\p{L}/gu) ?? []
-  const cjk = /[\p{Script_Extensions=Han}\p{Script_Extensions=Hiragana}\p{Script_Extensions=Katakana}\p{Script_Extensions=Hangul}]/u
   const cjkCount = letters.filter((letter) => cjk.test(letter)).length
   if (cjkCount && cjkCount !== letters.length) return false
   const chinese = language === "zh" && letters.every((letter) => /\p{Script=Han}/u.test(letter))
