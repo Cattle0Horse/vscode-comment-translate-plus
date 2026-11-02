@@ -127,6 +127,7 @@ export function prepareTranslation(
   }
   const escapePattern = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
   const pattern = new RegExp(escapePattern(prefix) + "[0-9]+>", "g")
+  const markerCodeWrapperPattern = new RegExp("(?<!`)(`+)(" + pattern.source + ")\\1(?!`)", "g")
   const expandedMarkers = new Map<string, string[]>()
   for (const [marker, { value }] of markers) expandedMarkers.set(value, [...(expandedMarkers.get(value) ?? []), marker])
   // Match complete values in one pass, preferring a containing fragment to its
@@ -204,7 +205,7 @@ export function prepareTranslation(
       translated = repairTruncatedPlaceholders(translated)
       // Code owns its delimiters; URL data owns its original link syntax. A code
       // wrapper around exactly one such marker is representation, not new content.
-      translated = translated.replace(new RegExp("(?<!`)(`+)(" + pattern.source + ")\\1(?!`)", "g"), (match, ticks: string, marker: string) => {
+      translated = translated.replace(markerCodeWrapperPattern, (match, ticks: string, marker: string) => {
         const value = markers.get(marker)
         if (!value) return match
         if (value.inlineCode && value.value.match(/^`+/u)?.[0] === ticks) return marker

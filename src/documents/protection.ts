@@ -2,6 +2,27 @@ import type { TextUnit, ProtectedFragment } from "../model/document.ts"
 import type { MarkdownNode } from "./tree.ts"
 import { children, markdownTree, markdownLinkLabels, normalizeLinkLabel, standalone } from "./tree.ts"
 
+const TEMPLATE_URL_PATTERN = /https?:\/\/(?:[^\s<>"'\x60，。！？；]|<[A-Za-z_][A-Za-z\d_]*>)+/giu
+const URL_PATTERN = /https?:\/\/[^\s<>"'\x60，。！？；]+/giu
+const UUID_PATTERN = /\b[\da-fA-F]{8}-[\da-fA-F]{4}-[\da-fA-F]{4}-[\da-fA-F]{4}-[\da-fA-F]{12}\b/gu
+const EMAIL_PATTERN = /\b[A-Za-z\d.!#$%&'*+/=?^_\x60{|}~-]+@[A-Za-z\d](?:[A-Za-z\d-]*[A-Za-z\d])?(?:\.[A-Za-z\d](?:[A-Za-z\d-]*[A-Za-z\d])?)+\b/gu
+const HEX_PATTERN = /\b0x[\da-fA-F]+\b/gu
+const VERSION_PATTERN = /(?<![\w.])v?\d+\.\d+\.\d+(?:-[A-Za-z\d]+(?:[.-][A-Za-z\d]+)*)?(?:\+[A-Za-z\d]+(?:[.-][A-Za-z\d]+)*)?(?!\w|\.\w)/gu
+const HTTP_VERSION_PATTERN = /(?<![\w$])HTTP(?:S|\(S\))?\/\d+(?:\.\d+)*(?![\w$])/giu
+const STATUS_PATTERN = /\b[1-5][xX]{2}\b/gu
+const STRING_PLACEHOLDER_PATTERN = /\{(?=[A-Za-z_])[^{}\r\n]{0,120}\}/gu
+const FORMAT_ARGUMENT_PATTERN = /(?<![\w])r:\*(?![\w])/gu
+const DATA_PATTERN = /[A-Za-z\d][A-Za-z\d._~:+/%=-]*/gu
+const PATH_PATTERN = /(?<![\p{L}\p{N}\p{M}_/\\<])(?:[A-Za-z]:[\\/]|\.{1,2}[\\/]|\/(?!\/))[^\s<>"'\x60，。！？；、]+/gu
+// Descendant selectors must precede paths, which stop at predicate quotes.
+const XPATH_NAME = String.raw`[A-Za-z_][\w.-]*(?::[A-Za-z_][\w.-]*)?`
+const XPATH_STEP = String.raw`(?:@?${XPATH_NAME}|\*)(?:\[(?:\d+|@${XPATH_NAME}\s*=\s*(?:"[^"\r\n]*"|'[^'\r\n]*'))\])*`
+const XPATH_PATTERN = new RegExp(String.raw`(?<![\p{L}\p{N}\p{M}_/.\\<])\.?//${XPATH_STEP}(?:/${XPATH_STEP})*(?=$|[\s，。！？；、),;!?])`, "gu")
+const BASE_TECHNICAL_PATTERNS = [URL_PATTERN, UUID_PATTERN, EMAIL_PATTERN, HEX_PATTERN, VERSION_PATTERN, XPATH_PATTERN, PATH_PATTERN, HTTP_VERSION_PATTERN, DATA_PATTERN] as const
+const CODE_TECHNICAL_PATTERNS = [...BASE_TECHNICAL_PATTERNS, STATUS_PATTERN] as const
+const PYTHON_STRING_TECHNICAL_PATTERNS = [...CODE_TECHNICAL_PATTERNS, STRING_PLACEHOLDER_PATTERN, FORMAT_ARGUMENT_PATTERN] as const
+// These global patterns are consumed only by matchAll, which uses its own iterator state.
+
 function addressText(text: string, preserveEllipsis = false): string {
   text = text.replace(/[.,!?;:]+$/u, (tail) => (preserveEllipsis && /^\.{2,}$/u.test(tail) ? tail : ""))
   for (const [open, close] of [
@@ -103,7 +124,7 @@ export function protectedFragments(unit: TextUnit, tree?: MarkdownNode): readonl
   if (unit.kind !== "string") visit(root)
   // Markdown splits a template URL at its angle-bracket parameter. Preserve the
   // complete address, but never replace a containing code span or link target.
-  for (const match of unit.text.matchAll(/https?:\/\/(?:[^\s<>"'\x60，。！？；]|<[A-Za-z_][A-Za-z\d_]*>)+/giu)) {
+  for (const match of unit.text.matchAll(TEMPLATE_URL_PATTERN)) {
     const parameters = match[0].match(/<[^>]+>|\$?\{[A-Za-z_$][\w$]*\}/gu)
     if (!parameters?.length || parameters.some((parameter) => parameter.startsWith("<") && !/^<[A-Z_][A-Z\d_]*>$/u.test(parameter))) continue
     const text = addressText(match[0], true)
@@ -115,28 +136,7 @@ export function protectedFragments(unit: TextUnit, tree?: MarkdownNode): readonl
     fragments.push({ kind: "Technical", text, start, end })
   }
   fragments.sort((a, b) => a.start - b.start || b.end - a.end)
-  const data = /[A-Za-z\d][A-Za-z\d._~:+/%=-]*/gu
-  const path = /(?<![\p{L}\p{N}\p{M}_/\\<])(?:[A-Za-z]:[\\/]|\.{1,2}[\\/]|\/(?!\/))[^\s<>"'\x60，。！？；、]+/gu
-  // Recognize explicit descendant selectors before filesystem paths stop at a
-  // predicate's quote. This is a bounded data shape, not a general XPath parser.
-  const xpathName = String.raw`[A-Za-z_][\w.-]*(?::[A-Za-z_][\w.-]*)?`
-  const xpathStep = String.raw`(?:@?${xpathName}|\*)(?:\[(?:\d+|@${xpathName}\s*=\s*(?:"[^"\r\n]*"|'[^'\r\n]*'))\])*`
-  const xpath = new RegExp(String.raw`(?<![\p{L}\p{N}\p{M}_/.\\<])\.?//${xpathStep}(?:/${xpathStep})*(?=$|[\s，。！？；、),;!?])`, "gu")
-  const stringPlaceholder = /\{(?=[A-Za-z_])[^{}\r\n]{0,120}\}/gu
-  const formatArgument = /(?<![\w])r:\*(?![\w])/gu
-  const patterns = [
-    /https?:\/\/[^\s<>"'\x60，。！？；]+/giu,
-    /\b[\da-fA-F]{8}-[\da-fA-F]{4}-[\da-fA-F]{4}-[\da-fA-F]{4}-[\da-fA-F]{12}\b/gu,
-    /\b[A-Za-z\d.!#$%&'*+/=?^_\x60{|}~-]+@[A-Za-z\d](?:[A-Za-z\d-]*[A-Za-z\d])?(?:\.[A-Za-z\d](?:[A-Za-z\d-]*[A-Za-z\d])?)+\b/gu,
-    /\b0x[\da-fA-F]+\b/gu,
-    /(?<![\w.])v?\d+\.\d+\.\d+(?:-[A-Za-z\d]+(?:[.-][A-Za-z\d]+)*)?(?:\+[A-Za-z\d]+(?:[.-][A-Za-z\d]+)*)?(?!\w|\.\w)/gu,
-    xpath,
-    path,
-    /(?<![\w$])HTTP(?:S|\(S\))?\/\d+(?:\.\d+)*(?![\w$])/giu,
-    data
-  ]
-  if (unit.kind) patterns.push(/\b[1-5][xX]{2}\b/gu)
-  if (unit.kind === "string" && unit.language === "python") patterns.push(stringPlaceholder, formatArgument)
+  const patterns = unit.kind === "string" && unit.language === "python" ? PYTHON_STRING_TECHNICAL_PATTERNS : unit.kind ? CODE_TECHNICAL_PATTERNS : BASE_TECHNICAL_PATTERNS
   for (const pattern of patterns) {
     // Matches from one regex never overlap and advance in source order. Check only prior rules,
     // then merge this rule's accepted ranges so syntax and earlier rules keep their priority.
@@ -144,7 +144,7 @@ export function protectedFragments(unit: TextUnit, tree?: MarkdownNode): readonl
     let occupied = 0
     for (const match of unit.text.matchAll(pattern)) {
       let text = match[0]
-      if (pattern === data) {
+      if (pattern === DATA_PATTERN) {
         // Classify data by its shape, not by an exhaustive list of address/hash types.
         // Custom tag names remain prose even when they contain digits.
         if (unit.text.lastIndexOf("<", match.index) > unit.text.lastIndexOf(">", match.index)) continue
@@ -156,17 +156,17 @@ export function protectedFragments(unit: TextUnit, tree?: MarkdownNode): readonl
         if (!(/^[\da-f]{32,}$/iu.test(hex) || numeric || mixed)) continue
       }
       if ((/^https?:\/\//iu.test(text) || /^[A-Za-z]:[\\/]|^\.{0,2}[\\/]/u.test(text)) && unit.kind !== "string") {
-        text = addressText(text, pattern === path)
+        text = addressText(text, pattern === PATH_PATTERN)
       }
       // A path prefix followed only by punctuation is an operator or prose, not a filename.
-      if (pattern === path && !/[^.,!?;:()[\]{}\\/]/u.test(text.replace(/^(?:[A-Za-z]:[\\/]|\.{1,2}[\\/]|\/)/u, ""))) continue
+      if (pattern === PATH_PATTERN && !/[^.,!?;:()[\]{}\\/]/u.test(text.replace(/^(?:[A-Za-z]:[\\/]|\.{1,2}[\\/]|\/)/u, ""))) continue
       const start = match.index
       const end = start + text.length
       // Escapes and interpolations are lexical boundaries, not identifier characters.
       if (unit.protected?.some((range) => range.start < end && range.end > start)) continue
       // Consecutive predicates resemble a collapsed Markdown reference. Only
       // brackets and its lookup label may yield to a complete explicit selector.
-      if (pattern === xpath) {
+      if (pattern === XPATH_PATTERN) {
         const overlapping = fragments.filter((fragment) => fragment.start < end && fragment.end > start)
         if (overlapping.every((fragment) => fragment.start >= start && fragment.end <= end && ["LinkMark", "LinkLabel"].includes(fragment.kind)))
           fragments = fragments.filter((fragment) => fragment.start >= end || fragment.end <= start)
@@ -175,7 +175,7 @@ export function protectedFragments(unit: TextUnit, tree?: MarkdownNode): readonl
       if (occupied < fragments.length && fragments[occupied].start < end) continue
       // A prose range or hyphenated unit owns its words and separator; only the
       // numeric values are data. Dates and multi-part technical data stay whole.
-      if (pattern === data && /^\d+-(?:\d+|[A-Za-z]+)$/u.test(text)) {
+      if (pattern === DATA_PATTERN && /^\d+-(?:\d+|[A-Za-z]+)$/u.test(text)) {
         for (const number of text.matchAll(/\d{4,}/gu)) accepted.push({ kind: "Technical", text: number[0], start: start + number.index, end: start + number.index + number[0].length })
         continue
       }
