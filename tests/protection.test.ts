@@ -761,6 +761,38 @@ test("short Markdown escapes and compact technical labels remain model-owned", (
   assert.equal(validateTranslation(identifierUnit, "ADR 0003：评估模块的所有权与运行上传流程的整合"), undefined)
 })
 
+test("short Python placeholders, paths and format arguments remain native", () => {
+  for (const source of [
+    "Cannot read binary file: {path} (detected type: {detected.label})",
+    "Showing {total} entries. Use 'offset' beyond {offset + len(selected)}",
+    "File path in /memory",
+    "r:*"
+  ]) {
+    const unit = { id: "python-short-data", start: 0, end: source.length, text: source, format: "text" as const, kind: "string" as const, language: "python" }
+    const prepared = prepareTranslation(unit, 32)
+    assert.equal(prepared.hasMarkers, false, source)
+    assert.equal(prepared.restore(prepared.text), source)
+  }
+})
+
+test("Python placeholder truncation is repaired only when the missing suffix is unambiguous", () => {
+  const source = "Showing {len(selected)} of {total} entries."
+  const unit = { id: "python-placeholder-repair", start: 0, end: source.length, text: source, format: "text" as const, kind: "string" as const, language: "python" }
+  const prepared = prepareTranslation(unit, 32)
+  assert.equal(prepared.hasMarkers, false)
+  assert.equal(prepared.restore("显示 {len(selected}，共 {total} 条记录。"), "显示 {len(selected)}，共 {total} 条记录。")
+  assert.throws(() => prepared.restore("显示，共有记录。"), /structure-invalid/u)
+})
+
+test("standalone Python format arguments complete locally without CTP", () => {
+  const source = "r:*"
+  const unit = { id: "python-format-argument", start: 0, end: source.length, text: source, format: "text" as const, kind: "string" as const, language: "python" }
+  const prepared = prepareTranslation(unit, 32)
+  assert.equal(prepared.hasMarkers, false)
+  assert.equal(prepared.needsTranslation, false)
+  assert.equal(prepared.restore(prepared.text), source)
+})
+
 test("placeholder namespaces avoid literal source, preserved terms and reference markers and restore them literally", () => {
   const term = "<CTP1_0> $& ${targetLang}"
   const source = "Keep <CTP0> and " + term + " beside `pages_abcdefghijklmnopqrstuvwxyz_0123456789`."

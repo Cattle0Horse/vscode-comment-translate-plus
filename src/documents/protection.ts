@@ -122,6 +122,8 @@ export function protectedFragments(unit: TextUnit, tree?: MarkdownNode): readonl
   const xpathName = String.raw`[A-Za-z_][\w.-]*(?::[A-Za-z_][\w.-]*)?`
   const xpathStep = String.raw`(?:@?${xpathName}|\*)(?:\[(?:\d+|@${xpathName}\s*=\s*(?:"[^"\r\n]*"|'[^'\r\n]*'))\])*`
   const xpath = new RegExp(String.raw`(?<![\p{L}\p{N}\p{M}_/.\\<])\.?//${xpathStep}(?:/${xpathStep})*(?=$|[\s，。！？；、),;!?])`, "gu")
+  const stringPlaceholder = /\{(?=[A-Za-z_])[^{}\r\n]{0,120}\}/gu
+  const formatArgument = /(?<![\w])r:\*(?![\w])/gu
   const patterns = [
     /https?:\/\/[^\s<>"'\x60，。！？；]+/giu,
     /\b[\da-fA-F]{8}-[\da-fA-F]{4}-[\da-fA-F]{4}-[\da-fA-F]{4}-[\da-fA-F]{12}\b/gu,
@@ -134,6 +136,7 @@ export function protectedFragments(unit: TextUnit, tree?: MarkdownNode): readonl
     data
   ]
   if (unit.kind) patterns.push(/\b[1-5][xX]{2}\b/gu)
+  if (unit.kind === "string" && unit.language === "python") patterns.push(stringPlaceholder, formatArgument)
   for (const pattern of patterns) {
     // Matches from one regex never overlap and advance in source order. Check only prior rules,
     // then merge this rule's accepted ranges so syntax and earlier rules keep their priority.
