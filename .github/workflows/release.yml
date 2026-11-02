@@ -17,7 +17,21 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: pnpm/action-setup@v6
+      - name: Download pinned pnpm binary
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(node -p "require('./package.json').packageManager.split('@')[1]")
+          asset=$(gh api "repos/pnpm/pnpm/releases/tags/v$version" --jq '.assets[] | select(.name == "pnpm-linux-x64.tar.gz") | [.browser_download_url, .digest] | @tsv')
+          IFS=$'\t' read -r url digest <<< "$asset"
+          [[ "$digest" == sha256:* ]]
+          archive="$RUNNER_TEMP/pnpm.tar.gz"
+          curl --fail --location --retry 3 "$url" --output "$archive"
+          printf '%s  %s\n' "${digest#sha256:}" "$archive" | sha256sum --check
+          mkdir -p "$RUNNER_TEMP/pnpm-bin"
+          tar -xzf "$archive" -C "$RUNNER_TEMP/pnpm-bin"
+          echo "$RUNNER_TEMP/pnpm-bin" >> "$GITHUB_PATH"
       - uses: actions/setup-node@v7
         with:
           node-version: 22
