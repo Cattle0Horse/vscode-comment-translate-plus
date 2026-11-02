@@ -16,6 +16,38 @@ async function waitFor(check: () => boolean, label: string): Promise<void> {
 
 export async function runCommentParagraphs(workspace: vscode.Uri, owner: Application, origin: string): Promise<string[]> {
   const records = async () => ((await (await fetch(origin + "/state")).json()) as { requests: { count: number }[] }).requests
+  for (const [index, newline] of ["\n", "\r\n"].entries()) {
+    const source = ["<<<<<<< HEAD", "// Read the original document.", "||||||| base", "// Keep its context.", "=======", "// Read the original document.", ">>>>>>> incoming"].join(newline)
+    const uri = vscode.Uri.joinPath(workspace, "git-conflict-" + index + ".ts")
+    await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(source))
+    const document = await vscode.workspace.openTextDocument(uri)
+    const editor = await vscode.window.showTextDocument(document, { preview: false })
+    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    await waitFor(() => owner.browse.inspect(uri)?.status === "ready" && owner.browse.inspect(uri)?.units.length === 3, "conflict browse")
+    const units = owner.browse.inspect(uri)!.units
+    assert(
+      units.every((unit) => unit.text === source.slice(unit.start, unit.end) && !/[<>|=]{7}/u.test(unit.translation)),
+      "Conflict browse translated marker lines or shifted source ranges."
+    )
+    assert(document.getText() === source && !document.isDirty, "Conflict browsing changed source.")
+    const start = document.positionAt(source.indexOf("Keep its context."))
+    assert(
+      await editor.edit((builder) => builder.replace(new vscode.Range(start, start.translate(0, "Keep its context.".length)), "Read the original document.")),
+      "Conflict branch edit failed."
+    )
+    assert(!owner.browse.inspect(uri)!.units.some((unit) => unit.text.includes("Keep its context.")), "Editing a conflict branch left its stale translation visible.")
+    await waitFor(() => owner.browse.inspect(uri)?.status === "ready" && owner.browse.inspect(uri)?.units.length === 3, "conflict edit refresh")
+    assert(document.getText() === source.replace("Keep its context.", "Read the original document."), "Refreshing conflict browsing changed marker or branch source.")
+    await vscode.commands.executeCommand("undo")
+    await waitFor(() => document.getText() === source && owner.browse.inspect(uri)?.units.length === 3, "conflict edit undo")
+    const resolved = "// Read the original document."
+    assert(await editor.edit((builder) => builder.replace(new vscode.Range(document.positionAt(0), document.positionAt(source.length)), resolved)), "Resolving a conflict failed.")
+    await waitFor(() => owner.browse.inspect(uri)?.status === "ready" && owner.browse.inspect(uri)?.units.length === 1, "resolved conflict refresh")
+    assert(owner.browse.inspect(uri)!.units[0].text === resolved && document.getText() === resolved, "Resolved conflict retained obsolete branch ranges.")
+    await vscode.commands.executeCommand("undo")
+    await waitFor(() => document.getText() === source && owner.browse.inspect(uri)?.units.length === 3, "resolved conflict undo")
+    owner.browse.stop(uri, false)
+  }
   for (const [language, extension, prefix, code] of [
     ["typescript", "ts", "//", "const completed = 1;"],
     ["rust", "rs", "///", "let completed = 1;"],
@@ -127,6 +159,7 @@ export async function runCommentParagraphs(workspace: vscode.Uri, owner: Applica
     owner.browse.stop(uri, false)
   }
   return [
+    "unresolved Git diff3 conflicts browse through the public command and mock HTTP, preserve all markers and source, and invalidate/refresh edited branch comments for LF and CRLF",
     "real TypeScript, JavaScript, Rust and CSS block comments share docstring paragraph and list continuation boundaries for LF and CRLF",
     "real TypeScript block comments place translation rows before standalone closing delimiters and preserve the shell through replacement and undo for LF and CRLF",
     "real TypeScript, Rust, Python, Shell and SQL grammars group consecutive standalone comments into paragraphs for LF and CRLF",

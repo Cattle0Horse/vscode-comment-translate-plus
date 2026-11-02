@@ -4,10 +4,11 @@ import { isMarkdownDocument, isYamlDocument } from "./configuration.ts"
 import { GrammarExtractor } from "./grammars.ts"
 import { parseMarkdownWithCode } from "../documents/markdown.ts"
 import { parseYaml } from "../documents/yaml.ts"
-import type { ParsedDocument } from "../model/document.ts"
+import type { ParsedDocument, TextUnit } from "../model/document.ts"
 import { prepareSelection } from "../documents/selection.ts"
 import { CodeTokenizer } from "../documents/tokenization.ts"
 import { ParseFailure } from "../model/diagnostics.ts"
+import { maskGitConflictMarkers } from "../documents/git-conflicts.ts"
 
 interface TokenizationContext {
   readonly previous: ReadonlyMap<string, CodeTokenizer>
@@ -42,6 +43,29 @@ export class DocumentReader implements vscode.Disposable {
     path = "root"
   ): Promise<ParsedDocument> {
     checkCurrent()
+    const maskedSource = maskGitConflictMarkers(source)
+    if (maskedSource !== source) {
+      const parsed = await this.parseSource(maskedSource, language, checkCurrent, tokenization, path)
+      const errors = [...parsed.errors]
+      // A multiline comment/string or display row may span a marker. Its ownership
+      // is ambiguous: retain that source rather than translate a masked surrogate.
+      const groups = parsed.groups.flatMap((group) => {
+        const units: TextUnit[] = []
+        for (const unit of group.units) {
+          const range = unit.display ?? unit
+          if (unit.text !== source.slice(unit.start, unit.end) || source.slice(range.start, range.end) !== maskedSource.slice(range.start, range.end)) {
+            errors.push({ code: "git-conflict-unit-ambiguous", kind: "syntax", language, range })
+            continue
+          }
+          units.push({
+            ...unit,
+            reference: unit.reference?.map((reference) => (reference.range ? { ...reference, text: source.slice(reference.range.start, reference.range.end) } : reference))
+          })
+        }
+        return units.length ? [{ ...group, units }] : []
+      })
+      return { ...parsed, source, groups, errors }
+    }
     language = this.grammar.languageId(language)
     if (["markdown", "md", "skill", "prompt", "instructions", "chatagent"].includes(language)) {
       let fence = 0

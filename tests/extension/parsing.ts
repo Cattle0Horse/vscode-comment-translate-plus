@@ -7,6 +7,39 @@ import { prepareTranslation } from "../../src/documents/terms.ts"
 /** Exercise the real grammar, document events and nested-fence cache through the production reader. */
 export async function runParsing(workspace: vscode.Uri, owner: Application): Promise<string[]> {
   for (const newline of ["\n", "\r\n"]) {
+    for (const [language, prefix] of [
+      ["markdown", ""],
+      ["typescript", "// "],
+      ["python", "# "]
+    ]) {
+      const source = ["<<<<<<< HEAD 🐎", prefix + "Read the map.", "||||||| base", prefix + "Keep the ticket.", "=======", prefix + "Read the guide.", ">>>>>>> incoming"].join(newline)
+      const parsed = await owner.documents.parseSource(source, language)
+      const units = parsed.groups.flatMap((group) => group.units)
+      if (parsed.source !== source || parsed.errors.length || units.length !== 3) throw Error("Conflict markers consumed source prose: " + language)
+      for (const unit of units) {
+        const prepared = prepareTranslation(unit, 32)
+        if (unit.text !== source.slice(unit.start, unit.end) || /[<>|=]{7}/u.test(prepared.text) || prepared.restore(prepared.text) !== unit.text)
+          throw Error("Conflict markers leaked into a translation or shifted source ownership: " + language)
+        for (const reference of unit.reference ?? [])
+          if (reference.range && reference.text !== source.slice(reference.range.start, reference.range.end)) throw Error("Conflict reference lost original source format: " + language)
+      }
+    }
+    const yaml = ["<<<<<<< HEAD", "first: Read the map.", "=======", "second: Keep the ticket.", ">>>>>>> incoming"].join(newline)
+    const parsed = await owner.documents.parseSource(yaml, "yaml")
+    if (parsed.errors.length || parsed.groups.flatMap((group) => group.units).length !== 4) throw Error("Conflict marker lines invalidated otherwise valid YAML.")
+    const invalid = await owner.documents.parseSource(yaml.replace("second:", "first:"), "yaml")
+    if (!invalid.errors.some((error) => error.code === "yaml-invalid") || invalid.groups.length) throw Error("Conflicting YAML keys were accepted by guessing a merge.")
+    const spanning = ["const notice = `Read the", "<<<<<<< HEAD", "original map", "=======", "updated guide", ">>>>>>> incoming", "before leaving`;", "// Keep the receipt."].join(newline)
+    const ambiguous = await owner.documents.parseSource(spanning, "typescript")
+    const retained = ambiguous.groups.flatMap((group) => group.units)
+    if (
+      !ambiguous.errors.some((error) => error.code === "git-conflict-unit-ambiguous") ||
+      retained.some((unit) => unit.text !== spanning.slice(unit.start, unit.end)) ||
+      !retained.some((unit) => unit.text.includes("receipt"))
+    )
+      throw Error("A multiline conflict returned masked text as original source or lost its valid neighbour.")
+  }
+  for (const newline of ["\n", "\r\n"]) {
     const source = [
       "@catalog_tool(",
       "    description=(",
@@ -139,6 +172,7 @@ export async function runParsing(workspace: vscode.Uri, owner: Application): Pro
     if (JSON.stringify(incremental) !== JSON.stringify(fresh)) throw Error("Nested fence tokenization or source mapping diverged after an edit.")
   }
   return [
+    "Git merge/diff3 marker lines preserve exact LF/CRLF source ranges in Markdown and real TypeScript/Python grammars; valid YAML survives while duplicate keys and ambiguous spanning units retain source",
     "adjacent Python literals split completed source-line sentences and decoded paragraphs while preserving dynamic suffixes for LF and CRLF",
     "sentence endings ignore trailing whitespace and split Markdown, real comments and Python docstrings for LF and CRLF",
     "real Python grammar edits preserve incremental/fresh parity and exact unchanged restoration",

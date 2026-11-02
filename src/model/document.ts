@@ -59,7 +59,7 @@ export interface ParsedDocument {
 }
 
 export interface ParseDiagnostic {
-  readonly code: "frontmatter-incomplete" | "frontmatter-invalid" | "yaml-invalid" | "language-grammar-unavailable" | "language-tokenization-timeout"
+  readonly code: "frontmatter-incomplete" | "frontmatter-invalid" | "yaml-invalid" | "language-grammar-unavailable" | "language-tokenization-timeout" | "git-conflict-unit-ambiguous"
   readonly kind: "syntax" | "grammar" | "timeout"
   readonly language: string
   readonly range: { readonly start: number; readonly end: number }

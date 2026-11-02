@@ -104,6 +104,7 @@ export function describeError(code: string): string {
     "service-timeout": "服务请求超时，可稍后重试。",
     "frontmatter-invalid": "YAML frontmatter 无法解析，已保留该区域原文。",
     "yaml-invalid": "YAML 无法解析，已保留原文。",
+    "git-conflict-unit-ambiguous": "翻译单元跨越 Git 冲突标识，无法确定安全边界，已保留该单元原文。",
     "frontmatter-incomplete": "frontmatter 尚未闭合，补全后再翻译。",
     "language-grammar-unavailable": "当前语言的 TextMate 语法不可用，请检查对应语言扩展。",
     "language-tokenization-timeout": "语法识别超时，未用不完整结果翻译。"
