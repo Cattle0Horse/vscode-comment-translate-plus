@@ -117,12 +117,18 @@ export function protectedFragments(unit: TextUnit, tree?: MarkdownNode): readonl
   fragments.sort((a, b) => a.start - b.start || b.end - a.end)
   const data = /[A-Za-z\d][A-Za-z\d._~:+/%=-]*/gu
   const path = /(?<![\p{L}\p{N}\p{M}_/\\<])(?:[A-Za-z]:[\\/]|\.{1,2}[\\/]|\/(?!\/))[^\s<>"'\x60，。！？；、]+/gu
+  // Recognize explicit descendant selectors before filesystem paths stop at a
+  // predicate's quote. This is a bounded data shape, not a general XPath parser.
+  const xpathName = String.raw`[A-Za-z_][\w.-]*(?::[A-Za-z_][\w.-]*)?`
+  const xpathStep = String.raw`(?:@?${xpathName}|\*)(?:\[(?:\d+|@${xpathName}\s*=\s*(?:"[^"\r\n]*"|'[^'\r\n]*'))\])*`
+  const xpath = new RegExp(String.raw`(?<![\p{L}\p{N}\p{M}_/.\\<])\.?//${xpathStep}(?:/${xpathStep})*(?=$|[\s，。！？；、),;!?])`, "gu")
   const patterns = [
     /https?:\/\/[^\s<>"'\x60，。！？；]+/giu,
     /\b[\da-fA-F]{8}-[\da-fA-F]{4}-[\da-fA-F]{4}-[\da-fA-F]{4}-[\da-fA-F]{12}\b/gu,
     /\b[A-Za-z\d.!#$%&'*+/=?^_\x60{|}~-]+@[A-Za-z\d](?:[A-Za-z\d-]*[A-Za-z\d])?(?:\.[A-Za-z\d](?:[A-Za-z\d-]*[A-Za-z\d])?)+\b/gu,
     /\b0x[\da-fA-F]+\b/gu,
     /(?<![\w.])v?\d+\.\d+\.\d+(?:-[A-Za-z\d]+(?:[.-][A-Za-z\d]+)*)?(?:\+[A-Za-z\d]+(?:[.-][A-Za-z\d]+)*)?(?!\w|\.\w)/gu,
+    xpath,
     path,
     /(?<![\w$])HTTP(?:S|\(S\))?\/\d+(?:\.\d+)*(?![\w$])/giu,
     data
@@ -155,6 +161,13 @@ export function protectedFragments(unit: TextUnit, tree?: MarkdownNode): readonl
       const end = start + text.length
       // Escapes and interpolations are lexical boundaries, not identifier characters.
       if (unit.protected?.some((range) => range.start < end && range.end > start)) continue
+      // Consecutive predicates resemble a collapsed Markdown reference. Only
+      // brackets and its lookup label may yield to a complete explicit selector.
+      if (pattern === xpath) {
+        const overlapping = fragments.filter((fragment) => fragment.start < end && fragment.end > start)
+        if (overlapping.every((fragment) => fragment.start >= start && fragment.end <= end && ["LinkMark", "LinkLabel"].includes(fragment.kind)))
+          fragments = fragments.filter((fragment) => fragment.start >= end || fragment.end <= start)
+      }
       while (occupied < fragments.length && fragments[occupied].end <= start) occupied++
       if (occupied < fragments.length && fragments[occupied].start < end) continue
       // A prose range or hyphenated unit owns its words and separator; only the

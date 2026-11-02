@@ -3000,6 +3000,26 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   }
   await config.update("browse.strings", false, vscode.ConfigurationTarget.Global)
   checks.push("indented Python docstring prose folds continuations before mock HTTP, completes without retries and reuses cache under LF/CRLF without source edits")
+
+  {
+    const previousStrings = config.get("browse.strings")
+    await config.update("browse.strings", true, vscode.ConfigurationTarget.Global)
+    const source = `first = ".//p:entry[@key='C9']/p:value"\nsecond = '//catalog/item[@code="sample title"][2]/@label'`
+    const target = await open("selector-data.py", "python", source)
+    const units = (await owner.documents.parse(target.document)).groups.flatMap((group) => group.units)
+    assert(units.length === 2, "Python grammar did not extract both selector strings.")
+    const before = (await requests()).length
+    await start(target.document, units.length)
+    assert((await requests()).length === before, "Pure Python selectors reached the translation service.")
+    assert(
+      owner.browse.inspect(target.document.uri)!.units.every((unit) => unit.translation === source.slice(unit.start, unit.end)),
+      "Locally completed Python selectors changed their source representation."
+    )
+    assert(target.document.getText() === source && !target.document.isDirty, "Selector browsing modified Python source.")
+    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    await config.update("browse.strings", previousStrings, vscode.ConfigurationTarget.Global)
+  }
+  checks.push("real Python grammar completes descendant selectors with quoted predicates locally without HTTP or source edits")
   for (const newline of ["\n", "\r\n"]) {
     const commands = [
       "sample-reader set media dark",

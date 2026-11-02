@@ -84,6 +84,34 @@ test("copy-only data completes locally while ordinary names remain translatable"
   assert.equal(prepareTranslation(input.units[0], 32).hasMarkers, false)
 })
 
+test("XPath selectors complete locally while surrounding prose translates and selector mutations fail", async (t) => {
+  const selectors = [".//p:entry[@key='C9']/p:value", '//catalog/item[@code="sample title"][2]/@label']
+  const fixture = await chatFixture(t, (_body, items) => items.map((item) => item.replace("Read", "阅读")).join("\n%%\n"))
+  const settings = { ...fixture.settings, skipSameLanguage: false, preserveTerms: emptyPreserveTerms }
+  for (const text of selectors) {
+    const markdown = inputOf(parseMarkdown(text)).units[0]
+    const prepared = prepareTranslation(markdown, 32)
+    assert.equal(prepared.needsTranslation, false, "Selector predicates were mistaken for Markdown references.")
+    assert.equal(prepared.restore(prepared.text), text)
+    const unit = { id: "selector", start: 0, end: text.length, text, format: "text" as const, kind: "string" as const }
+    const input = { units: [unit] }
+    const result = await requestTranslation(fixture.service, settings, input, new AbortController().signal, fixture.gate)
+    assert.equal(result[0].text, text)
+  }
+  assert.equal(fixture.seen.length, 0, "Pure selectors must not reach the translation service.")
+  for (const selector of selectors) {
+    const text = "Read " + selector
+    const unit = { id: "prose", start: 0, end: text.length, text, format: "text" as const, kind: "string" as const }
+    const prepared = prepareTranslation(unit, 32)
+    assert.equal(prepared.needsTranslation, true)
+    assert.equal(prepared.restore(prepared.text.replace("Read", "阅读")), "阅读 " + selector)
+    assert.throws(() => prepared.restore("阅读 " + selector.replace("//", "/")), /translation-(?:structure-invalid|marker-mismatch)/)
+    const result = await requestTranslation(fixture.service, settings, { units: [unit] }, new AbortController().signal, fixture.gate)
+    assert.equal(result[0].text, "阅读 " + selector)
+  }
+  assert.equal(fixture.seen.length, selectors.length)
+})
+
 test("default short names only preserve complete bodies and clearing the defaults restores HTTP translation", async (t) => {
   const source = "Read HTTP, HTTPS, HTTP(S), http(s), HTTP/HTTPS, HTTP/2, TCP/IP, DNS, JSON, json, uv.lock, UTF-8, API, GraphQL, CPU, I/O and https://example.com/a now."
   for (const kind of [undefined, "comment", "string"] as const) {
