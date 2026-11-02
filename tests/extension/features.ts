@@ -2958,6 +2958,49 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   }
   checks.push("LF/CRLF multiline prose sends one joining space without line placeholders and shares folded browse/native preview results while preserving source")
   for (const newline of ["\n", "\r\n"]) {
+    const source = ["def read_catalog():", "    # Read the original document. Keep", "    # /gallery/<code>/ unchanged.", "    pass"].join(newline)
+    const target = await open(newline === "\n" ? "comment-markup-lf.py" : "comment-markup-crlf.py", "python", source)
+    const before = (await requests()).length
+    await start(target.document, 1)
+    const translated = owner.browse.inspect(target.document.uri)!.units[0].translation
+    assert(translated.includes("阅读原始文档。") && translated.includes("/gallery/<code>/"), "Indented comment markup was rejected or changed.")
+    assert((await requests()).length === before + 1, "An intact comment translation required a retry.")
+    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    await start(target.document, 1)
+    assert((await requests()).length === before + 1, "The accepted comment translation was not cached.")
+    assert(target.document.getText() === source && !target.document.isDirty, "Comment translation modified source.")
+    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  }
+  checks.push("indented Python comment markup survives folded translation on the first request and is cached under LF/CRLF without source edits")
+  await config.update("browse.strings", true, vscode.ConfigurationTarget.Global)
+  for (const newline of ["\n", "\r\n"]) {
+    const source = [
+      "def read_gallery():",
+      '    """Args:',
+      "        catalog: Description of the gallery.",
+      "                 Read the original document. Keep",
+      "                          `entry` unchanged.",
+      '    """'
+    ].join(newline)
+    const target = await open(newline === "\n" ? "docstring-wrap-lf.py" : "docstring-wrap-crlf.py", "python", source)
+    const parsed = (await owner.documents.parse(target.document)).groups.flatMap((group) => group.units)
+    const prose = parsed.find((unit) => unit.text.includes("`entry`"))!
+    assert(prepareTranslation(prose, 32).text === "Read the original document. Keep `entry` unchanged.", "Docstring wrapping remained a mandatory line boundary.")
+    const before = (await requests()).length
+    await start(target.document, parsed.length)
+    const translated = owner.browse.inspect(target.document.uri)!.units.find((unit) => unit.id === prose.id)!.translation
+    assert(translated.includes("阅读原始文档。") && !projectionContent(prose, translated).includes("\n"), "Docstring prose did not accept its folded translation.")
+    const sent = (await requests()).slice(before)
+    assert(sent.length > 0 && sent.every((request) => !request.retryFeedbackIncluded), "Ordinary docstring wrapping required recovery.")
+    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    await start(target.document, parsed.length)
+    assert((await requests()).length === before + sent.length, "Folded docstring translation was not cached.")
+    assert(target.document.getText() === source && !target.document.isDirty, "Docstring browsing changed source.")
+    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  }
+  await config.update("browse.strings", false, vscode.ConfigurationTarget.Global)
+  checks.push("indented Python docstring prose folds continuations before mock HTTP, completes without retries and reuses cache under LF/CRLF without source edits")
+  for (const newline of ["\n", "\r\n"]) {
     const commands = [
       "sample-reader set media dark",
       "sample-reader --session <name> ...",

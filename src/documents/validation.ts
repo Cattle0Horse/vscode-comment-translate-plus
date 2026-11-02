@@ -416,6 +416,22 @@ export function validateTranslation(unit: TextUnit, translated: string, code = "
       },
       { code, difference: { reason: "译文包含缺少注释前缀的行。", expected: unit.commentPrefix, actual: translated } }
     )
+  if (unit.kind === "comment") {
+    // Comment syntax owns indentation and continuation decoration, not Markdown
+    // code blocks. Compare prose only after checking its source-language shell.
+    function prose(comment: TextUnit): string {
+      const { source, ranges } = translationBody(comment)
+      let text = source
+      for (const range of [...ranges].reverse()) if (range.fold) text = text.slice(0, range.start) + "\n" + text.slice(range.end)
+      return text
+    }
+
+    return validateTranslation(
+      { ...unit, text: prose(unit), kind: undefined, commentPrefix: undefined, protected: undefined },
+      prose({ ...unit, text: translated, protected: undefined }),
+      code
+    )
+  }
   if (unit.format === "yaml")
     return new ModelRetry(
       { reason: "The response is not a supported YAML string unit.", instruction: "Translate only the requested YAML string value; do not return a whole YAML document." },

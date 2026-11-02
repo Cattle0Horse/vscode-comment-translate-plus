@@ -1,7 +1,7 @@
 import { protectedFragments, translationBodyRange } from "./protection.ts"
 import type { TextUnit } from "../model/document.ts"
 import type { MarkdownNode } from "./tree.ts"
-import { children, markdownTree } from "./tree.ts"
+import { children, markdownTree, standalone } from "./tree.ts"
 
 const analyses = new WeakMap<TextUnit, ReturnType<typeof analyzeTranslationBody>>()
 
@@ -131,11 +131,16 @@ function analyzeTranslationBody(unit: TextUnit) {
       else for (const child of children(node)) visit(child)
     }
 
-    visit(markdownTree(original).topNode)
-    for (const match of original.matchAll(/\r\n|[\r\n]/gu)) {
+    // Use the same dedented view as protectedFragments. Raw source indentation
+    // can otherwise turn prose into a code block only in this boundary check.
+    const structural = standalone(original)
+    visit(markdownTree(structural).topNode)
+    const breaks = [...structural.matchAll(/\r\n|[\r\n]/gu)]
+    for (const [index, match] of [...original.matchAll(/\r\n|[\r\n]/gu)].entries()) {
       if (match.index < start || match.index >= end) continue
       const next = match.index + match[0].length
-      if (!paragraphs.some((node) => node.from <= match.index && node.to > next)) {
+      const boundary = breaks[index]
+      if (!paragraphs.some((node) => node.from <= boundary.index && node.to > boundary.index + boundary[0].length)) {
         ranges.push({ start: match.index, end: next, kind: "LineBoundary" })
         continue
       }

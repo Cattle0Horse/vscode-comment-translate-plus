@@ -68,6 +68,31 @@ test("sentence endings split adjacent comments after ignoring trailing whitespac
   }
 })
 
+test("indented comment continuations validate prose markup after folding without hiding genuine damage", async () => {
+  for (const newline of ["\n", "\r\n"])
+    for (const marker of ["#", "//", "--", ";"]) {
+      const source = [
+        "        " + marker + " Read the gallery catalog from the shared",
+        "        " + marker + " /gallery/<code>/ root and [map](https://map.example). Keep",
+        "        " + marker + " <span>the printed reference</span> when reading."
+      ].join(newline)
+      const [unit] = await extractCode(source, "fixture", new CodeTokenizer(lineGrammar(marker)), () => {})
+      const prepared = prepareTranslation(unit, 32)
+      const output = "从共享的 /gallery/<code>/ 根目录阅读画廊目录和[地图](https://map.example)。阅读时保留 <span>纸质参考</span>。"
+      const restored = prepared.restore(output)
+      assert.equal(validateTranslation(unit, restored), undefined)
+      assert.equal(prepared.restore(prepared.text), unit.text)
+      for (const invalid of [
+        restored.replace("<code>", "<other>"),
+        restored.replace("<span>", "<div>"),
+        restored.replace("https://map.example", "https://other.example"),
+        restored + " <aside>新增内容</aside>"
+      ])
+        assert.ok(validateTranslation(unit, invalid))
+      assert.ok(validateTranslation(unit, output), "A valid prose translation must still retain its comment delimiter.")
+    }
+})
+
 test("blank lines, code, inline comments, indentation and marker changes separate comment paragraphs", async () => {
   const lines = ["// First.", "", "// Second.", "const value = 1; // Inline.", "// Third.", "  // Indented.", "// Fourth.", "/// Documentation.", "/// Continuation."]
   const grammar = lineGrammar("//")

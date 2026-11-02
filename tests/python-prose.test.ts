@@ -462,6 +462,36 @@ test("Python docstrings fold prose and each list or parameter continuation while
   }
 })
 
+test("indented docstring prose folds continuation lines and caches a single-line translation on its first attempt", async (t) => {
+  for (const newline of ["\n", "\r\n"]) {
+    const { units } = docstring(
+      ["Args:", "    catalog: Description of the printed gallery.", "             ``entry`` uses the default heading", "                      from ``display/plain; style=brief``."],
+      newline
+    )
+    const unit = units.find((unit) => unit.text.includes("``entry``"))!
+    const output = "``entry`` 使用 ``display/plain; style=brief`` 中的默认标题。"
+    const prepared = prepareTranslation(unit, 32)
+    assert.equal(prepared.text, "``entry`` uses the default heading from ``display/plain; style=brief``.")
+    assert.equal(prepared.restore(prepared.text), unit.text)
+    assert.equal(validateTranslation(unit, prepared.restore(output)), undefined)
+    assert.throws(() => prepared.restore(output + "\n额外段落。"), /structure-invalid/u)
+    const fixture = await chatFixture(t, () => output)
+    const store = new TranslationStore()
+    t.after(() => store.clear())
+    const run = () =>
+      store.translate(
+        "docstring-continuation",
+        { units: [unit] },
+        (input, signal, completed) => requestTranslation(fixture.service, fixture.settings, input, signal, fixture.gate, completed),
+        new AbortController().signal
+      )
+    const result = await run()
+    assert.equal(projectionContent(unit, result.get(unit.id)!), unit.projection!.unit.text.match(/^[\t ]*/u)![0] + output)
+    assert.deepEqual(await run(), result)
+    assert.equal(fixture.seen.length, 1, "Ordinary prose wrapping caused retries or prevented caching.")
+  }
+})
+
 test("Python paragraph results preserve successful neighbours and reuse the shared cache after one item exhausts attempts", async (t) => {
   const { units } = docstring(["Read the museum catalog.", "", "Visit the gallery before", "collecting the ticket."], "\n")
   const fixture = await chatFixture(t, (_body, items) => {
