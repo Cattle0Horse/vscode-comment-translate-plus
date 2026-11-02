@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
@@ -33,6 +33,7 @@ jobs:
           name: comment-translate-plus-${{ github.ref_name }}
           path: artifacts/comment-translate-plus.vsix
           if-no-files-found: error
+          compression-level: 0
       - name: Generate changelog and publish GitHub Release
         if: github.event_name == 'push'
         shell: bash
