@@ -20,7 +20,8 @@ export class DocumentReader implements vscode.Disposable {
   private readonly tokenized = new Map<string, ReadonlyMap<string, CodeTokenizer>>()
   constructor(
     extensionUri: vscode.Uri,
-    private readonly outputPrefix: string
+    private readonly outputPrefix: string,
+    private readonly isLogFile: (uri: vscode.Uri) => boolean
   ) {
     this.grammar = new GrammarExtractor(extensionUri)
   }
@@ -30,7 +31,7 @@ export class DocumentReader implements vscode.Disposable {
   }
 
   isOwnOutput(document: vscode.TextDocument): boolean {
-    return document.uri.scheme === "output" && document.uri.path.startsWith(this.outputPrefix)
+    return (document.uri.scheme === "output" && document.uri.path.startsWith(this.outputPrefix)) || this.isLogFile(document.uri)
   }
 
   async parseSource(
@@ -71,6 +72,7 @@ export class DocumentReader implements vscode.Disposable {
   }
 
   async parse(document: vscode.TextDocument, allCode = false, options?: { readonly cache: boolean; readonly signal: AbortSignal }): Promise<ParsedDocument> {
+    if (this.isOwnOutput(document)) return { source: document.getText(), groups: [], errors: [] }
     let parsed: ParsedDocument
     if (options?.cache === false) {
       const version = document.version

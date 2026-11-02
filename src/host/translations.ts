@@ -6,6 +6,8 @@ import { prepareInput } from "../translation/prepare.ts"
 import { TranslationService } from "../translation/engine.ts"
 import type { TranslationEvent } from "../model/events.ts"
 import { TranslationLog } from "./logging.ts"
+import type { LogLevel } from "./logging.ts"
+import { FileLog } from "./fileLog.ts"
 import { TranslationStore } from "../translation/store.ts"
 import type { TextUnit, ParsedDocument } from "../model/document.ts"
 import type { SourceEdit } from "../documents/edits.ts"
@@ -16,7 +18,7 @@ import { describeError, TranslationFailure, ParseFailure } from "../model/diagno
 import { TermFiles } from "./termFiles.ts"
 import type { prepareSelection } from "../documents/selection.ts"
 import { PersistentCache } from "./persistentCache.ts"
-import { join } from "node:path"
+import { isAbsolute, join, resolve } from "node:path"
 import { emptyPreserveTerms } from "../documents/terms.ts"
 
 export class TranslationRuntime implements vscode.Disposable {
@@ -26,6 +28,11 @@ export class TranslationRuntime implements vscode.Disposable {
   private readonly store: TranslationStore
   private readonly service = new TranslationService()
   private readonly output = vscode.window.createOutputChannel("注释翻译+")
+  private readonly fileLog = new FileLog(() => {
+    const message = "无法写入日志文件，已停止向该文件写入；输出面板仍可使用。请检查路径及权限，修改 logFile 后重试。"
+    this.output.appendLine("[" + new Date().toISOString() + "] [ERROR] " + message)
+    if (!this.disposed) void vscode.window.showWarningMessage(message)
+  })
   private readonly log = new TranslationLog((entry) => this.output.appendLine(entry))
   private activeDocument: vscode.TextDocument | undefined
   private visibleRanges: readonly { start: number; end: number }[] = []
@@ -35,7 +42,7 @@ export class TranslationRuntime implements vscode.Disposable {
   readonly onDidChangeProgress = this.changes.event
   constructor(context: vscode.ExtensionContext, home?: string) {
     this.persistent = new PersistentCache(join(context.globalStorageUri.fsPath, "translation-cache.sqlite"), () => {
-      this.log.write("warning", "持久化翻译缓存读写失败或数据损坏，未命中项将继续正常翻译。")
+      this.logDiagnostic("warning", "持久化翻译缓存读写失败或数据损坏，未命中项将继续正常翻译。")
       if (!this.disposed) void vscode.window.showWarningMessage("持久化翻译缓存读写失败或数据损坏，未命中项将继续正常翻译。")
     })
     this.store = new TranslationStore(this.persistent, () => this.progressChanged())
@@ -72,7 +79,7 @@ export class TranslationRuntime implements vscode.Disposable {
       maxSize < 1 ||
       maxSize > 1024
     ) {
-      this.log.write("warning", "持久化缓存配置无效，继续使用上次有效配置（初始为关闭）。")
+      this.logDiagnostic("warning", "持久化缓存配置无效，继续使用上次有效配置（初始为关闭）。")
       return Promise.resolve()
     }
     return this.persistent.configure({ enabled, maxEntries, maxBytes: maxSize * 1024 * 1024 })
@@ -208,6 +215,7 @@ export class TranslationRuntime implements vscode.Disposable {
     background = false
   ): Promise<ReadonlyMap<string, string>> {
     if (this.disposed) throw Error("extension-disposed")
+    const version = document.version
     this.translating++
     this.progressChanged()
     try {
@@ -236,8 +244,8 @@ export class TranslationRuntime implements vscode.Disposable {
             this.gate,
             accepted,
             {
-              details: this.log.detailsEnabled,
-              emit: (event) => this.logTranslation(event, configured, document)
+              details: this.log.detailsEnabled || this.fileLog.enabled,
+              emit: (event) => this.logTranslation(event, configured, document, version, batch)
             },
             interests,
             priority,
@@ -246,7 +254,10 @@ export class TranslationRuntime implements vscode.Disposable {
         signal,
         force,
         completed,
-        (event) => this.log.reused(event, vscode.workspace.asRelativePath(document.uri), configured.apiKey),
+        (event) => {
+          this.log.reused(event, vscode.workspace.asRelativePath(document.uri), configured.apiKey)
+          this.fileLog.record({ ...event, file: document.uri.toString(), documentVersion: version, profileId: configured.profileId }, [configured.apiKey])
+        },
         interests,
         priority ??
           ((unit: TextUnit) => {
@@ -330,7 +341,12 @@ export class TranslationRuntime implements vscode.Disposable {
       const position = document?.positionAt(error.diagnostic.range.start)
       if (position) location += ":" + (position.line + 1) + ":" + (position.character + 1)
     }
-    if (!(error instanceof TranslationFailure && error.reported)) this.log.write("error", (location ? location + "：" : "") + describeError(code) + "（" + code + "）")
+    if (!(error instanceof TranslationFailure && error.reported))
+      this.logDiagnostic("error", (location ? location + "：" : "") + describeError(code) + "（" + code + "）", {
+        code,
+        file: uri?.toString(),
+        diagnostic: error instanceof ParseFailure ? error.diagnostic : undefined
+      })
     return code
   }
 
@@ -340,16 +356,55 @@ export class TranslationRuntime implements vscode.Disposable {
   }
 
   configureLog(): void {
+    if (this.disposed) return
+    const config = vscode.workspace.getConfiguration("commentTranslatePlus")
     try {
-      const config = vscode.workspace.getConfiguration("commentTranslatePlus")
       this.log.configure(config.get<unknown>("logLevel", "info"), config.get<unknown>("logDetails", false))
     } catch {
-      this.log.write("error", "logLevel 必须是 info、warning 或 error，logDetails 必须为布尔值。")
+      this.logDiagnostic("error", "logLevel 必须是 info、warning 或 error，logDetails 必须为布尔值。")
     }
+    const value = config.get<unknown>("logFile", "")
+    if (typeof value !== "string" || value.includes("\0")) {
+      this.logDiagnostic("error", "logFile 必须是有效的本地文件路径字符串，留空关闭文件日志。")
+      return
+    }
+    const path = value.trim()
+    const workspace = vscode.workspace.workspaceFolders?.[0]?.uri
+    if (path && !isAbsolute(path) && (!workspace || workspace.scheme !== "file" || /^[a-z][a-z0-9+.-]*:/i.test(path))) {
+      this.logDiagnostic("error", "logFile 相对路径需要本地工作区；也可设置绝对文件路径。继续使用上次有效路径。")
+      return
+    }
+    this.fileLog.configure(path ? (isAbsolute(path) ? resolve(path) : resolve(workspace!.fsPath, path)) : undefined)
   }
 
-  private logTranslation(event: TranslationEvent, settings: TranslationSettings, document: vscode.TextDocument): void {
+  isLogFile(uri: vscode.Uri): boolean {
+    if (uri.scheme !== "file" || !this.fileLog.path) return false
+    const path = resolve(uri.fsPath)
+    return process.platform === "win32" ? path.toLowerCase() === this.fileLog.path.toLowerCase() : path === this.fileLog.path
+  }
+
+  private logDiagnostic(level: LogLevel, message: string, detail: object = {}): void {
+    this.log.write(level, message)
+    this.fileLog.record({ kind: "diagnostic", level, message, ...detail })
+  }
+
+  private logTranslation(event: TranslationEvent, settings: TranslationSettings, document: vscode.TextDocument, version: number, input: TranslationInput): void {
     if (this.disposed) return
+    this.fileLog.record(
+      {
+        ...event,
+        ...(event.kind === "start" ? { units: input.units } : {}),
+        file: document.uri.toString(),
+        documentVersion: version,
+        languageId: document.languageId,
+        profileId: settings.profileId,
+        provider: settings.provider,
+        model: settings.model,
+        sourceLanguage: settings.sourceLanguage,
+        targetLanguage: settings.targetLanguage
+      },
+      [settings.apiKey]
+    )
     const file = vscode.workspace.asRelativePath(document.uri, false)
     this.log.record(event, {
       file,
@@ -373,6 +428,7 @@ export class TranslationRuntime implements vscode.Disposable {
     this.log.resetReferences()
     this.gate.dispose()
     await this.persistent.close()
+    await this.fileLog.close()
     this.output.dispose()
   }
 }

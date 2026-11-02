@@ -41,7 +41,7 @@ export class MarkdownPreview implements vscode.FileSystemProvider, vscode.Dispos
   }
 
   async open(document = vscode.window.activeTextEditor?.document): Promise<void> {
-    if (!document || !isMarkdownDocument(document) || document.uri.scheme === scheme) {
+    if (!document || this.documents.isOwnOutput(document) || !isMarkdownDocument(document) || document.uri.scheme === scheme) {
       void vscode.window.showWarningMessage("翻译预览支持 Markdown 和指令文件。")
       return
     }

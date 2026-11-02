@@ -93,7 +93,7 @@ export class Controls implements vscode.Disposable {
     const progress = this.translations.progress(document?.uri)
     const supported = !!document && this.documents.supports(document)
     void vscode.commands.executeCommand("setContext", "commentTranslatePlus.supported", supported)
-    void vscode.commands.executeCommand("setContext", "commentTranslatePlus.markdown", !!document && isMarkdownDocument(document))
+    void vscode.commands.executeCommand("setContext", "commentTranslatePlus.markdown", supported && isMarkdownDocument(document!))
     const browsing = snapshot?.scope === "document"
     void vscode.commands.executeCommand("setContext", "commentTranslatePlus.browse", browsing)
     const busy = this.translations.isWorking || this.background.isRunning

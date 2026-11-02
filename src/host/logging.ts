@@ -15,7 +15,7 @@ export interface TranslationLogContext {
 
 const priority = { info: 0, warning: 1, error: 2 }
 
-function redact(text: string, secrets: readonly string[]): string {
+export function redact(text: string, secrets: readonly string[]): string {
   const tokens = [...new Set(secrets.filter(Boolean).flatMap((secret) => [secret, JSON.stringify(secret).slice(1, -1)]))].sort((a, b) => b.length - a.length)
   for (const secret of tokens) text = text.replaceAll(secret, "[REDACTED]")
   return text

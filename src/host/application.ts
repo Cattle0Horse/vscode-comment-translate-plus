@@ -35,7 +35,7 @@ export class Application implements vscode.Disposable {
   private disposal: Promise<void> | undefined
   constructor(context: vscode.ExtensionContext, home?: string) {
     this.translations = new TranslationRuntime(context, home)
-    this.documents = new DocumentReader(context.extensionUri, "extension-output-" + context.extension.id + "-")
+    this.documents = new DocumentReader(context.extensionUri, "extension-output-" + context.extension.id + "-", (uri) => this.translations.isLogFile(uri))
     this.browse = new BrowseWorkspace(
       context.extensionUri,
       this.documents,
@@ -163,7 +163,19 @@ export class Application implements vscode.Disposable {
     if (["persistentCache", "persistentCacheMaxEntries", "persistentCacheMaxSizeMB"].some((key) => event.affectsConfiguration("commentTranslatePlus." + key)))
       await this.translations.configureCache()
     if (this.disposed) return
-    if (event.affectsConfiguration("commentTranslatePlus.logLevel") || event.affectsConfiguration("commentTranslatePlus.logDetails")) this.translations.configureLog()
+    if (["logLevel", "logDetails", "logFile"].some((key) => event.affectsConfiguration("commentTranslatePlus." + key))) this.translations.configureLog()
+    if (event.affectsConfiguration("commentTranslatePlus.logFile")) {
+      for (const document of vscode.workspace.textDocuments) {
+        if (!this.documents.isOwnOutput(document)) continue
+        this.background.cancelDocument(document.uri, "configuration-changed")
+        this.browse.stop(document.uri, false, "configuration-changed")
+        this.browse.forget(document.uri)
+        this.hover.cancel(document.uri, "configuration-changed")
+        this.replacement.cancel(document.uri, "configuration-changed")
+        this.preview.close(document.uri)
+        this.documents.invalidate(document.uri)
+      }
+    }
     if (event.affectsConfiguration("commentTranslatePlus.browse")) this.documents.clear()
     if (event.affectsConfiguration("commentTranslatePlus.profiles")) this.translations.reset()
     const processing = [
