@@ -1,6 +1,7 @@
 name: Release VSIX
 
 on:
+  workflow_dispatch:
   push:
     tags:
       - "v*"
@@ -22,6 +23,7 @@ jobs:
           node-version: 22
           cache: pnpm
       - name: Check tag version
+        if: github.event_name == 'push'
         run: >-
           node -e "const { version } = require('./package.json'); if (process.env.GITHUB_REF_NAME !== 'v' + version) throw new Error('Tag must match package.json version: v' + version)"
       - run: pnpm install --frozen-lockfile
@@ -32,6 +34,7 @@ jobs:
           path: artifacts/comment-translate-plus.vsix
           if-no-files-found: error
       - name: Generate changelog and publish GitHub Release
+        if: github.event_name == 'push'
         shell: bash
         run: pnpm exec changelogithub --to "$GITHUB_REF_NAME" --assets artifacts/comment-translate-plus.vsix
         env:
