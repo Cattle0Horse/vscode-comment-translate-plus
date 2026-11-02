@@ -698,7 +698,7 @@
           "type": "string",
           "default": "",
           "scope": "window",
-          "description": "将供 Agent 排查问题的结构化日志追加到 UTF-8 JSONL 文件，留空关闭。支持绝对路径或相对第一个工作区文件夹的路径，自动创建父目录。独立于输出面板的 logLevel 和 logDetails，包含任务、请求、完整模型消息和响应、重试差异及诊断，密钥始终脱敏。当前日志文件不参与翻译，修改路径不会补写历史记录。"
+          "description": "将供 Agent 排查问题的结构化日志追加到 UTF-8 JSONL 文件，留空关闭。路径解析与保留词写入文件一致，支持 ~/、绝对路径、网络共享路径、file URI 或相对第一个工作区文件夹的路径；日志仅支持本地文件系统，自动创建父目录。独立于输出面板的 logLevel 和 logDetails，包含任务、请求、完整模型消息和响应、重试差异及诊断，密钥始终脱敏。当前日志文件不参与翻译，修改路径不会补写历史记录。"
         },
         "commentTranslatePlus.logDetails": {
           "type": "boolean",

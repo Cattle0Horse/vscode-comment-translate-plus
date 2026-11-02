@@ -18,8 +18,9 @@ import { describeError, TranslationFailure, ParseFailure } from "../model/diagno
 import { TermFiles } from "./termFiles.ts"
 import type { prepareSelection } from "../documents/selection.ts"
 import { PersistentCache } from "./persistentCache.ts"
-import { isAbsolute, join, resolve } from "node:path"
+import { join, resolve } from "node:path"
 import { emptyPreserveTerms } from "../documents/terms.ts"
+import { resolveResourceUrl } from "../documents/resourcePaths.ts"
 
 export class TranslationRuntime implements vscode.Disposable {
   readonly terms: TermFiles
@@ -40,7 +41,10 @@ export class TranslationRuntime implements vscode.Disposable {
   private translating = 0
   private readonly changes = new vscode.EventEmitter<void>()
   readonly onDidChangeProgress = this.changes.event
-  constructor(context: vscode.ExtensionContext, home?: string) {
+  constructor(
+    context: vscode.ExtensionContext,
+    private readonly home?: string
+  ) {
     this.persistent = new PersistentCache(join(context.globalStorageUri.fsPath, "translation-cache.sqlite"), () => {
       this.logDiagnostic("warning", "持久化翻译缓存读写失败或数据损坏，未命中项将继续正常翻译。")
       if (!this.disposed) void vscode.window.showWarningMessage("持久化翻译缓存读写失败或数据损坏，未命中项将继续正常翻译。")
@@ -368,13 +372,18 @@ export class TranslationRuntime implements vscode.Disposable {
       this.logDiagnostic("error", "logFile 必须是有效的本地文件路径字符串，留空关闭文件日志。")
       return
     }
-    const path = value.trim()
-    const workspace = vscode.workspace.workspaceFolders?.[0]?.uri
-    if (path && !isAbsolute(path) && (!workspace || workspace.scheme !== "file" || /^[a-z][a-z0-9+.-]*:/i.test(path))) {
-      this.logDiagnostic("error", "logFile 相对路径需要本地工作区；也可设置绝对文件路径。继续使用上次有效路径。")
-      return
+    try {
+      let path: string | undefined
+      if (value.trim()) {
+        const workspace = vscode.workspace.workspaceFolders?.[0]?.uri.toString()
+        const url = resolveResourceUrl(value, workspace, this.home)
+        if (url.protocol !== "file:") throw Error("log-file-not-local")
+        path = vscode.Uri.parse(url.href).fsPath
+      }
+      this.fileLog.configure(path)
+    } catch {
+      this.logDiagnostic("error", "logFile 路径无效，请使用本地绝对路径、~/、工作区相对路径或 file URI。继续使用上次有效路径。")
     }
-    this.fileLog.configure(path ? (isAbsolute(path) ? resolve(path) : resolve(workspace!.fsPath, path)) : undefined)
   }
 
   isLogFile(uri: vscode.Uri): boolean {

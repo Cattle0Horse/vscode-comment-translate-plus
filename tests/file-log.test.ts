@@ -4,6 +4,8 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { FileLog } from "../src/host/fileLog.ts"
+import { resolveResourceUrl } from "../src/documents/resourcePaths.ts"
+import { fileURLToPath } from "node:url"
 
 test("JSONL appends preserve existing evidence, order, redaction and routing across path changes and shutdown", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "ctp-log-"))
@@ -71,4 +73,24 @@ test("a failed destination reports once, stops collecting and permits a new dest
     .map((line) => JSON.parse(line))
   assert.equal(records.at(-1).status, "complete")
   assert.equal(failures, 1)
+})
+
+test("home-relative log paths write into the supplied home without a workspace and preserve literal filename characters", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "ctp-home-log-"))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const log = new FileLog(() => assert.fail("Home-relative destination failed"))
+  for (const prefix of ["~/", "~\\"]) {
+    const url = resolveResourceUrl(prefix + "日志 #1%.jsonl", undefined, directory)
+    log.configure(fileURLToPath(url))
+    log.record({ kind: "diagnostic", code: "synthetic-failure", prefix })
+  }
+  await log.close()
+  const records = (await readFile(join(directory, "日志 #1%.jsonl"), "utf8"))
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line))
+  assert.deepEqual(
+    records.filter((record) => record.kind === "diagnostic").map((record) => record.prefix),
+    ["~/", "~\\"]
+  )
 })

@@ -91,13 +91,19 @@ export async function runFileLogging(workspace: vscode.Uri, owner: Application, 
     assert(!owner.documents.supports(logDocument) && (await owner.documents.parse(logDocument)).groups.length === 0, "Agent log became translatable source.")
     const hovers = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", second, new vscode.Position(0, 1))
     assert(!hovers.length, "Agent log created a translation hover.")
-    const saved = await readFile(second.fsPath, "utf8")
+    const fileUri = vscode.Uri.joinPath(workspace, "diagnostics/URI 日志 #1%.jsonl")
+    await update("logFile", fileUri.toString())
+    owner.translations.diagnose(Error("service-timeout"))
+    const fileUriRecords = await untilRecord(fileUri.fsPath, "diagnostic")
+    assert(fileUriRecords.some((record) => record.code === "service-timeout") && owner.translations.isLogFile(fileUri), "File URI logging resolved to a different destination.")
+    const saved = await readFile(fileUri.fsPath, "utf8")
     await update("logFile", "")
     owner.translations.diagnose(Error("service-timeout"))
-    assert((await readFile(second.fsPath, "utf8")) === saved, "Disabling file logging appended new evidence.")
+    assert((await readFile(fileUri.fsPath, "utf8")) === saved, "Disabling file logging appended new evidence.")
     return [
       "native logFile settings append complete redacted JSONL events independently of human log level/details",
       "switching relative/absolute destinations preserves standalone model evidence and excludes the log from parsing and hover",
+      "native file URI log settings resolve to the same local file and preserve output exclusion",
       "disabling logFile stops future file output"
     ]
   } finally {
