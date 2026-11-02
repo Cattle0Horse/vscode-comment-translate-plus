@@ -60,14 +60,13 @@ export class TranslationRuntime implements vscode.Disposable {
     if (this.disposed) return Promise.resolve()
     const config = vscode.workspace.getConfiguration("commentTranslatePlus")
     const enabled = config.get<unknown>("persistentCache", false)
-    const maxEntries = config.get<unknown>("persistentCacheMaxEntries", 10000)
+    const maxEntries = config.get<unknown>("persistentCacheMaxEntries", 100000)
     const maxSize = config.get<unknown>("persistentCacheMaxSizeMB", 20)
     if (
       typeof enabled !== "boolean" ||
       typeof maxEntries !== "number" ||
       !Number.isInteger(maxEntries) ||
-      maxEntries < 1 ||
-      maxEntries > 1000000 ||
+      maxEntries < 1000 ||
       typeof maxSize !== "number" ||
       !Number.isInteger(maxSize) ||
       maxSize < 1 ||

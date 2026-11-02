@@ -725,9 +725,8 @@
         },
         "commentTranslatePlus.persistentCacheMaxEntries": {
           "type": "integer",
-          "default": 10000,
-          "minimum": 1,
-          "maximum": 1000000,
+          "default": 100000,
+          "minimum": 1000,
           "scope": "window",
           "description": "本机最多保存多少条译文，每个独立翻译片段计一条。超过此数量或容量限制时，优先清理较久未使用的条目，直到数量和容量均降至各自上限的 80%。"
         },

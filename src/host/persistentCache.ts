@@ -33,7 +33,7 @@ function digest(key: string): string {
 
 /** SQLite owns the persistent index; only uncommitted mutations stay in JavaScript. */
 export class PersistentCache {
-  private options: PersistentCacheOptions = { enabled: false, maxEntries: 10000, maxBytes: 20 * 1024 * 1024 }
+  private options: PersistentCacheOptions = { enabled: false, maxEntries: 100000, maxBytes: 20 * 1024 * 1024 }
   private readonly changes = new Map<string, Change>()
   private readonly touches = new Map<string, number>()
   private readonly reservations = new Map<string, number>()
