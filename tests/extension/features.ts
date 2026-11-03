@@ -1450,6 +1450,26 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
   checks.push("offline target-language detection skips browse, hover and preview HTTP, preserves source and isolates its disable switch in cache")
 
+  const previousScreeningTerms = config.inspect<readonly string[]>("preserveTerms")?.globalValue
+  try {
+    const termsFile = vscode.Uri.joinPath(workspace, "screening-terms.json")
+    await vscode.workspace.fs.writeFile(termsFile, new TextEncoder().encode(JSON.stringify(["Widget", "Studio Edition"])))
+    await config.update("preserveTerms", [termsFile.toString()], vscode.ConfigurationTarget.Global)
+    const source = "这是 Widget 的使用说明，请阅读完整内容。\n\n这是 sourceId 的使用说明，请阅读完整内容。\n\n这是 Studio Edition 的使用说明，请阅读完整内容。"
+    const screened = await open("screened-language.md", "markdown", source)
+    const before = (await requests()).length
+    await start(screened.document, 3)
+    assert((await requests()).length === before, "Configured terms or explicit identifiers prevented target-language screening.")
+    assert(
+      owner.browse.inspect(screened.document.uri)!.units.every((unit) => unit.translation === unit.text) && screened.document.getText() === source && !screened.document.isDirty,
+      "Language screening changed the source or its local result."
+    )
+    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    checks.push("native preserve-term configuration and explicit identifiers allow mixed technical Chinese to complete without HTTP or source edits")
+  } finally {
+    await config.update("preserveTerms", previousScreeningTerms, vscode.ConfigurationTarget.Global)
+  }
+
   const filteredSource = [
     "// 默认展示 图书分类说明",
     "// 借阅时间统计 单位分钟",

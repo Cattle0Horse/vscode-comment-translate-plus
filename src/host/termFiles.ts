@@ -1,5 +1,6 @@
 import * as vscode from "vscode"
 import { parsePreserveTerms } from "../documents/terms.ts"
+import { indexScreeningPhrases } from "../documents/screening.ts"
 import { parseTermFile, termSource } from "../documents/termFiles.ts"
 import type { PreserveTerms } from "../model/translation.ts"
 import { TranslationFailure } from "../model/diagnostics.ts"
@@ -130,7 +131,7 @@ export class TermFiles implements vscode.Disposable {
       }
     }
     const identity = JSON.stringify([[...literals].sort(), [...expressions.keys()].sort()])
-    return { literals, expressions: [...expressions.values()], identity: await fingerprint(identity) }
+    return { literals, expressions: [...expressions.values()], phrases: indexScreeningPhrases(literals), identity: await fingerprint(identity) }
   }
 
   private async read(entry: Entry): Promise<PreserveTerms> {

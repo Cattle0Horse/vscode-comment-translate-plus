@@ -3,8 +3,12 @@ import type { TextUnit, ReferenceBlock } from "./document.ts"
 export interface PreserveTerms {
   readonly literals: ReadonlySet<string>
   readonly expressions: readonly RegExp[]
+  readonly phrases: ReadonlyMap<string, readonly PreservePhrase[]>
   readonly identity: string
 }
+
+/** Phrase tails are indexed by their first word; each following word owns its preceding whitespace. */
+export type PreservePhrase = readonly { readonly word: string; readonly gap: string }[]
 
 export interface TranslationInput {
   readonly units: readonly TextUnit[]

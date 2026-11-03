@@ -5,6 +5,7 @@ import type { PreserveTerms } from "../model/translation.ts"
 import { ModelRetry } from "../model/diagnostics.ts"
 import { validateTranslation, validateTranslationText } from "./validation.ts"
 import { protectedFragments } from "./protection.ts"
+import { indexScreeningPhrases } from "./screening.ts"
 
 const markerFeedback = "Keep every <CTP...> marker unchanged and exactly once in its own item."
 
@@ -52,6 +53,7 @@ export function parsePreserveTerms(value: unknown): PreserveTerms {
   return {
     literals,
     expressions: [...expressions.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([, expression]) => expression),
+    phrases: indexScreeningPhrases(literals),
     identity: JSON.stringify([[...literals].sort(), [...expressions.keys()].sort()])
   }
 }
@@ -164,8 +166,8 @@ export function prepareTranslation(
     ? new RegExp(nativeQuoteValues.map((value) => escapePattern(value).replace(/'/gu, "['‘’]").replace(/"/gu, '["“”]')).join("|"), "gu")
     : undefined
 
-  function repairTruncatedPlaceholders(translated: string): string {
-    if (unit.kind !== "string" || unit.language !== "python") return translated
+  const placeholderRepairs: { candidate: string; placeholder: string; expected: number; pattern: RegExp }[] = []
+  if (unit.kind === "string" && unit.language === "python") {
     // A null owner marks a prefix shared by distinct source expressions.
     const candidates = new Map<string, string | null>()
     for (const placeholder of nativeLiterals.keys()) {
@@ -179,12 +181,18 @@ export function prepareTranslation(
         }
       }
     }
-    let repaired = translated
     for (const [candidate, placeholder] of [...candidates].sort(([a], [b]) => b.length - a.length)) {
       if (!placeholder || nativeLiterals.has(candidate)) continue
-      if (nativeLiterals.get(placeholder)!.count - occurrences(placeholder, repaired) !== 1) continue
       // A following token character or mismatched delimiter is damage, not truncation.
       const pattern = new RegExp(escapePattern(candidate) + "(?=[\\t ]*(?:$|[,;!?，。；！？、]))", "gu")
+      placeholderRepairs.push({ candidate, placeholder, expected: nativeLiterals.get(placeholder)!.count, pattern })
+    }
+  }
+
+  function repairTruncatedPlaceholders(translated: string): string {
+    let repaired = translated
+    for (const { candidate, placeholder, expected, pattern } of placeholderRepairs) {
+      if (expected - occurrences(placeholder, repaired) !== 1) continue
       const matches = [...repaired.matchAll(pattern)]
       if (matches.length !== 1) continue
       const start = matches[0].index
@@ -192,6 +200,20 @@ export function prepareTranslation(
     }
     return repaired
   }
+
+  const styles = protectedRanges.filter((range) => range.side)
+  const sourceStyles = styles.length
+    ? [...source.matchAll(/\*+|_+|~{2,}/gu)].flatMap((match) => {
+        const sides = styles.filter((range) => range.start < match.index + match[0].length && range.end > match.index)
+        return sides.length ? [{ text: match[0], open: sides.every((range) => range.side === "open"), close: sides.every((range) => range.side === "close") }] : []
+      })
+    : []
+  const multilineLiterals = protectedRanges
+    .filter((range) => !range.fold)
+    .map((range) => source.slice(range.start, range.end))
+    .filter((value) => /[\r\n]/u.test(value))
+  const nativeChecks = [...nativeLiterals].map(([value, literal]) => ({ value, technical: literal.technical, expected: literal.technical ? literal.count : occurrences(value, text) }))
+  const hasTechnicalLiterals = nativeChecks.some((literal) => literal.technical)
 
   return {
     text,
@@ -231,25 +253,21 @@ export function prepareTranslation(
       })
       // Native emphasis delimiters need no IDs. Repair only their immediate inner
       // whitespace when the complete restored document still has the source shape.
-      const styles = protectedRanges.filter((range) => range.side)
-      if (styles.length) {
-        const runs = (value: string) => [...value.matchAll(/\*+|_+|~{2,}/gu)]
-        const before = runs(source).filter((match) => styles.some((range) => range.start < match.index + match[0].length && range.end > match.index))
+      if (sourceStyles.length) {
         const literal = protectedFragments({ ...unit, text: translated, protected: undefined }).filter((range) => !range.side)
-        const after = runs(translated).filter((match) => !literal.some((range) => range.start < match.index + match[0].length && range.end > match.index))
-        if (before.length === after.length && before.every((match, index) => match[0] === after[index][0])) {
+        const after = [...translated.matchAll(/\*+|_+|~{2,}/gu)].filter((match) => !literal.some((range) => range.start < match.index + match[0].length && range.end > match.index))
+        if (sourceStyles.length === after.length && sourceStyles.every((style, index) => style.text === after[index][0])) {
           let candidate = translated
           for (let index = after.length - 1; index >= 0; index--) {
             const match = after[index]
-            const originalRun = before[index]
-            const sides = styles.filter((range) => range.start < originalRun.index + originalRun[0].length && range.end > originalRun.index)
+            const style = sourceStyles[index]
             let from = match.index
             let to = from + match[0].length
-            if (sides.every((range) => range.side === "open")) {
+            if (style.open) {
               const space = candidate.slice(to).match(/^[\t ]*(?:\r?\n[\t ]*)?/u)?.[0] ?? ""
               candidate = candidate.slice(0, to) + candidate.slice(to + space.length)
             }
-            if (sides.every((range) => range.side === "close")) {
+            if (style.close) {
               const space = candidate.slice(0, from).match(/[\t ]*(?:\r?\n[\t ]*)?$/u)?.[0] ?? ""
               candidate = candidate.slice(0, from - space.length) + candidate.slice(from)
             }
@@ -262,11 +280,7 @@ export function prepareTranslation(
       // Exact native multiline fragments remain source-owned; restored marker values
       // have not been inserted yet and cannot create false internal line breaks.
       let prose = translated
-      for (const range of protectedRanges) {
-        if (range.fold) continue
-        const value = source.slice(range.start, range.end)
-        if (/[\r\n]/u.test(value)) prose = prose.replaceAll(value, "")
-      }
+      for (const value of multilineLiterals) prose = prose.replaceAll(value, "")
       if (/[\r\n]/u.test(prose.trim()))
         throw new ModelRetry(
           {
@@ -314,7 +328,7 @@ export function prepareTranslation(
       // TextMate ranges have no translated offsets. Verify their exact content and
       // multiplicity before parsing the surrounding translated document.
       const technicalCounts = new Map<string, number>()
-      if ([...nativeLiterals.values()].some((literal) => literal.technical)) {
+      if (hasTechnicalLiterals) {
         // Parse complete fragments, including paths newly wrapped in inline code.
         // Unchanged source-owned code remains optional under the inline-code contract.
         const candidate = { ...unit, text: translated, format: unit.content === undefined ? unit.format : ("text" as const), content: undefined, protected: undefined }
@@ -325,9 +339,8 @@ export function prepareTranslation(
         })
         for (const fragment of fragments) if (fragment.kind === "Technical") technicalCounts.set(fragment.text, (technicalCounts.get(fragment.text) ?? 0) + 1)
       }
-      for (const [value, literal] of nativeLiterals) {
-        const expected = literal.technical ? literal.count : occurrences(value, text)
-        const actual = literal.technical ? (technicalCounts.get(value) ?? 0) : occurrences(value, translated)
+      for (const { value, technical, expected } of nativeChecks) {
+        const actual = technical ? (technicalCounts.get(value) ?? 0) : occurrences(value, translated)
         if (actual !== expected) {
           // Prefer the document check's concrete error when this fragment is parseable
           // syntax. TextMate-only ranges still need the occurrence check below.

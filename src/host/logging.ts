@@ -15,14 +15,17 @@ export interface TranslationLogContext {
 
 const priority = { info: 0, warning: 1, error: 2 }
 
-export function redact(text: string, secrets: readonly string[]): string {
-  const tokens = [...new Set(secrets.filter(Boolean).flatMap((secret) => [secret, JSON.stringify(secret).slice(1, -1)]))].sort((a, b) => b.length - a.length)
+export function redactionTokens(secrets: readonly string[]): readonly string[] {
+  return [...new Set(secrets.filter(Boolean).flatMap((secret) => [secret, JSON.stringify(secret).slice(1, -1)]))].sort((a, b) => b.length - a.length)
+}
+
+export function redact(text: string, tokens: readonly string[]): string {
   for (const secret of tokens) text = text.replaceAll(secret, "[REDACTED]")
   return text
 }
 
-function excerpt(value: string, secrets: readonly string[]): string {
-  const line = redact(value, secrets).replace(/\s+/g, " ")
+function excerpt(value: string, tokens: readonly string[]): string {
+  const line = redact(value, tokens).replace(/\s+/g, " ")
   return line.slice(0, 160) + (line.length > 160 ? "…" : "")
 }
 
@@ -62,7 +65,7 @@ function finishMessage(event: Extract<TranslationEvent, { kind: "finish" }>, con
     if (event.code) message += "\n  原因：" + describeError(event.code)
     return message
   }
-  const secrets = [context.apiKey]
+  const tokens = redactionTokens([context.apiKey])
   for (const group of failureGroups(event.failures)) {
     const first = group[0]
     const positions = group
@@ -72,10 +75,10 @@ function finishMessage(event: Extract<TranslationEvent, { kind: "finish" }>, con
     const remaining = group.length > 5 ? ` 等 ${group.length} 项` : ""
     const attempts = first.attempts ? `已尝试 ${first.attempts} 次` : "尚未请求"
     message += `\n  位置：${positions}${remaining}（${attempts}）`
-    if (group.length === 1) message += "\n  原文摘要：" + excerpt(first.source, secrets)
+    if (group.length === 1) message += "\n  原文摘要：" + excerpt(first.source, tokens)
     message += `\n  原因：${first.difference.reason}（${first.code}）`
-    if (first.difference.expected !== undefined) message += "\n  期望：" + excerpt(first.difference.expected, secrets)
-    if (first.difference.actual !== undefined) message += "\n  返回：" + excerpt(first.difference.actual, secrets)
+    if (first.difference.expected !== undefined) message += "\n  期望：" + excerpt(first.difference.expected, tokens)
+    if (first.difference.actual !== undefined) message += "\n  返回：" + excerpt(first.difference.actual, tokens)
   }
   message += `\n  已完成结果保留；重试只处理未完成的 ${event.failures.length} 项。`
   return message
@@ -112,7 +115,7 @@ export class TranslationLog {
   }
 
   write(level: LogLevel, message: string, secrets: readonly string[] = []): void {
-    if (this.enabled(level)) this.output("[" + new Date().toISOString() + "] [" + level.toUpperCase() + "] " + redact(message, secrets))
+    if (this.enabled(level)) this.output("[" + new Date().toISOString() + "] [" + level.toUpperCase() + "] " + redact(message, redactionTokens(secrets)))
   }
 
   reused(event: { readonly kind: "cache" | "pending"; readonly count: number; readonly total: number }, file: string, apiKey: string): void {
@@ -120,8 +123,8 @@ export class TranslationLog {
       this.write("info", file + "：复用缓存 " + event.count + "/" + event.total + " 项，补译 " + (event.total - event.count) + " 项", [apiKey])
   }
 
-  private system(content: string, secrets: readonly string[]): { id: string; definition?: string } {
-    const visible = redact(content, secrets)
+  private system(content: string, tokens: readonly string[]): { id: string; definition?: string } {
+    const visible = redact(content, tokens)
     const previous = this.systems.get(visible)
     if (previous) {
       this.systems.delete(visible)
@@ -141,7 +144,7 @@ export class TranslationLog {
     return { id, definition: visible }
   }
 
-  private requestMessage(event: Extract<TranslationEvent, { kind: "request" }>, context: TranslationLogContext, secrets: readonly string[]): string {
+  private requestMessage(event: Extract<TranslationEvent, { kind: "request" }>, context: TranslationLogContext, tokens: readonly string[]): string {
     let title = "请求完成"
     if (event.cancelled) title = "请求已取消"
     else if (
@@ -172,15 +175,15 @@ export class TranslationLog {
             .join("、") +
           (group.length > 5 ? ` 等 ${group.length} 项` : "")
         message += `\n  差异：${first.difference.reason}（${first.code}）`
-        if (first.difference.expected !== undefined) message += "\n  期望：" + excerpt(first.difference.expected, secrets)
-        if (first.difference.actual !== undefined) message += "\n  返回：" + excerpt(first.difference.actual, secrets)
+        if (first.difference.expected !== undefined) message += "\n  期望：" + excerpt(first.difference.expected, tokens)
+        if (first.difference.actual !== undefined) message += "\n  返回：" + excerpt(first.difference.actual, tokens)
       }
     if (!this.details || !event.detailsIncluded) return message
     if (event.modelRequest) {
       message += `\nmodel=${event.modelRequest.model}; stream=${event.modelRequest.stream}`
       for (const item of event.modelRequest.messages) {
         if (item.role === "system") {
-          const system = this.system(item.content, secrets)
+          const system = this.system(item.content, tokens)
           message += `\nsystem=${system.id}`
           if (system.definition === undefined) message += "（复用，见首次定义）"
           else message += `\n--- system ${system.id} ---\n${system.definition}`
@@ -201,16 +204,15 @@ export class TranslationLog {
     else if (event.kind === "request" && event.failures.length && !event.cancelled) level = "warning"
     if (!this.enabled(level)) return
     if (event.kind === "request" && !this.details && (event.cancelled || !event.failures.length)) return
-    const secrets = [context.apiKey]
     const id = event.kind === "request" ? event.requestId : event.taskId
     let message = `[${id}] ${context.file} · `
     if (event.kind === "start") {
       message += `任务开始：${event.total} 项 → ${context.targetLanguage}（${context.name} / ${context.model}）`
     } else if (event.kind === "request") {
-      message += this.requestMessage(event, context, secrets)
+      message += this.requestMessage(event, context, redactionTokens([context.apiKey]))
     } else {
       message += finishMessage(event, context)
     }
-    this.write(level, message, secrets)
+    this.write(level, message, [context.apiKey])
   }
 }

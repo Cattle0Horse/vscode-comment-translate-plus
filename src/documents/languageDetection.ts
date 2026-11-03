@@ -1,6 +1,8 @@
 import { detectAll, validateISO2 } from "tinyld"
 import { protectedFragments } from "./protection.ts"
+import { screeningText } from "./screening.ts"
 import type { TextUnit } from "../model/document.ts"
+import type { PreserveTerms } from "../model/translation.ts"
 
 const cjk = /[\p{Script_Extensions=Han}\p{Script_Extensions=Hiragana}\p{Script_Extensions=Katakana}\p{Script_Extensions=Hangul}]/u
 const sourceAnalyses = new WeakMap<TextUnit, ReturnType<typeof analyzeSource>>()
@@ -39,7 +41,7 @@ function analyzeSource(unit: TextUnit) {
   return text
 }
 
-export function isTargetLanguage(unit: TextUnit, target: string): boolean {
+export function isTargetLanguage(unit: TextUnit, target: string, preserveTerms?: PreserveTerms): boolean {
   while (unit.projection) unit = unit.projection.unit
   if ((unit.content ?? unit.text).length > 4096) return false
   let analysis = sourceAnalyses.get(unit)
@@ -47,7 +49,7 @@ export function isTargetLanguage(unit: TextUnit, target: string): boolean {
     analysis = analyzeSource(unit)
     sourceAnalyses.set(unit, analysis)
   }
-  const text = analysis
+  const text = screeningText(analysis, preserveTerms).trim()
   if (!text) return false
   const language = target.toLowerCase().split(/[-_]/, 1)[0]
   const letters = text.match(/\p{L}/gu) ?? []

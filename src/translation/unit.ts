@@ -40,7 +40,7 @@ export class TranslationUnit {
       const failure = validateTranslation(this.source, this.source.text)
       if (failure) throw failure
       this.translation = this.source.text
-    } else if (this.settings.skipSameLanguage && isTargetLanguage(this.source, this.settings.targetLanguage)) {
+    } else if (this.settings.skipSameLanguage && isTargetLanguage(this.source, this.settings.targetLanguage, this.settings.preserveTerms)) {
       this.skipped = true
       this.translation = this.source.text
     } else this.prepared = prepareTranslation(this.source, this.settings.minimumMarkerCharacters, collisions)
