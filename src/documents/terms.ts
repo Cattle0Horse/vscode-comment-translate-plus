@@ -6,8 +6,28 @@ import { ModelRetry } from "../model/diagnostics.ts"
 import { validateTranslation, validateTranslationText } from "./validation.ts"
 import { protectedFragments } from "./protection.ts"
 import { indexScreeningPhrases } from "./screening.ts"
+import { children, markdownTree, type MarkdownNode } from "./tree.ts"
 
 const markerFeedback = "Keep every <CTP...> marker unchanged and exactly once in its own item."
+
+/** Visible link/image text has a separate role from its destination. */
+function linkTextRanges(text: string): readonly { start: number; end: number }[] {
+  const labels: { start: number; end: number }[] = []
+
+  function visit(node: MarkdownNode): void {
+    if (["InlineCode", "FencedCode", "CodeBlock", "HTMLBlock"].includes(node.name)) return
+    const parts = children(node)
+    if (node.name === "Link" || node.name === "Image") {
+      const open = parts[0]
+      const close = parts.find((part) => part.name === "LinkMark" && text.slice(part.from, part.to) === "]")
+      if (open && close) labels.push({ start: open.to, end: close.from })
+    }
+    for (const child of parts) visit(child)
+  }
+
+  visit(markdownTree(text).topNode)
+  return labels
+}
 
 /** Count non-overlapping literal matches without allocating the split substrings. */
 function occurrences(value: string, content: string, limit = Infinity): number {
@@ -140,6 +160,7 @@ export function prepareTranslation(
   }
   const escapePattern = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
   const pattern = new RegExp(escapePattern(prefix) + "[0-9]+>", "g")
+  const markerShellPattern = /[<＜《](CTP(?:\d+_)?\d+)(?:[>＞》]|(?=[\t ]*(?:$|[,;!?，。；！？、）)]|`)))|(?<!`)(`+)(CTP(?:\d+_)?\d+)\2(?!`)/gu
   const markerCodeWrapperPattern = new RegExp("(?<!`)(`+)(" + pattern.source + ")\\1(?!`)", "g")
   const expandedMarkers = new Map<string, string[]>()
   for (const [marker, { value }] of markers) expandedMarkers.set(value, [...(expandedMarkers.get(value) ?? []), marker])
@@ -154,6 +175,13 @@ export function prepareTranslation(
         "g"
       )
     : undefined
+  // A value still visible in the prepared label was not replaced by a marker
+  // there. Preserve that role even when the model changes the label's formatting.
+  const labelLiterals = new Set<string>()
+  if (expandedPattern && text.includes("[")) {
+    const labels = linkTextRanges(text)
+    for (const match of text.matchAll(expandedPattern)) if (labels.some((range) => range.start <= match.index && range.end >= match.index + match[0].length)) labelLiterals.add(match[0])
+  }
   // Only source-owned Python interpolations may recover typographic quote changes.
   // Existing curly quotes are literal data and must not become interchangeable.
   const nativeQuoteValues =
@@ -227,13 +255,27 @@ export function prepareTranslation(
       if (echoedPrefix) translated = translated.replace(echoedPrefix, "")
       // A key's field separator stays local; values and source-owned punctuation remain text.
       if (unit.yamlKey && !/[:：]\s*$/u.test(original)) translated = translated.replace(/([^:：\s])[:：](?=\s*$)/u, "$1")
-      const matches = translated.match(pattern) ?? []
+      // Only the marker shell varies. Literal source/reference names are never
+      // interpreted as IDs, and all normalized forms share the same count check.
+      translated = translated.replace(markerShellPattern, (match, bracketed: string | undefined, ticks: string | undefined, bare: string | undefined, offset: number) => {
+        if ([unit.text, original, context].some((value) => value.includes(bare ?? match))) return match
+        if (bracketed && !/[>＞》]$/u.test(match) && translated[offset + match.length] === "`") {
+          const opening = translated.slice(0, offset).match(/`+$/u)?.[0]
+          const closing = translated.slice(offset + match.length).match(/^`+/u)?.[0]
+          if (!opening || opening !== closing) return match
+        }
+        const marker = "<" + (bracketed ?? bare) + ">"
+        return bare ? ticks + marker + ticks : marker
+      })
+      const matches: string[] = translated.match(pattern) ?? []
       const counts = new Map<string, number>()
       for (const marker of matches) {
         counts.set(marker, (counts.get(marker) ?? 0) + 1)
       }
-      if (expandedPattern)
-        translated = translated.replace(expandedPattern, (value) => {
+      if (expandedPattern) {
+        const labels = labelLiterals.size && translated.includes("[") ? linkTextRanges(translated) : []
+        translated = translated.replace(expandedPattern, (value, offset: number) => {
+          if (labelLiterals.has(value) && labels.some((range) => range.start <= offset && range.end >= offset + value.length)) return value
           const candidates = expandedMarkers.get(value)!
           // Existing markers reserve their occurrence even when they follow an
           // expanded copy. Extra copies still fail the exactly-once check.
@@ -241,6 +283,7 @@ export function prepareTranslation(
           counts.set(marker, (counts.get(marker) ?? 0) + 1)
           return marker
         })
+      }
       if (nativeQuotePattern) translated = translated.replace(nativeQuotePattern, (value) => (nativeLiterals.has(value) ? value : value.replace(/[‘’]/gu, "'").replace(/[“”]/gu, '"')))
       translated = repairTruncatedPlaceholders(translated)
       // Code owns its delimiters; URL data owns its original link syntax. A code

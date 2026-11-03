@@ -22,7 +22,7 @@ test("Python interpolation recovery never completes a changed expression or choo
   assert.throws(() => ambiguousPrepared.restore("读取 {len(rows} 和 {len(rows))}。"), ModelRetry)
 })
 
-test("isolated context envelopes are removed before batch alignment and only validated translations are published and cached", async (t) => {
+test("unsolicited context envelopes retry without stripping evidence and only validated translations are published and cached", async (t) => {
   const translations = ["阅读目录。", "打开画廊。"]
   const source = ["Read the catalog.", "Open the gallery."]
   const reference = [{ kind: "Neighbour", text: "The fictional garden opens at dawn." }]
@@ -34,9 +34,9 @@ test("isolated context envelopes are removed before batch alignment and only val
     "<context>虚构花园在黎明开放。\n%%\n附加参考。</context>\n" + body,
     body + "\n<context>虚构花园在黎明开放。</context>"
   ]) {
-    const fixture = await chatFixture(t, (request) => {
+    const fixture = await chatFixture(t, (request, items, call) => {
       assert.ok(modelContext(request))
-      return output
+      return call === 1 ? output : items.map((item) => translations[source.indexOf(item)]).join("\n%%\n")
     })
     const store = new TranslationStore()
     t.after(() => store.clear())
@@ -53,14 +53,22 @@ test("isolated context envelopes are removed before batch alignment and only val
       )
     assert.deepEqual([...(await run()).values()], translations)
     assert.deepEqual(published, translations)
+    const requestsBeforeCache = fixture.seen.length
     assert.deepEqual([...(await run()).values()], translations)
-    assert.equal(fixture.seen.length, 1)
+    assert.equal(fixture.seen.length, requestsBeforeCache)
     const request = events.find((event) => event.kind === "request")!
     assert.equal(JSON.parse(request.modelResponse!).choices[0].message.content, output)
+    assert.deepEqual(
+      fixture.seen
+        .slice(1)
+        .flatMap((retry) => retry.items)
+        .sort(),
+      request.failures.map((failure) => source[Number(failure.id.slice(1))]).sort()
+    )
   }
 })
 
-test("context recovery preserves source tags and rejects uncertain boundaries and damaged remaining translations", async (t) => {
+test("context validation preserves source tags and rejects unsolicited envelopes and damaged translations", async (t) => {
   const fixed = "阅读目录。"
   const scenarios = [
     { source: "Read the catalog.", output: "阅读<context>附加参考。</context>目录。" },

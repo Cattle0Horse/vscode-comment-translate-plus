@@ -23,6 +23,18 @@ function quotedFragment(label: string, value: string): string {
   return `${label} (quoted data${shortened ? ", excerpt" : ""}): ${JSON.stringify(excerpt)}.`
 }
 
+function inlineCodeLiterals(source: string): string[] {
+  const literals: string[] = []
+
+  function visit(node: MarkdownNode): void {
+    if (node.name === "InlineCode") literals.push(source.slice(node.from, node.to))
+    else for (const child of children(node)) visit(child)
+  }
+
+  visit(markdownTree(source).topNode)
+  return literals
+}
+
 /** Inspect only parsed prose gaps: code, escapes and markup attributes can own literal backticks. */
 function unmatchedBackticks(text: string): string[] {
   const delimiters: string[] = []
@@ -112,7 +124,29 @@ function validateProtectedFragments(expected: ReturnType<typeof fragmentContents
 
   switch (kind) {
     case "URL":
-    case "Autolink":
+    case "Autolink": {
+      if (added) {
+        const labels: string[] = []
+
+        function visit(node: MarkdownNode): void {
+          const parts = children(node)
+          if (node.name === "LinkReference" && parts.some((part) => part.name === "URL" && output.slice(part.from, part.to) === value))
+            for (const part of parts) if (part.name === "LinkLabel") labels.push(output.slice(part.from, part.to))
+          for (const child of parts) visit(child)
+        }
+
+        visit(markdownTree(output).topNode)
+        const literals = inlineCodeLiterals(source).filter((literal) => labels.includes(literal.replace(/^`+|`+$/gu, "")))
+        if (literals.length === 1)
+          return retry(
+            {
+              reason: "Removing source inline-code delimiters turned a literal into a reference-link definition. " + quotedFragment("Source inline-code span", literals[0]),
+              instruction:
+                "Keep this source literal in a complete inline-code span with matching backticks; translate the surrounding description without creating a reference-link definition."
+            },
+            { code: "translation-structure-invalid", difference: { reason: "源文行内代码的反引号丢失，字面文本变成了引用链接定义。", expected: literals[0], actual: value } }
+          )
+      }
       return retry(
         {
           reason: added ? "A link target appears that is not in this source item." : "Source link targets were not preserved exactly.",
@@ -120,6 +154,7 @@ function validateProtectedFragments(expected: ReturnType<typeof fragmentContents
         },
         { code: "translation-structure-invalid", difference: { reason: added ? "译文包含原文没有的链接目标。" : "译文未完整保留原文的链接目标。", ...details } }
       )
+    }
     case "LinkLabel":
     case "Link":
     case "Image":
@@ -142,18 +177,7 @@ function validateProtectedFragments(expected: ReturnType<typeof fragmentContents
       )
     case "HTMLTag":
     case "HTMLBlock": {
-      function sourceLiteral(node: MarkdownNode): string | undefined {
-        if (node.name === "InlineCode") {
-          const literal = source.slice(node.from, node.to)
-          return literal.includes(value) ? literal : undefined
-        }
-        for (const child of children(node)) {
-          const literal = sourceLiteral(child)
-          if (literal) return literal
-        }
-      }
-
-      const literal = added ? sourceLiteral(markdownTree(source).topNode) : undefined
+      const literal = added ? inlineCodeLiterals(source).find((literal) => literal.includes(value)) : undefined
       if (literal)
         return retry(
           {

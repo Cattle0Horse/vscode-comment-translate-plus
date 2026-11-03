@@ -61,6 +61,75 @@ test("expanded fragments preserve exact contents and multiplicity alongside mark
   assert.ok(validateTranslation(unit, prepared.restore(source.replace("[guide](", "[guide]"))), "Expansion must not bypass link structure validation.")
 })
 
+test("link and image label prose never supplies an expanded destination or creates a duplicate marker", () => {
+  const target = "references/garden-session-handbook.md"
+  for (const format of ["markdown", "text"] as const) {
+    for (const image of ["", "!"]) {
+      const source = "Read " + image + "[" + target + "](" + target + ") before continuing."
+      const unit = { id: "label", start: 0, end: source.length, text: source, format }
+      const prepared = prepareTranslation(unit, 32)
+      assert.equal(prepared.restore(prepared.text), source)
+      for (const output of [
+        prepared.text.replace("Read", "阅读"),
+        source.replace("Read", "阅读"),
+        prepared.text.replace("[" + target + "]", "[**" + target + "**]"),
+        prepared.text.replace("[" + target + "]", "[`" + target + "`]"),
+        prepared.text.replace("[" + target + "]", "[查看 " + target + "]")
+      ]) {
+        const restored = prepared.restore(output)
+        assert.equal(validateTranslation(unit, restored), undefined)
+        assert.ok(restored.includes("](" + target + ")"))
+      }
+      for (const output of [
+        prepared.text.replace("<CTP0>", ""),
+        prepared.text.replace("<CTP0>", "references/changed-handbook.md"),
+        prepared.text + " " + target,
+        source + " " + target,
+        prepared.text.replace("<CTP0>", "<CTP0><CTP0>"),
+        prepared.text.replace("<CTP0>", "<CTP0> " + target)
+      ])
+        assert.throws(() => prepared.restore(output), /marker-mismatch/u, output)
+    }
+  }
+})
+
+test("protected URLs and inline code inside link labels retain their own expansion counts", () => {
+  for (const label of ["https://example.com/a-long-garden-resource", "`sample-reader <command> --help`"]) {
+    const source = "Read [" + label + "](https://example.com/a-long-garden-resource) now."
+    const unit = inputOf(parseMarkdown(source)).units[0]
+    const prepared = prepareTranslation(unit, 32)
+    assert.equal(prepared.restore(prepared.text), source)
+    assert.equal(prepared.restore(source), source)
+    assert.throws(() => prepared.restore(prepared.text.replace("<CTP0>", "")), /marker-mismatch/u)
+  }
+})
+
+test("same-text link labels publish and cache exact destinations on the first request", async (t) => {
+  const target = "references/garden-session-handbook.md"
+  const source = "Read [" + target + "](" + target + ") before continuing."
+  for (const expanded of [false, true]) {
+    const fixture = await chatFixture(t, (_body, items) => (expanded ? source : items[0]).replace("Read", "阅读"))
+    const input = inputOf(parseMarkdown(source))
+    const store = new TranslationStore()
+    t.after(() => store.clear())
+    const published: string[] = []
+    const run = () =>
+      store.translate(
+        "same-link-label",
+        input,
+        (batch, signal, complete) => requestTranslation(fixture.service, fixture.settings, batch, signal, fixture.gate, complete),
+        new AbortController().signal,
+        false,
+        (item) => published.push(item.text)
+      )
+    const result = await run()
+    assert.deepEqual([...result.values()], [source.replace("Read", "阅读")])
+    assert.deepEqual(published, [...result.values()])
+    assert.deepEqual(await run(), result)
+    assert.equal(fixture.seen.length, 1, "A label equal to its destination must not consume retries or bypass caching.")
+  }
+})
+
 test("expanded source data stays literal across namespace collisions, overlapping values and Python clause reordering", () => {
   const code = "`sample-reader <CTP0> --help .*$&`"
   const source = "Keep <CTP1_0> beside " + code + "."
@@ -105,7 +174,8 @@ test("copy-only fragments cross the length threshold without masking ordinary na
     assert.ok(restored.includes(url))
     if (size >= 32) {
       assert.ok("<CTP0>".length * 4 <= url.length)
-      for (const output of [prepared.text.replace("<CTP0>", ""), prepared.text + "<CTP0>", prepared.text.replace("<CTP0>", "<CTP9>"), prepared.text.replace("<CTP0>", "<CTP0")])
+      assert.equal(prepared.restore(prepared.text.replace("<CTP0>", "<CTP0")), prepared.restore(prepared.text))
+      for (const output of [prepared.text.replace("<CTP0>", ""), prepared.text + "<CTP0>", prepared.text.replace("<CTP0>", "<CTP9>"), prepared.text.replace("<CTP0>", "<CTP0extra")])
         assert.throws(() => prepared.restore(output), /marker-mismatch/u)
     } else assert.throws(() => prepared.restore(prepared.text.replace(url, "https://other.example")), /structure-invalid/u)
   }

@@ -13,7 +13,7 @@ const STATUS_PATTERN = /\b[1-5][xX]{2}\b/gu
 const STRING_PLACEHOLDER_PATTERN = /\{(?=[A-Za-z_])[^{}\r\n]{0,120}\}/gu
 const FORMAT_ARGUMENT_PATTERN = /(?<![\w])r:\*(?![\w])/gu
 const DATA_PATTERN = /[A-Za-z\d][A-Za-z\d._~:+/%=-]*/gu
-const PATH_PATTERN = /(?<![\p{L}\p{N}\p{M}_/\\<])(?:[A-Za-z]:[\\/]|\.{1,2}[\\/]|\/(?!\/))[^\s<>"'\x60，。！？；、]+/gu
+const PATH_PATTERN = /(?<![\p{L}\p{N}\p{M}_/\\<])(?:[A-Za-z]:[\\/]|\.{1,2}[\\/]|\/(?!\/))[^\s<>"'‘’“”\x60，。！？；、]+/gu
 // Descendant selectors must precede paths, which stop at predicate quotes.
 const XPATH_NAME = String.raw`[A-Za-z_][\w.-]*(?::[A-Za-z_][\w.-]*)?`
 const XPATH_STEP = String.raw`(?:@?${XPATH_NAME}|\*)(?:\[(?:\d+|@${XPATH_NAME}\s*=\s*(?:"[^"\r\n]*"|'[^'\r\n]*'))\])*`
@@ -160,6 +160,9 @@ function analyzeProtectedFragments(unit: TextUnit, tree?: MarkdownNode): readonl
         // Custom tag names remain prose even when they contain digits.
         if (unit.text.lastIndexOf("<", match.index) > unit.text.lastIndexOf(">", match.index)) continue
         text = text.replace(/[.,!?;]+$/u, "")
+        // In a rate, the denominator is prose. Explicit paths and URLs have
+        // already claimed their complete ranges through the preceding rules.
+        text = text.replace(/^(\d+(?:\.\d+)?)\/[A-Za-z]+$/u, "$1")
         const digits = text.match(/\d/gu)?.length ?? 0
         const hex = text.replace(/[.:_+-]/gu, "")
         const numeric = digits >= 4 && !/[A-Za-z]/u.test(text)
