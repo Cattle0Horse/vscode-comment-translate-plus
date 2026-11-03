@@ -13,6 +13,12 @@ export const openai: TranslationProvider = {
   prepare(request) {
     const { settings, items } = request
     const { separator, payload, referenceCharacters } = modelRequest(request)
+    // Masked source may hide literal tags. In that case keep the response intact
+    // rather than guessing whether a context envelope belongs to source content.
+    const recoverContext =
+      referenceCharacters > 0 &&
+      payload.messages.some((message) => message.role !== "assistant" && message.content.includes("<context>") && message.content.includes("</context>")) &&
+      !items.some((item) => item.hasMarkers || /<\/?context\b/iu.test(item.text))
     return {
       characters: payload.messages.reduce((sum, message) => sum + message.content.length, 0),
       referenceCharacters,
@@ -54,7 +60,7 @@ export const openai: TranslationProvider = {
             expected: "message.content 为字符串",
             actual: typeof choice.message?.content
           })
-        const content = choice.message.content
+        let content = choice.message.content
         // Reject copied request controls before positional splitting can turn their
         // source-text tails into apparently successful unchanged translations.
         const controls = [
@@ -77,6 +83,22 @@ export const openai: TranslationProvider = {
               difference: { reason: "模型回显了请求指令或重试诊断，整批条目归属不可靠。", expected: "仅返回各项译文，不包含请求指令或重试诊断。" }
             }
           )
+        if (recoverContext) {
+          const tags = content.match(/<\/?context\b[^>]*>/giu) ?? []
+          const trailing = content.trimEnd()
+          let candidate = content
+          if (tags.length === 1 && tags[0] === "</context>" && trailing.endsWith("</context>")) candidate = trailing.slice(0, -"</context>".length).trimEnd()
+          else if (tags.length === 2 && tags[0] === "<context>" && tags[1] === "</context>") {
+            if (content.trimStart().startsWith("<context>")) candidate = content.slice(content.indexOf("</context>") + "</context>".length).trimStart()
+            else if (trailing.endsWith("</context>")) candidate = content.slice(0, content.indexOf("<context>")).trimEnd()
+          }
+          // Alignment, per-unit restoration, syntax and language checks still own
+          // acceptance. Raw response traces above retain the removed envelope.
+          // A caption introducing the block or a now-empty final batch slot is
+          // not evidence of a remaining translation. Preserve the original error.
+          const boundary = candidate.trimEnd()
+          if (boundary && !boundary.endsWith(separator) && !/[:：]$/u.test(boundary)) content = candidate
+        }
         for (const [index, text] of splitTranslations(content, separator, items.length).entries()) context.accept({ id: items[index].id, text })
       }
     }

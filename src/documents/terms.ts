@@ -166,22 +166,29 @@ export function prepareTranslation(
 
   function repairTruncatedPlaceholders(translated: string): string {
     if (unit.kind !== "string" || unit.language !== "python") return translated
-    let repaired = translated
-    for (const [placeholder, literal] of nativeLiterals) {
+    // A null owner marks a prefix shared by distinct source expressions.
+    const candidates = new Map<string, string | null>()
+    for (const placeholder of nativeLiterals.keys()) {
       if (!/^\{[A-Za-z_][^{}\r\n]*\}$/u.test(placeholder)) continue
-      let missing = literal.count - occurrences(placeholder, repaired)
-      while (missing > 0) {
-        let replacement: string | undefined
-        for (const keepClosingBrace of [true, false]) {
-          for (let length = placeholder.length - 1; length >= 3 && !replacement; length--) {
-            const candidate = placeholder.slice(0, length) + (keepClosingBrace ? "}" : "")
-            if (candidate !== placeholder && occurrences(candidate, repaired, 2) === 1) replacement = candidate
-          }
+      // Recover closing delimiters only; never complete a changed identifier or expression.
+      for (let length = placeholder.length - 1; length >= 3 && /[)\]}]/u.test(placeholder[length]); length--) {
+        for (const candidate of [placeholder.slice(0, length), placeholder.slice(0, length) + "}"]) {
+          if (candidate === placeholder) continue
+          if (candidates.has(candidate) && candidates.get(candidate) !== placeholder) candidates.set(candidate, null)
+          else candidates.set(candidate, placeholder)
         }
-        if (!replacement) break
-        repaired = repaired.replace(replacement, placeholder)
-        missing--
       }
+    }
+    let repaired = translated
+    for (const [candidate, placeholder] of [...candidates].sort(([a], [b]) => b.length - a.length)) {
+      if (!placeholder || nativeLiterals.has(candidate)) continue
+      if (nativeLiterals.get(placeholder)!.count - occurrences(placeholder, repaired) !== 1) continue
+      // A following token character or mismatched delimiter is damage, not truncation.
+      const pattern = new RegExp(escapePattern(candidate) + "(?=[\\t ]*(?:$|[,;!?，。；！？、]))", "gu")
+      const matches = [...repaired.matchAll(pattern)]
+      if (matches.length !== 1) continue
+      const start = matches[0].index
+      repaired = repaired.slice(0, start) + placeholder + repaired.slice(start + candidate.length)
     }
     return repaired
   }
