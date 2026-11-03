@@ -31,6 +31,25 @@ const grammar = {
   }
 } as IGrammar
 
+test("Python quoted URL attributes restore and cache the first response without duplicating quotes", async (t) => {
+  const source = `notice = 'src="https://assets.example.net/exhibit/flowers.svg?revision=demo-long"'`
+  const start = source.indexOf("'")
+  const region: TextUnit = { id: "quoted-url", start, end: source.length, text: source.slice(start), kind: "string", format: "text", language: "python" }
+  const units = pythonStringUnits(source, region, [{ start, end: source.length, protected: [] }])
+  assert.equal(units.length, 1)
+  assert.equal(prepareTranslation(units[0], 32).text, 'src="<CTP0>"')
+  const fixture = await chatFixture(t, () => 'src="<CTP0>"')
+  const store = new TranslationStore()
+  t.after(() => store.clear())
+  const run = () =>
+    store.translate("python-quoted-url", { units }, (input, signal) => requestTranslation(fixture.service, fixture.settings, input, signal, fixture.gate), new AbortController().signal)
+  const result = await run()
+  assert.equal(result.get(units[0].id), units[0].text)
+  assert.equal(validateTranslation(units[0], result.get(units[0].id)!), undefined)
+  assert.deepEqual(await run(), result)
+  assert.equal(fixture.seen.length, 1)
+})
+
 test("Python reordered interpolations restore complete expressions across literal kinds and cache the first response", async (t) => {
   const first = "{record.title}"
   const second = "{record.exhibition_catalog_gallery_names[location_index]!r:>{width}}"

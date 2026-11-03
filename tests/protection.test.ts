@@ -17,6 +17,25 @@ import { TranslationStore } from "../src/translation/store.ts"
 import { defaultSystemPrompt, defaultUserPrompt, defaultLanguageNames } from "../src/translation/providers/prompts.ts"
 import { limits, requestTranslation, batch, modelInput, chatFixture } from "./support/fixtures.ts"
 
+test("quoted bare URLs keep their closing quote visible outside long-data markers", () => {
+  const url = "https://assets.example.net/exhibit/flowers.svg?revision=demo-long"
+  for (const quote of ['"', "'"])
+    for (const format of ["markdown", "text"] as const) {
+      const source = `Read src=${quote}${url}${quote}.`
+      const unit = { id: "quoted-url", text: source, start: 0, end: source.length, format }
+      const prepared = prepareTranslation(unit, 32)
+      assert.equal(prepared.text, `Read src=${quote}<CTP0>${quote}.`)
+      const restored = prepared.restore(prepared.text.replace("Read", "阅读"))
+      assert.equal(restored, source.replace("Read", "阅读"))
+      assert.equal(validateTranslation(unit, restored), undefined)
+      assert.ok(validateTranslation(unit, restored.replace("demo-long", "changed")) instanceof ModelRetry)
+    }
+  for (const source of [`Read [guide](${url}"tail).`, `Read <${url}"tail>.`]) {
+    const unit = parseMarkdown(source).groups[0].units[0]
+    assert.ok(validateTranslation(unit, source.replace('"tail', "")) instanceof ModelRetry)
+  }
+})
+
 test("bare URLs keep translated closing punctuation outside the protected target", () => {
   const url = "https://example.com/garden-guide"
   for (const format of ["markdown", "text"] as const)

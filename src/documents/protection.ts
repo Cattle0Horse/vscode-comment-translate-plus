@@ -41,6 +41,13 @@ function addressText(text: string, preserveEllipsis = false): string {
 export function linkTargetText(node: MarkdownNode, source: string): string {
   const text = source.slice(node.from, node.to)
   if (["Link", "Image", "Autolink", "LinkReference"].includes(node.parent?.name ?? "")) return text
+  // GFM can include the closing quote of a bare attribute-like URL in its node.
+  // Keep a source-owned quote pair visible instead of hiding its closer in CTP.
+  const quote = source[node.from - 1]
+  if (quote === '"' || quote === "'") {
+    const closing = text.indexOf(quote)
+    if (closing >= 0) return text.slice(0, closing)
+  }
   return addressText(text.replace(/[，。！？；]+$/u, ""))
 }
 
