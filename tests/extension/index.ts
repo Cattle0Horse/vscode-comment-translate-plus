@@ -3,6 +3,7 @@ import type { Application } from "../../src/host/application.ts"
 import { runHostCases } from "./cases.ts"
 import type { HostCaseResult } from "./cases.ts"
 import { runGitGraph } from "./gitGraph.ts"
+import { runStaged } from "./staged.ts"
 import { runFeatures } from "./features.ts"
 import { runEditReuse } from "./edits.ts"
 import { runCommentParagraphs } from "./comments.ts"
@@ -327,6 +328,7 @@ export async function run(): Promise<void> {
     checks.push("skill files preserve complete YAML fields in the same production chain")
     checks.push(...(await runEditReuse(workspace, controller, test.origin)))
     checks.push(...(await runGitGraph(workspace, controller)))
+    checks.push(...(await runStaged(workspace, controller)))
     checks.push(...(await runCommentParagraphs(workspace, controller, test.origin)))
     const previousTerms = config.inspect<readonly string[]>("preserveTerms")?.globalValue
     const previousSkip = config.inspect<boolean>("skipSameLanguage")?.globalValue

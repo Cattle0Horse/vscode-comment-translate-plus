@@ -131,8 +131,8 @@ export function automatic(document: vscode.TextDocument): boolean {
       const { original, modified } = tab.input
       const peer = original.toString() === document.uri.toString() ? modified : modified.toString() === document.uri.toString() ? original : undefined
       if (!peer) continue
-      const scope = document.uri.scheme === "git-graph" ? document.uri : peer
-      resource = gitGraphResource(scope) ?? scope
+      const scope = document.uri.scheme === "git-graph" || document.uri.scheme === "git" ? document.uri : peer
+      resource = gitResource(scope) ?? scope
       folder = vscode.workspace.getWorkspaceFolder(resource)
       if (folder) break
     }
@@ -146,11 +146,16 @@ export function automatic(document: vscode.TextDocument): boolean {
   return include.some(matches) && !exclude.some(matches)
 }
 
-function gitGraphResource(uri: vscode.Uri): vscode.Uri | undefined {
-  if (uri.scheme !== "git-graph") return undefined
+function gitResource(uri: vscode.Uri): vscode.Uri | undefined {
+  if (uri.scheme !== "git" && uri.scheme !== "git-graph") return undefined
   try {
-    const data: unknown = JSON.parse(Buffer.from(uri.query, "base64").toString("utf8"))
+    const data: unknown = JSON.parse(uri.scheme === "git" ? uri.query : Buffer.from(uri.query, "base64").toString("utf8"))
     if (!data || typeof data !== "object") return undefined
+    if (uri.scheme === "git") {
+      const { path: filePath, ref } = data as Record<string, unknown>
+      if (typeof filePath !== "string" || !path.isAbsolute(filePath) || typeof ref !== "string") return undefined
+      return vscode.Uri.file(filePath)
+    }
     const { repo, filePath, exists } = data as Record<string, unknown>
     if (typeof repo !== "string" || !path.isAbsolute(repo) || typeof filePath !== "string" || !filePath || path.isAbsolute(filePath) || exists !== true) return undefined
     const absolute = path.resolve(repo, filePath)
