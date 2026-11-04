@@ -124,14 +124,15 @@ export function displayMode(uri?: vscode.Uri): "contrast" | "inplace" {
 
 export function automatic(document: vscode.TextDocument): boolean {
   let resource = document.uri
+  if (resource.scheme === "git") resource = gitResource(resource) ?? resource
   let folder = vscode.workspace.getWorkspaceFolder(resource)
-  if (!folder) {
+  if (!folder && document.uri.scheme !== "git") {
     for (const tab of vscode.window.tabGroups.all.flatMap((group) => group.tabs)) {
       if (!(tab.input instanceof vscode.TabInputTextDiff)) continue
       const { original, modified } = tab.input
       const peer = original.toString() === document.uri.toString() ? modified : modified.toString() === document.uri.toString() ? original : undefined
       if (!peer) continue
-      const scope = document.uri.scheme === "git-graph" || document.uri.scheme === "git" ? document.uri : peer
+      const scope = document.uri.scheme === "git-graph" ? document.uri : peer
       resource = gitResource(scope) ?? scope
       folder = vscode.workspace.getWorkspaceFolder(resource)
       if (folder) break
