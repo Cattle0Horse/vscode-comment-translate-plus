@@ -275,16 +275,36 @@ export async function run(): Promise<void> {
     await vscode.window.showTextDocument(document, { viewColumn: vscode.ViewColumn.One, preserveFocus: false, preview: false })
     checks.push("viewport scrolling keeps submitted HTTP requests alive and caches offscreen results without duplicate requests")
 
+    await config.update("targetLanguage", "zh-CN", vscode.ConfigurationTarget.Global)
+    await waitFor(
+      () => controller.browse.inspect(uri)?.status === "ready" && controller.browse.inspect(uri)?.units[0]?.translation.includes("阅读原始文档") === true,
+      "visible translation before cancellation"
+    )
     await control({ slow: true })
     const beforeCancel = (await requests()).length
-    await vscode.commands.executeCommand("commentTranslatePlus.retranslate")
+    vscode.window.activeTextEditor!.selection = new vscode.Selection(1, 5, 1, 5)
+    await vscode.commands.executeCommand("commentTranslatePlus.retranslateBlock")
     await waitFor(async () => (await requests()).length > beforeCancel, "delayed request started")
     assert((controller.browse.inspect(uri)?.loading.length ?? 0) > 0, "An in-flight request exposed no loading units.")
+    const completedBeforeCancel = controller.browse.inspect(uri)!.units
+    assert(completedBeforeCancel.length === 1, "Block retranslation did not retain its completed neighbour.")
     await vscode.commands.executeCommand("commentTranslatePlus.cancel")
     await new Promise((resolve) => setTimeout(resolve, 250))
     assert(
-      controller.browse.inspect(uri)?.status === "cancelled" && controller.browse.inspect(uri)?.units.length === 0 && controller.browse.inspect(uri)?.loading.length === 0,
-      "Late result or loading state survived cancellation."
+      controller.browse.inspect(uri)?.status === "cancelled" &&
+        JSON.stringify(controller.browse.inspect(uri)?.units) === JSON.stringify(completedBeforeCancel) &&
+        controller.browse.inspect(uri)?.loading.length === 0,
+      "Cancellation lost completed translations or accepted late results/loading."
+    )
+    const cancelledLenses = await vscode.commands.executeCommand<vscode.CodeLens[]>("vscode.executeCodeLensProvider", uri, 1000)
+    assert(
+      cancelledLenses.some((lens) => lens.command?.title === " " && lens.range.start.line === 1),
+      "Cancellation removed the completed translation row."
+    )
+    const cancelledHovers = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", uri, new vscode.Position(0, 5))
+    assert(
+      cancelledHovers.some((hover) => hover.contents.some((content) => typeof content !== "string" && content.value.includes(completedBeforeCancel[0].translation))),
+      "Cancellation removed the completed source hover."
     )
     await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
     assert(!controller.browse.inspect(uri), "Stop did not release the file.")
@@ -293,7 +313,7 @@ export async function run(): Promise<void> {
     assert(!stoppedHovers.some((hover) => hover.contents.some((content) => typeof content !== "string" && content.value.includes("注释翻译+"))), "Hover survived stop.")
     const stoppedLenses = await vscode.commands.executeCommand<vscode.CodeLens[]>("vscode.executeCodeLensProvider", uri)
     assert(!stoppedLenses.length, "CodeLens survived stop.")
-    checks.push("cancel and stop discard delayed responses")
+    checks.push("cancel preserves completed rows and hover, rejects delayed responses and removes loading; stop clears display")
 
     await control({ slow: false })
     checks.push(...(await runProgress(workspace, controller, test.origin)))

@@ -213,7 +213,6 @@ export class BrowseSession {
   cancel(reason: CancellationReason = "user-cancelled"): void {
     this.stopRequests(reason)
     this.paused = true
-    this.translations.clear()
     this.changed()
   }
 
@@ -234,8 +233,11 @@ export class BrowseSession {
   }
 
   dispose(reason: CancellationReason = "extension-disposed"): void {
-    this.cancel(reason)
+    this.stopRequests(reason)
+    this.paused = true
+    this.translations.clear()
     this.units = []
+    this.changed()
   }
 
   private stopRequests(reason: CancellationReason): void {

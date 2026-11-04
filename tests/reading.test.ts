@@ -42,6 +42,47 @@ test("whole-document translation fills offscreen units and reuses completed and 
   }
 })
 
+test("cancellation retains completed units, rejects late results and resumes only unfinished units", async () => {
+  const parsed = parseMarkdown("First paragraph.\n\nSecond paragraph.")
+  const units = parsed.groups.flatMap((group) => group.units)
+  const tasks: { input: TranslationInput; signal: AbortSignal; publish: (item: TranslationItem) => void; finish: () => void }[] = []
+  const session = new BrowseSession(
+    (input, signal, _force, completed) =>
+      new Promise((resolve) => tasks.push({ input, signal, publish: completed!, finish: () => resolve(new Map(input.units.map((unit) => [unit.id, "译文：" + unit.text]))) })),
+    () => {}
+  )
+  try {
+    session.update(parsed, 1)
+    session.setVisibleRanges([{ start: 0, end: parsed.source.length }])
+    tasks[0].publish({ id: units[0].id, text: "第一段。" })
+    const completed = session.inspect().units
+    session.cancel()
+    assert.equal(tasks[0].signal.aborted, true)
+    assert.equal(session.inspect().status, "cancelled")
+    assert.deepEqual(session.inspect().units, completed)
+    assert.deepEqual(session.inspect().loading, [])
+    tasks[0].publish({ id: units[1].id, text: "晚到结果。" })
+    tasks[0].finish()
+    await delay(0)
+    session.setVisibleRanges([{ start: 0, end: parsed.source.length }])
+    assert.equal(tasks.length, 1)
+    assert.deepEqual(session.inspect().units, completed)
+    session.restart()
+    assert.deepEqual(
+      tasks[1].input.units.map((unit) => unit.id),
+      [units[1].id]
+    )
+    tasks[1].finish()
+    await settled(session)
+    assert.equal(session.inspect().units.length, 2)
+    assert.equal(session.inspect().units[0].translation, "第一段。")
+    session.dispose()
+    assert.deepEqual(session.inspect().units, [])
+  } finally {
+    session.dispose()
+  }
+})
+
 test("whole-document translation respects cancellation and rejects results arriving after editing", async () => {
   const parsed = parseMarkdown("First paragraph.\n\nSecond paragraph.")
   const requests: { signal: AbortSignal; finish: () => void }[] = []
@@ -242,7 +283,7 @@ test("block retranslation refreshes only the target, preserves neighbours and ca
     assert.equal(session.retranslate({ start: units[1].start, end: units[1].end }), true)
     await settled(session)
     assert.equal(requested.length, 3)
-    assert.equal(session.inspect().units.length, 1, "Retranslating after cancellation resumed unrelated blocks.")
+    assert.equal(session.inspect().units.length, 3, "Retranslating after cancellation lost completed neighbours.")
     session.restart()
     await settled(session)
     assert.equal(requested.length, 3, "A successful unchanged retranslation was not cached.")
@@ -283,10 +324,10 @@ test("manual blocks accumulate without viewport translation, retry only selected
     session.cancel()
     session.restart()
     await settled(session)
-    assert.deepEqual(requested[2], [units[0].id, units[1].id])
+    assert.equal(requested.length, 2, "Resuming completed blocks repeated translation.")
     session.enableBrowse()
     await settled(session)
-    assert.deepEqual(requested[3], [units[2].id])
+    assert.deepEqual(requested[2], [units[2].id])
     assert.equal(session.inspect().scope, "document")
     assert.equal(session.inspect().units.length, 3)
   } finally {
@@ -661,9 +702,9 @@ test("loading units follow actual in-flight work, partial completion, failure, r
   tasks[1].resolve(new Map(tasks[1].batch.units.map((unit) => [unit.id, unit.text])))
   await delay(0)
   assert.equal(session.inspect().loading.length, 0)
-  assert.equal(session.inspect().units.length, 0)
+  assert.equal(session.inspect().units.length, 1)
   session.restart()
-  assert.equal(session.inspect().loading.length, 2)
+  assert.equal(session.inspect().loading.length, 1)
   session.update(parseMarkdown("Changed source."), 2)
   assert.equal(session.inspect().loading.length, 0)
   tasks[2].resolve(new Map(tasks[2].batch.units.map((unit) => [unit.id, unit.text])))

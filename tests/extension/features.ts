@@ -263,9 +263,15 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   assert(owner.browse.inspect(typescript.document.uri)!.units[0] === manual.units[0], "A second manual block discarded the first translation.")
   assert(owner.browse.inspect(typescript.document.uri)!.units.length === 2, "Manual blocks did not accumulate.")
   await vscode.commands.executeCommand("commentTranslatePlus.cancel")
+  const beforeResumedBlock = (await requests()).length
   assert(await vscode.commands.executeCommand<boolean>("commentTranslatePlus.retranslateBlock"), "Explicit block translation did not resume after cancellation.")
   await waitFor(() => owner.browse.inspect(typescript.document.uri)?.status === "ready", "manual block after cancellation")
-  assert(owner.browse.inspect(typescript.document.uri)!.units.length === 1, "Resuming a manual block translated unrelated blocks.")
+  assert(
+    owner.browse.inspect(typescript.document.uri)!.units.length === 2 && owner.browse.inspect(typescript.document.uri)!.units[0] === manual.units[0],
+    "Resuming a manual block discarded a completed neighbour."
+  )
+  const resumedRequests = (await requests()).slice(beforeResumedBlock)
+  assert(resumedRequests.length === 1 && resumedRequests[0].count === 1, "Resuming a manual block requested unrelated blocks.")
   await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
   await waitFor(() => owner.browse.inspect(typescript.document.uri)?.units.length === 2, "expand manual blocks to document browse")
   assert(owner.browse.inspect(typescript.document.uri)!.scope === "document", "Enabling browse mode only cleared manual translations.")
@@ -954,6 +960,34 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   await waitFor(() => restored.getText().includes("阅读原始文档") && !restored.getText().includes("正在翻译"), "restored virtual preview")
   assert(!restored.isDirty, "Restoring a preview made it dirty.")
   checks.push("native translated Markdown preview shares cache, refreshes edits, restores from its URI and delegates relative resources through a read-only filesystem")
+  const partialSource = "Read the original document.\n\nKeep the unfinished lantern paragraph."
+  const partial = await open("cancel-preview.md", "markdown", partialSource)
+  const partialParsed = await owner.documents.parse(partial.document)
+  const firstUnit = partialParsed.groups.flatMap((group) => group.units)[0]
+  const cached = await owner.translations.translate(partial.document, { units: [firstUnit] }, new AbortController().signal)
+  const firstTranslation = cached.get(firstUnit.id)!
+  assert(firstTranslation !== firstUnit.text, "Preview cancellation fixture did not produce a translation.")
+  await control(true)
+  let partialPreview: vscode.TextDocument
+  try {
+    partialPreview = await vscode.workspace.openTextDocument(markdownPreviewUri(partial.document.uri))
+    await waitFor(() => partialPreview.getText().includes(firstTranslation) && partialPreview.getText().includes(previewLoadingMarker), "partially translated preview")
+    await vscode.commands.executeCommand("commentTranslatePlus.cancel")
+    await waitFor(() => partialPreview.getText().includes(firstTranslation) && !partialPreview.getText().includes(previewLoadingMarker), "cancel preserves preview translation")
+    assert(partialPreview.getText().includes("Keep the unfinished lantern paragraph."), "Cancelled preview lost pending source text.")
+    const cancelledText = partialPreview.getText()
+    await vscode.commands.executeCommand("commentTranslatePlus.cancel")
+    assert(partialPreview.getText() === cancelledText, "Repeated cancellation changed the completed preview.")
+  } finally {
+    await control(false)
+  }
+  await new Promise((resolve) => setTimeout(resolve, 250))
+  assert(
+    partialPreview!.getText().includes(firstTranslation) && partialPreview!.getText().includes("Keep the unfinished lantern paragraph."),
+    "A late preview response changed cancelled content."
+  )
+  assert(partial.document.getText() === partialSource && !partial.document.isDirty && !partialPreview!.isDirty, "Preview cancellation changed a document.")
+  checks.push("preview cancellation preserves completed translations and unfinished source, removes loading and rejects late results")
   const termsFile = vscode.Uri.joinPath(workspace, "custom-terms.json")
   const unconfiguredFile = vscode.Uri.joinPath(workspace, "unconfigured-terms.jsonc")
   await vscode.workspace.fs.writeFile(unconfiguredFile, new TextEncoder().encode('[\n// User rules\n{"pattern":"HTTP", "flags":"i"},\n]\n'))

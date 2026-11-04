@@ -17,6 +17,7 @@ interface Preview {
   text: string
   mtime: number
   controller?: AbortController
+  completedText?: () => string
 }
 
 /** One read-only filesystem serves translated documents and their original relative resources. */
@@ -66,6 +67,7 @@ export class MarkdownPreview implements vscode.FileSystemProvider, vscode.Dispos
 
   private async refresh(view: Preview, reason: CancellationReason = "preview-refreshed"): Promise<void> {
     view.controller?.abort(reason)
+    view.completedText = undefined
     const controller = new AbortController()
     view.controller = controller
     try {
@@ -76,9 +78,12 @@ export class MarkdownPreview implements vscode.FileSystemProvider, vscode.Dispos
       controller.signal.throwIfAborted()
       if (document.isClosed || document.version !== version) return
       this.publish(view, progressiveMarkdown(parsed, new Map()))
+      view.completedText = () => parsed.source
       let nextRefresh = 0
       const translations = await this.translations.translateUnits(document, parsed, controller.signal, (translations) => {
-        if (!controller.signal.aborted && !document.isClosed && document.version === version && performance.now() >= nextRefresh) {
+        if (controller.signal.aborted || document.isClosed || document.version !== version) return
+        view.completedText = () => translatedMarkdown(parsed, translations)
+        if (performance.now() >= nextRefresh) {
           this.publish(view, progressiveMarkdown(parsed, translations))
           nextRefresh = performance.now() + 250
         }
@@ -94,6 +99,8 @@ export class MarkdownPreview implements vscode.FileSystemProvider, vscode.Dispos
         this.publish(view, "> 翻译失败：" + describeError(code) + "\n\n" + (document?.getText() ?? ""))
         controller.abort("request-failed")
       }
+    } finally {
+      if (view.controller === controller) view.completedText = undefined
     }
   }
 
@@ -107,10 +114,15 @@ export class MarkdownPreview implements vscode.FileSystemProvider, vscode.Dispos
 
   cancel(uri: vscode.Uri, reason: CancellationReason, message = "翻译已取消，重新打开预览可继续。"): void {
     const view = this.views.get(uri.toString())
-    if (!view) return
+    if (!view || (reason === "user-cancelled" && view.controller?.signal.aborted)) return
     view.controller?.abort(reason)
-    const document = vscode.workspace.textDocuments.find((document) => document.uri.toString() === uri.toString())
-    this.publish(view, "> " + message + "\n\n" + (document?.getText() ?? ""))
+    let text: string
+    if (reason === "user-cancelled") text = view.completedText?.() ?? view.text.replaceAll(previewLoadingMarker, "")
+    else {
+      const document = vscode.workspace.textDocuments.find((document) => document.uri.toString() === uri.toString())
+      text = document?.getText() ?? ""
+    }
+    this.publish(view, "> " + message + "\n\n" + text)
   }
 
   close(uri: vscode.Uri): void {
