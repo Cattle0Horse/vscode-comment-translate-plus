@@ -435,7 +435,7 @@ try {
     resolve(runDirectory, "user-data/User/settings.json"),
     JSON.stringify({ "workbench.startupEditor": "none", "chat.disableAIFeatures": true, "extensions.autoUpdate": false, "update.mode": "none" })
   )
-  const executable = await downloadAndUnzipVSCode({ version: "stable" })
+  const executable = await downloadAndUnzipVSCode({ version: "1.144.0" })
   const launchArgs = [
     workspace,
     "--user-data-dir=" + resolve(runDirectory, "user-data"),

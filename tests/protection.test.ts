@@ -812,6 +812,32 @@ test("Python placeholder truncation is repaired only when the missing suffix is 
   assert.throws(() => prepared.restore("显示，共有记录。"), /structure-invalid/u)
 })
 
+test("closed Python interpolation truncations recover beside Chinese prose without guessing expression edits", () => {
+  const source = "Pack {sum(values)} parcels from {bins[index]}."
+  const unit = { id: "closed-python-expression", start: 0, end: source.length, text: source, format: "text" as const, kind: "string" as const, language: "python" }
+  const prepared = prepareTranslation(unit, 32)
+  assert.equal(prepared.restore("装好{sum(values}件包裹，来自{bins[index}号箱。"), "装好{sum(values)}件包裹，来自{bins[index]}号箱。")
+  for (const invalid of [
+    "装好{sum(values件包裹，来自{bins[index]}号箱。",
+    "装好{sum(value}件包裹，来自{bins[index]}号箱。",
+    "装好{sum( values}件包裹，来自{bins[index]}号箱。",
+    "装好{sum(values}x件包裹，来自{bins[index]}号箱。",
+    "装好{sum(values}件和{sum(values}件包裹，来自{bins[index]}号箱。",
+    "装好{sum(values)}件和{sum(values}件包裹，来自{bins[index]}号箱。"
+  ])
+    assert.throws(() => prepared.restore(invalid), ModelRetry, invalid)
+  const ambiguous = "Pack {sum(values)} and {sum(values))}."
+  const other = prepareTranslation({ ...unit, text: ambiguous, end: ambiguous.length }, 32)
+  assert.throws(() => other.restore("装好{sum(values}件和{sum(values))}件。"), ModelRetry)
+  const literal = "Pack {sum(values)}; the printed label is {sum(values}."
+  const printed = prepareTranslation({ ...unit, text: literal, end: literal.length }, 32)
+  assert.equal(printed.restore(printed.text), literal)
+  assert.throws(
+    () => prepared.restore("装好{sum(values)}件和{sum(values}件包裹，来自{bins[index]}号箱。\n额外说明。"),
+    (error) => error instanceof ModelRetry && /internal line break/u.test(error.feedback.reason)
+  )
+})
+
 test("standalone Python format arguments complete locally without CTP", () => {
   const source = "r:*"
   const unit = { id: "python-format-argument", start: 0, end: source.length, text: source, format: "text" as const, kind: "string" as const, language: "python" }

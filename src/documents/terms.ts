@@ -215,22 +215,44 @@ export function prepareTranslation(
       // A prose parenthesis around the complete source expression is also an
       // unambiguous boundary; never use an arbitrary extra expression closer.
       const parenthesized = source.includes("(" + placeholder) || source.includes("（" + placeholder)
-      const pattern = new RegExp(escapePattern(candidate) + "(?=[\\t ]*(?:$|[,;!?，。；！？、]|\\.(?=$|[\\t ])" + (parenthesized ? "|[)）]" : "") + "))", "gu")
+      // A retained outer brace already closes the interpolation. Han prose can
+      // follow it directly; an open interpolation still needs the old boundary.
+      const pattern = new RegExp(
+        escapePattern(candidate) + "(?=[\\t ]*(?:$|[,;!?，。；！？、]|\\.(?=$|[\\t ])" + (parenthesized ? "|[)）]" : "") + (candidate.endsWith("}") ? "|\\p{Script=Han}" : "") + "))",
+        "gu"
+      )
+      if ([...source.matchAll(pattern)].some((match) => !source.startsWith(placeholder, match.index))) continue
       placeholderRepairs.push({ candidate, placeholder, expected: nativeLiterals.get(placeholder)!.count, pattern })
     }
   }
 
-  function repairTruncatedPlaceholders(translated: string): string {
+  function repairTruncatedPlaceholders(translated: string): { text: string; failure?: ModelRetry } {
     let repaired = translated
     for (const { candidate, placeholder, expected, pattern } of placeholderRepairs) {
-      if (expected - occurrences(placeholder, repaired) !== 1) continue
+      const matches = [...repaired.matchAll(pattern)].filter((match) => !repaired.startsWith(placeholder, match.index))
+      if (!matches.length) continue
+      const complete = occurrences(placeholder, repaired)
+      if (complete >= expected)
+        return {
+          text: repaired,
+          failure: new ModelRetry(
+            {
+              reason: "The response contains an extra truncated native interpolation.",
+              instruction: "Keep source interpolations complete and preserve their occurrence counts. Remove extra truncated copies."
+            },
+            {
+              code: "translation-structure-invalid",
+              difference: { reason: "译文在完整原生插值之外包含多余的截断副本。", expected: expected + " 次：" + placeholder, actual: complete + " 次完整，另含截断副本：" + candidate }
+            }
+          )
+        }
+      if (expected - complete !== 1) continue
       if (occurrences(candidate, repaired) !== expected) continue
-      const matches = [...repaired.matchAll(pattern)]
       if (matches.length !== 1) continue
       const start = matches[0].index
       repaired = repaired.slice(0, start) + placeholder + repaired.slice(start + candidate.length)
     }
-    return repaired
+    return { text: repaired }
   }
 
   const styles = protectedRanges.filter((range) => range.side)
@@ -289,7 +311,8 @@ export function prepareTranslation(
         })
       }
       if (nativeQuotePattern) translated = translated.replace(nativeQuotePattern, (value) => (nativeLiterals.has(value) ? value : value.replace(/[‘’]/gu, "'").replace(/[“”]/gu, '"')))
-      translated = repairTruncatedPlaceholders(translated)
+      const repaired = repairTruncatedPlaceholders(translated)
+      translated = repaired.text
       // Code owns its delimiters; URL data owns its original link syntax. A code
       // wrapper around exactly one such marker is representation, not new content.
       translated = translated.replace(markerCodeWrapperPattern, (match, ticks: string, marker: string) => {
@@ -374,6 +397,7 @@ export function prepareTranslation(
       }
       // TextMate ranges have no translated offsets. Verify their exact content and
       // multiplicity before parsing the surrounding translated document.
+      if (repaired.failure) throw repaired.failure
       const technicalCounts = new Map<string, number>()
       let nativeFragments: readonly ProtectedFragment[] = []
       if (hasTechnicalLiterals) {

@@ -104,6 +104,42 @@ test("Python reordered interpolations restore complete expressions across litera
   }
 })
 
+test("Python projected closing-delimiter recovery publishes and caches the first response beside Chinese prose", async (t) => {
+  for (const newline of ["\n", "\r\n"]) {
+    const parts = ['f"Pack {sum(values)} parcels "', 'f"from {bins[index]}."']
+    const source = parts.join(newline)
+    let offset = 0
+    const literals = parts.map((part) => {
+      const start = offset
+      offset += part.length + newline.length
+      return { start, end: start + part.length, protected: [...part.matchAll(/\{[^{}]+\}/gu)].map((match) => ({ start: start + match.index, end: start + match.index + match[0].length })) }
+    })
+    const region: TextUnit = { id: "closed-python", text: source, start: 0, end: source.length, format: "text", kind: "string", language: "python" }
+    const units = pythonStringUnits(source, region, literals)
+    assert.equal(units.length, 1)
+    const fixture = await chatFixture(t, () => "装好{sum(values}件包裹，来自{bins[index}号箱。")
+    const store = new TranslationStore()
+    t.after(() => store.clear())
+    const published: string[] = []
+    const run = () =>
+      store.translate(
+        "closed-python",
+        { units },
+        (input, signal, completed) => requestTranslation(fixture.service, fixture.settings, input, signal, fixture.gate, completed),
+        new AbortController().signal,
+        false,
+        (item) => published.push(item.text)
+      )
+    const result = await run()
+    const translated = result.get(units[0].id)!
+    assert.equal(projectionContent(units[0], translated), "装好{sum(values)}件包裹，来自{bins[index]}号箱。")
+    assert.equal(validateTranslation(units[0], translated), undefined)
+    assert.deepEqual(published, [translated])
+    assert.deepEqual(await run(), result)
+    assert.equal(fixture.seen.length, 1)
+  }
+})
+
 test("Python path enumerations accept Chinese separators on the first response and cache the result", async (t) => {
   const source = 'notice = "a document in /gallery, /catalog, or the /archive/files store"'
   const output = "/gallery、/catalog 或 /archive/files 存储中的文档"

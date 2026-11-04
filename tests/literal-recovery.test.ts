@@ -28,6 +28,66 @@ test("HTML exposed from source inline code reports the original literal without 
   assert.equal(failure.difference?.expected, "<span>", "Actual source HTML damage must take priority over exposed inline text.")
 })
 
+test("duplicate source markup and links report occurrence counts while new and changed fragments remain rejected", () => {
+  for (const [source, broken, fragment] of [
+    ["Read /archive/<slot>/ before leaving.", "离开前阅读 /archive/<slot>/ 和 /archive/<slot>/。", "<slot>"],
+    ["Read <span>the map</span>.", "阅读 <span>地图</span> 和 <span>目录</span>。", "<span>"],
+    ["Read <span>the map</span> and <span>the guide</span>.", "阅读 <span>地图</span>、<span>指南</span> 和 <span>目录</span>。", "<span>"],
+    ["Read [Map](./map.md).", "阅读[地图](./map.md)和[目录](./map.md)。", "./map.md"]
+  ]) {
+    for (const format of ["text", "markdown"] as const) {
+      const unit = { id: "duplicate", text: source, start: 0, end: source.length, format }
+      const failure = validateTranslation(unit, broken)
+      assert.ok(failure instanceof ModelRetry)
+      const expected = source.split(fragment).length - 1
+      assert.equal(failure.difference?.expected, expected + " 次：" + fragment)
+      assert.equal(failure.difference?.actual, expected + 1 + " 次：" + fragment)
+      assert.ok(failure.feedback.instruction.includes(JSON.stringify(fragment)))
+      assert.match(failure.feedback.instruction, new RegExp("exactly " + expected + " time", "u"))
+      assert.equal(validateTranslation(unit, source), undefined)
+      assert.ok(validateTranslation(unit, source.replace(fragment, "")) instanceof ModelRetry)
+    }
+  }
+  const unit = inputOf(parseMarkdown("Read <span>the map</span>.")).units[0]
+  assert.ok(validateTranslation(unit, "阅读 <span>地图</span><extra>目录</extra>。") instanceof ModelRetry)
+  assert.ok(validateTranslation(unit, "阅读 <div>地图</div>。") instanceof ModelRetry)
+})
+
+test("duplicate markup recovery retains the original occurrence, publishes only valid items and caches the repair", async (t) => {
+  const source = "Read /archive/<slot>/ before leaving."
+  const fixed = "离开前阅读 /archive/<slot>/。"
+  const input = inputOf(parseMarkdown("Read the neighbour.\n\n" + source))
+  const fixture = await chatFixture(t, (_body, _items, call) => (call === 1 ? "阅读相邻内容。\n%%\n离开前阅读 /archive/<slot>/ 和 /archive/<slot>/。" : fixed))
+  const store = new TranslationStore()
+  t.after(() => store.clear())
+  const events: TranslationEvent[] = []
+  const published: string[] = []
+  const run = () =>
+    store.translate(
+      "duplicate-markup",
+      input,
+      (request, signal, completed) =>
+        requestTranslation(fixture.service, fixture.settings, request, signal, fixture.gate, completed, { details: false, emit: (event) => events.push(event) }),
+      new AbortController().signal,
+      false,
+      (item) => published.push(item.text)
+    )
+  const result = await run()
+  assert.deepEqual([...result.values()], ["阅读相邻内容。", fixed])
+  assert.deepEqual(published, ["阅读相邻内容。", fixed])
+  assert.deepEqual(
+    fixture.seen.map(({ items }) => items),
+    [input.units.map((unit) => unit.text), [source]]
+  )
+  const failure = events.flatMap((event) => (event.kind === "request" ? event.failures : []))[0]
+  assert.equal(failure.difference.expected, "1 次：<slot>")
+  assert.equal(failure.difference.actual, "2 次：<slot>")
+  assert.ok(modelFeedback(fixture.seen[1].body).includes(failure.difference.modelReason!))
+  assert.match(modelFeedback(fixture.seen[1].body), /exactly 1 time/u)
+  assert.deepEqual(await run(), result)
+  assert.equal(fixture.seen.length, 2)
+})
+
 test("Python adjacent strings diagnose exposed literal examples through their decoded prose", () => {
   for (const newline of ["\n", "\r\n"]) {
     const source = ["notice = (", '    "Copy the `Shelf label: "', '    "<GALLERY>` example as printed."', ")"].join(newline)

@@ -42,6 +42,18 @@ export async function runParsing(workspace: vscode.Uri, owner: Application): Pro
     const restored = prepareTranslation(unit, 32).restore("条目数（{len(records}）项；阅读指南。")
     if (validateTranslation(unit, restored) || projectionContent(unit, restored) !== "条目数（{len(records)}）项；阅读指南。")
       throw Error("Real Python projection did not recover a unique expression suffix.")
+    const adjacent = prepareTranslation(unit, 32).restore("条目数{len(records}项；阅读指南。")
+    if (validateTranslation(unit, adjacent) || projectionContent(unit, adjacent) !== "条目数{len(records)}项；阅读指南。")
+      throw Error("Real Python projection did not recover a closed interpolation beside Chinese prose.")
+    const taggedComment = ["# Read the archive reference", "# at /archive/<slot>/ before leaving."].join(newline)
+    const comments = await owner.documents.parseSource(taggedComment, "python")
+    const taggedUnit = comments.groups.flatMap((group) => group.units).find((unit) => unit.text.includes("<slot>"))
+    if (!taggedUnit) throw Error("Missing real Python comment with a literal path tag.")
+    const correct = prepareTranslation(taggedUnit, 32).restore("离开前阅读 /archive/<slot>/ 中的归档参考。")
+    if (validateTranslation(taggedUnit, correct)) throw Error("An unchanged source path tag was rejected after comment folding.")
+    const duplicate = validateTranslation(taggedUnit, taggedUnit.text.replace("/archive/<slot>/", "/archive/<slot>/ and /archive/<slot>/"))
+    if (duplicate?.difference?.expected !== "1 次：<slot>" || duplicate.difference.actual !== "2 次：<slot>")
+      throw Error("Real Python comment duplicates lost their source occurrence counts.")
     const html = ["/**", " * Example usage:", ' *   <section data-kind="demo">', ' *   <script type="module" src="gallery.js"></script>', " *   Logs the sample results.", " */"].join(
       newline
     )
@@ -224,7 +236,7 @@ export async function runParsing(workspace: vscode.Uri, owner: Application): Pro
     if (JSON.stringify(incremental) !== JSON.stringify(fresh)) throw Error("Nested fence tokenization or source mapping diverged after an edit.")
   }
   return [
-    "real JS/TS string shells stay local beside interpolations/escapes; Python directives stay local and projected expression truncation recovers; LF/CRLF HTML comments preserve markup and reject damage",
+    "real JS/TS string shells stay local; Python projected truncations recover beside Han prose and LF/CRLF comments reject duplicate markup with source counts; HTML damage remains rejected",
     "Git merge/diff3 marker lines preserve exact LF/CRLF source ranges in Markdown and real TypeScript/Python grammars; valid YAML survives while duplicate keys and ambiguous spanning units retain source",
     "adjacent Python literals split completed source-line sentences and decoded paragraphs while preserving dynamic suffixes for LF and CRLF",
     "sentence endings ignore trailing whitespace and split Markdown, real comments and Python docstrings for LF and CRLF",
