@@ -7,7 +7,45 @@ import { prepareInput } from "../src/translation/prepare.ts"
 import { serviceIdentity } from "../src/translation/settings.ts"
 import { TranslationStore } from "../src/translation/store.ts"
 import type { TextUnit } from "../src/model/document.ts"
-import { chatFixture, inputOf, requestTranslation } from "./support/fixtures.ts"
+import { chatFixture, defaultPreserveTerms, inputOf, requestTranslation } from "./support/fixtures.ts"
+
+test("default terms preserve standalone PascalCase names while sentences and ambiguous words still reach HTTP", async (t) => {
+  const fixture = await chatFixture(t, (_body, items) => items.map(() => "译文").join("\n%%\n"))
+  const settings = { ...fixture.settings, preserveTerms: defaultPreserveTerms, skipSameLanguage: false }
+  const input = inputOf(parseMarkdown("# GalleryPathType\n\nXMLParser\n\nHTTPClient2\n\nGallery\n\nGUIDE\n\nRead GalleryPathType before entering."))
+  const store = new TranslationStore()
+  t.after(() => store.clear())
+  const prepared = prepareInput(settings, input)
+  const run = () =>
+    store.translate(
+      serviceIdentity(settings),
+      prepared,
+      (batch, signal, complete) => fixture.service.request(settings, batch, signal, fixture.gate, complete),
+      new AbortController().signal
+    )
+  const results = await run()
+  for (const unit of input.units.slice(0, 3)) assert.equal(results.get(unit.id), unit.text)
+  for (const unit of input.units.slice(3)) assert.notEqual(results.get(unit.id), unit.text)
+  assert.deepEqual(
+    fixture.seen.flatMap((request) => request.items),
+    ["Gallery", "GUIDE", "Read GalleryPathType before entering."]
+  )
+  const calls = fixture.seen.length
+  assert.deepEqual(await run(), results)
+  assert.equal(fixture.seen.length, calls)
+
+  for (const preserveTerms of [emptyPreserveTerms, parsePreserveTerms(["Gallery"])]) {
+    const source = { units: [input.units[1]] }
+    const overridden = { ...settings, preserveTerms }
+    const before = fixture.seen.length
+    const translated = await requestTranslation(fixture.service, overridden, source, new AbortController().signal, fixture.gate)
+    assert.equal(translated[0].text, "译文")
+    assert.deepEqual(
+      fixture.seen.slice(before).flatMap((request) => request.items),
+      ["XMLParser"]
+    )
+  }
+})
 
 test("preserved units complete without compiling unused reference prompts, while requested units still validate them", async (t) => {
   const fixture = await chatFixture(t, () => "控件")

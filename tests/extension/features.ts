@@ -1478,6 +1478,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     'const endpoint = "https://example.com/a?x=1&y=two";',
     'const uuid = "12345678-1234-5678-9abc-123456789abc";',
     'const identifier = "sampleGroup";',
+    'const typeName = "GalleryPathType";',
     'const environment = "SAMPLE_NOTICE_KEY_5XX";',
     'const method = "GET";',
     'const status = "4xx";',
@@ -1488,7 +1489,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   const filtered = await open("filtered-config.ts", "typescript", filteredSource)
   await updateObserved("browse.strings", true)
   const beforeFiltered = (await requests()).length
-  await start(filtered.document, 10)
+  await start(filtered.document, 11)
   const sentItems = (await requests()).slice(beforeFiltered).flatMap((request) => request.itemFingerprints ?? [])
   const expectedItems = await Promise.all(["all", "sample-library", "Read the original document."].map(requestFingerprint))
   assert(JSON.stringify(sentItems.sort()) === JSON.stringify(expectedItems.sort()), "Chinese comments or technical string values reached HTTP, or an ambiguous label was discarded.")
@@ -1509,7 +1510,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   )
   await updateObserved("browse.strings", false)
   checks.push(
-    "native TypeScript grammar and default terms skip Chinese, technical values and camelCase/snake_case identifiers while requesting ambiguous labels and preserving cached hover and source"
+    "native TypeScript grammar and default terms skip Chinese, technical values and camelCase/PascalCase/snake_case identifiers while requesting ambiguous labels and preserving cached hover and source"
   )
 
   const identifierSource = [

@@ -640,7 +640,7 @@ test("unchanged results stay completed and cached while representation noise is 
     const input = { units: [unit] }
     const store = new TranslationStore()
     const action = (batch: TranslationInput, signal: AbortSignal, completed: (item: { id: string; text: string }) => void) =>
-      requestTranslation(fixture.service, fixture.settings, batch, signal, fixture.gate, completed)
+      requestTranslation(fixture.service, { ...fixture.settings, preserveTerms: emptyPreserveTerms }, batch, signal, fixture.gate, completed)
     const before = fixture.seen.length
     const progress: string[] = []
     const result = await store.translate(String(index), input, action, new AbortController().signal, false, (item) => progress.push(item.text))
