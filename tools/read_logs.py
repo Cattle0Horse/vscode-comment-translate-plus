@@ -26,6 +26,8 @@ def positive(value):
 
 
 def error_codes(record):
+  if record.get("kind") == "finish" and record.get("status") == "cancelled":
+    return set()
   codes = {record["code"]} if isinstance(record.get("code"), str) else set()
   for failure in record.get("failures", []):
     if isinstance(failure, dict) and isinstance(failure.get("code"), str):
@@ -34,6 +36,8 @@ def error_codes(record):
 
 
 def matches(record, args):
+  if args.issues and record.get("kind") == "finish" and record.get("status") == "cancelled":
+    return False
   for key, expected in (("kind", args.kind), ("sessionId", args.session), ("taskId", args.task), ("requestId", args.request)):
     if expected and record.get(key) not in expected:
       return False

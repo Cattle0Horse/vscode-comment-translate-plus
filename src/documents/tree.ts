@@ -27,6 +27,9 @@ const markdown = parser.configure([
     ]
   }
 ])
+// Code-comment prose can start with a tag without turning the entire remainder
+// into an opaque Markdown HTML block. Keep each tag and its attributes visible.
+const inlineHtmlMarkdown = markdown.configure({ remove: ["HTMLBlock"] })
 
 export type MarkdownNode = ReturnType<typeof markdown.parse>["topNode"]
 
@@ -35,16 +38,17 @@ export function endsProseLine(text: string): boolean {
 }
 
 /** Lezer splits lines at LF; exclude CR from parsing without shifting source offsets. */
-export function markdownTree(source: string): ReturnType<typeof markdown.parse> {
+export function markdownTree(source: string, inlineHtml = false): ReturnType<typeof markdown.parse> {
+  const reader = inlineHtml ? inlineHtmlMarkdown : markdown
   const ranges: { from: number; to: number }[] = []
   let from = 0
   for (const match of source.matchAll(/\r(?=\n)/g)) {
     if (match.index > from) ranges.push({ from, to: match.index })
     from = match.index + 1
   }
-  if (!from) return markdown.parse(source)
+  if (!from) return reader.parse(source)
   if (from < source.length) ranges.push({ from, to: source.length })
-  return markdown.parse(source, [], ranges)
+  return reader.parse(source, [], ranges)
 }
 
 export function children(node: MarkdownNode): MarkdownNode[] {

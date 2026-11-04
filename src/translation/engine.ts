@@ -119,7 +119,7 @@ class TranslationRun {
               )
             ]
           : undefined,
-      code: error === undefined ? undefined : failureCode(error)
+      code: status === "cancelled" || error === undefined ? undefined : failureCode(error)
     })
   }
 

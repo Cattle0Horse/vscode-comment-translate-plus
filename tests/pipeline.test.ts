@@ -798,6 +798,10 @@ test("translation diagnostics expose actual prompts and raw responses, completio
     })
   )
   assert.ok(cancelledEvents.some((event) => event.kind === "finish" && event.status === "cancelled" && event.failures.length === input.units.length))
+  assert.ok(
+    cancelledEvents.filter((event) => event.kind === "finish").every((event) => event.code === undefined),
+    "Normal cancellation acquired a terminal failure code."
+  )
   assert.equal(fixture.seen.length, beforeCancellation, "Preparation cancellation reached the HTTP service.")
 })
 

@@ -445,9 +445,16 @@ export function validateTranslation(unit: TextUnit, translated: string, code = "
     // code blocks. Compare prose only after checking its source-language shell.
     function prose(comment: TextUnit): string {
       const { source, ranges } = translationBody(comment)
-      let text = source
-      for (const range of [...ranges].reverse()) if (range.fold) text = text.slice(0, range.start) + "\n" + text.slice(range.end)
-      return text
+      let text = ""
+      let cursor = 0
+      // Compare the same folded prose that reaches the model. Native fragments
+      // keep their own whitespace, including multiline tag attributes and code.
+      const fold = (value: string) => value.replace(/[\t ]*(?:\r\n|[\r\n])[\t ]*/gu, " ")
+      for (const range of ranges) {
+        text += fold(source.slice(cursor, range.start)) + (range.fold ? " " : source.slice(range.start, range.end))
+        cursor = range.end
+      }
+      return text + fold(source.slice(cursor))
     }
 
     return validateTranslation(

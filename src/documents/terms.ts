@@ -1,6 +1,6 @@
 import { translationBody } from "./body.ts"
 import { restoreProjection } from "./projection.ts"
-import type { TextUnit } from "../model/document.ts"
+import type { ProtectedFragment, TextUnit } from "../model/document.ts"
 import type { PreserveTerms } from "../model/translation.ts"
 import { ModelRetry } from "../model/diagnostics.ts"
 import { validateTranslation, validateTranslationText } from "./validation.ts"
@@ -30,11 +30,11 @@ function linkTextRanges(text: string): readonly { start: number; end: number }[]
 }
 
 /** Count non-overlapping literal matches without allocating the split substrings. */
-function occurrences(value: string, content: string, limit = Infinity): number {
+function occurrences(value: string, content: string): number {
   let count = 0
   let position = content.indexOf(value)
   while (position >= 0) {
-    if (++count >= limit) return count
+    count++
     position = content.indexOf(value, position + value.length)
   }
   return count
@@ -195,7 +195,7 @@ export function prepareTranslation(
     : undefined
 
   const placeholderRepairs: { candidate: string; placeholder: string; expected: number; pattern: RegExp }[] = []
-  if (unit.kind === "string" && unit.language === "python") {
+  if (unit.language === "python") {
     // A null owner marks a prefix shared by distinct source expressions.
     const candidates = new Map<string, string | null>()
     for (const placeholder of nativeLiterals.keys()) {
@@ -212,7 +212,10 @@ export function prepareTranslation(
     for (const [candidate, placeholder] of [...candidates].sort(([a], [b]) => b.length - a.length)) {
       if (!placeholder || nativeLiterals.has(candidate)) continue
       // A following token character or mismatched delimiter is damage, not truncation.
-      const pattern = new RegExp(escapePattern(candidate) + "(?=[\\t ]*(?:$|[,;!?，。；！？、]))", "gu")
+      // A prose parenthesis around the complete source expression is also an
+      // unambiguous boundary; never use an arbitrary extra expression closer.
+      const parenthesized = source.includes("(" + placeholder) || source.includes("（" + placeholder)
+      const pattern = new RegExp(escapePattern(candidate) + "(?=[\\t ]*(?:$|[,;!?，。；！？、]|\\.(?=$|[\\t ])" + (parenthesized ? "|[)）]" : "") + "))", "gu")
       placeholderRepairs.push({ candidate, placeholder, expected: nativeLiterals.get(placeholder)!.count, pattern })
     }
   }
@@ -221,6 +224,7 @@ export function prepareTranslation(
     let repaired = translated
     for (const { candidate, placeholder, expected, pattern } of placeholderRepairs) {
       if (expected - occurrences(placeholder, repaired) !== 1) continue
+      if (occurrences(candidate, repaired) !== expected) continue
       const matches = [...repaired.matchAll(pattern)]
       if (matches.length !== 1) continue
       const start = matches[0].index
@@ -371,11 +375,13 @@ export function prepareTranslation(
       // TextMate ranges have no translated offsets. Verify their exact content and
       // multiplicity before parsing the surrounding translated document.
       const technicalCounts = new Map<string, number>()
+      let nativeFragments: readonly ProtectedFragment[] = []
       if (hasTechnicalLiterals) {
         // Parse complete fragments, including paths newly wrapped in inline code.
         // Unchanged source-owned code remains optional under the inline-code contract.
         const candidate = { ...unit, text: translated, format: unit.content === undefined ? unit.format : ("text" as const), content: undefined, protected: undefined }
-        const fragments = protectedFragments(candidate).flatMap((fragment) => {
+        nativeFragments = protectedFragments(candidate)
+        const fragments = nativeFragments.flatMap((fragment) => {
           if (fragment.kind !== "InlineCode") return [fragment]
           if (protectedRanges.some((range) => range.kind === "InlineCode" && source.slice(range.start, range.end) === fragment.text)) return []
           return protectedFragments({ ...candidate, text: fragment.text.replace(/^`+|`+$/gu, ""), kind: "string" })
@@ -383,7 +389,23 @@ export function prepareTranslation(
         for (const fragment of fragments) if (fragment.kind === "Technical") technicalCounts.set(fragment.text, (technicalCounts.get(fragment.text) ?? 0) + 1)
       }
       for (const { value, technical, expected } of nativeChecks) {
-        const actual = technical ? (technicalCounts.get(value) ?? 0) : occurrences(value, translated)
+        let actual = technical ? (technicalCounts.get(value) ?? 0) : occurrences(value, translated)
+        if (technical) {
+          // A short native path can sit directly beside translated CJK text, so
+          // the technical lexer may not emit a standalone fragment. Count the
+          // exact source value in that case, but never accept it as a substring
+          // of a different, longer technical fragment.
+          for (let start = translated.indexOf(value); start >= 0; start = translated.indexOf(value, start + value.length)) {
+            const end = start + value.length
+            const adjacentAscii = /[A-Za-z\d_.:\\/]/u
+            if (
+              !adjacentAscii.test(translated[start - 1] ?? "") &&
+              !adjacentAscii.test(translated[end] ?? "") &&
+              !nativeFragments.some((fragment) => fragment.start < end && fragment.end > start)
+            )
+              actual++
+          }
+        }
         if (actual !== expected) {
           // Prefer the document check's concrete error when this fragment is parseable
           // syntax. TextMate-only ranges still need the occurrence check below.

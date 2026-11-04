@@ -3,9 +3,61 @@ import type { Application } from "../../src/host/application.ts"
 import { displayTranslations } from "../../src/documents/presentation.ts"
 import { validateTranslation } from "../../src/documents/validation.ts"
 import { prepareTranslation } from "../../src/documents/terms.ts"
+import { projectionContent } from "../../src/documents/projection.ts"
 
 /** Exercise the real grammar, document events and nested-fence cache through the production reader. */
 export async function runParsing(workspace: vscode.Uri, owner: Application): Promise<string[]> {
+  for (const language of ["javascript", "typescript"]) {
+    for (const [source, expected] of [
+      ["const note = `Read ${JSON.stringify(entries)}`", "Read ${JSON.stringify(entries)}"],
+      ["const note = `${JSON.stringify(entries)} Read`", "${JSON.stringify(entries)} Read"],
+      ['const note = "Read\\n"', "Read\\n"],
+      ['const note = "\\nRead"', "\\nRead"]
+    ]) {
+      const parsed = await owner.documents.parseSource(source, language)
+      const unit = parsed.groups.flatMap((group) => group.units).find((unit) => unit.kind === "string")
+      if (!unit) throw Error("Missing real-grammar string: " + language)
+      const prepared = prepareTranslation(unit, 32)
+      if (prepared.text !== expected || prepared.restore(prepared.text) !== unit.text) throw Error("String shell merged with its interpolation or escape: " + language)
+      const restored = prepared.restore(expected.replace("Read", "阅读"))
+      if (validateTranslation(unit, restored)) throw Error("Real-grammar string translation failed: " + language)
+      const fragment = expected.includes("${") ? "${JSON.stringify(entries)}" : "\\n"
+      let rejected = false
+      try {
+        prepared.restore(expected.replace("Read", "阅读").replace(fragment, ""))
+      } catch {
+        rejected = true
+      }
+      if (!rejected) throw Error("Lost native string fragment was accepted: " + language)
+    }
+  }
+  for (const newline of ["\n", "\r\n"]) {
+    const source = ["#!/usr/bin/env python3", "# Read the gallery guide.", "notice = (", '    f"Record count ({len(records)} items); "', '    "read the guide."', ")"].join(newline)
+    const parsed = await owner.documents.parseSource(source, "python")
+    const units = parsed.groups.flatMap((group) => group.units)
+    if (units.some((unit) => unit.start === 0)) throw Error("Interpreter directive became translatable prose.")
+    if (!units.some((unit) => unit.text.includes("Read the gallery"))) throw Error("Ignoring the interpreter directive also removed adjacent comment prose.")
+    const unit = units.find((unit) => unit.text.includes("Record count"))
+    if (!unit) throw Error("Missing real Python concatenated literal.")
+    const restored = prepareTranslation(unit, 32).restore("条目数（{len(records}）项；阅读指南。")
+    if (validateTranslation(unit, restored) || projectionContent(unit, restored) !== "条目数（{len(records)}）项；阅读指南。")
+      throw Error("Real Python projection did not recover a unique expression suffix.")
+    const html = ["/**", " * Example usage:", ' *   <section data-kind="demo">', ' *   <script type="module" src="gallery.js"></script>', " *   Logs the sample results.", " */"].join(
+      newline
+    )
+    const comment = await owner.documents.parseSource(html, "javascript")
+    let hasMarkup = false
+    for (const unit of comment.groups.flatMap((group) => group.units)) {
+      const prepared = prepareTranslation(unit, 32)
+      const translated = prepared.restore(prepared.text.replace("Example usage:", "示例用法：").replace("Logs the sample results.", "记录示例结果。"))
+      if (validateTranslation(unit, translated)) throw Error("Real HTML comment falsely reported new markup after folding.")
+      if (translated.includes("<section")) {
+        hasMarkup = true
+        if (!validateTranslation(unit, translated.replace("section", "article"))) throw Error("HTML comment accepted changed markup.")
+      }
+    }
+    if (!hasMarkup) throw Error("HTML regression did not reach an actual markup unit.")
+  }
   for (const newline of ["\n", "\r\n"]) {
     for (const [language, prefix] of [
       ["markdown", ""],
@@ -172,6 +224,7 @@ export async function runParsing(workspace: vscode.Uri, owner: Application): Pro
     if (JSON.stringify(incremental) !== JSON.stringify(fresh)) throw Error("Nested fence tokenization or source mapping diverged after an edit.")
   }
   return [
+    "real JS/TS string shells stay local beside interpolations/escapes; Python directives stay local and projected expression truncation recovers; LF/CRLF HTML comments preserve markup and reject damage",
     "Git merge/diff3 marker lines preserve exact LF/CRLF source ranges in Markdown and real TypeScript/Python grammars; valid YAML survives while duplicate keys and ambiguous spanning units retain source",
     "adjacent Python literals split completed source-line sentences and decoded paragraphs while preserving dynamic suffixes for LF and CRLF",
     "sentence endings ignore trailing whitespace and split Markdown, real comments and Python docstrings for LF and CRLF",

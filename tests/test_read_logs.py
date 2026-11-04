@@ -52,6 +52,19 @@ class ReadLogsTests(unittest.TestCase):
     self.assertTrue(partial.stderr)
     self.assertEqual(json.loads(partial.stdout)["kind"], "start")
 
+  def test_normal_cancellation_is_not_an_issue_but_earlier_validation_errors_remain_visible(self):
+    events = [
+      {"kind": "request", "taskId": "T1", "failures": [{"code": "marker-invalid"}]},
+      {"kind": "finish", "taskId": "T1", "status": "cancelled", "code": "translation-failed", "failures": [{"code": "translation-failed"}]},
+      {"kind": "finish", "taskId": "T2", "status": "cancelled", "code": "translation-failed", "failures": []},
+      {"kind": "finish", "taskId": "T3", "status": "failed", "code": "translation-failed"}
+    ]
+    result = self.run_cli(events, "--issues")
+    self.assertEqual(result.returncode, 0, result.stderr)
+    self.assertEqual([json.loads(line)["taskId"] for line in result.stdout.splitlines()], ["T1", "T3"])
+    stats = json.loads(self.run_cli(events, "--stats").stdout)
+    self.assertEqual(stats["errorCodes"], {"marker-invalid": 1, "translation-failed": 1})
+
 
 if __name__ == "__main__":
   unittest.main()

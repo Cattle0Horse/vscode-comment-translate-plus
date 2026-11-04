@@ -794,6 +794,15 @@ test("short Python placeholders, paths and format arguments remain native", () =
   }
 })
 
+test("short Python paths remain countable when translated CJK text touches them", () => {
+  const source = "Read the saved /gallery entry."
+  const unit = { id: "python-cjk-path", start: 0, end: source.length, text: source, format: "text" as const, kind: "string" as const, language: "python" }
+  const prepared = prepareTranslation(unit, 32)
+  for (const translated of ["读取保存的/gallery条目。", "读取保存的/gallery 条目。", "读取保存的 /gallery 条目。"]) assert.equal(prepared.restore(translated), translated)
+  for (const invalid of ["读取保存的条目。", "读取 /gallery/catalog。", "读取 prefix/gallery。", "读取保存的/gallery条目和 /gallery。", "读取保存的/gallery和/gallery条目。"])
+    assert.throws(() => prepared.restore(invalid), ModelRetry)
+})
+
 test("Python placeholder truncation is repaired only when the missing suffix is unambiguous", () => {
   const source = "Showing {len(selected)} of {total} entries."
   const unit = { id: "python-placeholder-repair", start: 0, end: source.length, text: source, format: "text" as const, kind: "string" as const, language: "python" }

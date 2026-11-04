@@ -94,6 +94,25 @@ test("technical recovery rejects a longer path substituted for a native path bef
   assert.equal(fixture.seen.length, 2)
 })
 
+test("a native path beside translated Chinese completes on the first HTTP response and caches the result", async (t) => {
+  const text = "Read the saved /gallery entry."
+  const fixed = "读取保存的/gallery条目。"
+  const unit = { id: "cjk-native-path", start: 0, end: text.length, text, format: "text" as const, kind: "string" as const, language: "python" }
+  const fixture = await chatFixture(t, () => fixed)
+  const store = new TranslationStore()
+  t.after(() => store.clear())
+  const run = () =>
+    store.translate(
+      "cjk-native-path",
+      { units: [unit] },
+      (input, signal, completed) => requestTranslation(fixture.service, fixture.settings, input, signal, fixture.gate, completed),
+      new AbortController().signal
+    )
+  assert.equal((await run()).get(unit.id), fixed)
+  assert.equal((await run()).get(unit.id), fixed)
+  assert.equal(fixture.seen.length, 1)
+})
+
 test("all source items are sent as one line and restore their original breaks while context keeps its format", async (t) => {
   for (const newline of ["\n", "\r\n", "\r"]) {
     const source = "Read first." + newline + "  Continue reading."

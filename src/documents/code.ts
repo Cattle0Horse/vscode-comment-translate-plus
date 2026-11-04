@@ -15,6 +15,7 @@ export interface CodeRegion extends TextUnit {
 /** Collect complete syntax regions before any paragraph or literal grouping. */
 function collectRegions(source: string, tokens: Iterable<RegionToken>): CodeSpan[] {
   const spans: CodeSpan[] = []
+  let previousDelimiter = false
   for (const token of tokens) {
     const previous = spans.at(-1)
     const gap = previous ? source.slice(previous.end, token.start) : ""
@@ -25,9 +26,11 @@ function collectRegions(source: string, tokens: Iterable<RegionToken>): CodeSpan
     if (token.complete) active.complete = true
     if (token.protected) {
       const previousRange = active.protected.at(-1)
-      if (previousRange?.end === token.start) previousRange.end = token.end
+      const delimiter = token.scopes.some((value) => value.startsWith("punctuation.definition.string"))
+      if (previousRange?.end === token.start && !delimiter && !previousDelimiter) previousRange.end = token.end
       else active.protected.push({ start: token.start, end: token.end })
-    }
+      previousDelimiter = delimiter
+    } else previousDelimiter = false
   }
   return spans
 }
@@ -172,7 +175,11 @@ export async function extractCode(source: string, language: string, tokenizer: C
           }
         })()
   const spans = collectRegions(source, tokens)
-  const paragraphs = commentParagraphs(source, spans)
+  // An interpreter directive is executable file metadata, not comment prose.
+  const paragraphs = commentParagraphs(
+    source,
+    spans.filter((span) => !(span.kind === "comment" && span.start === (source.charCodeAt(0) === 0xfeff ? 1 : 0) && source.startsWith("#!", span.start)))
+  )
   const semantic: readonly (CodeSpan & { readonly literals?: readonly PythonLiteral[] })[] = language === "python" ? joinPythonLiterals(source, paragraphs) : paragraphs
   const regions = semantic
     .flatMap<CodeSpan & { readonly literals?: readonly PythonLiteral[] }>((span) =>

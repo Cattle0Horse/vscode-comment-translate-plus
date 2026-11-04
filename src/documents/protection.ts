@@ -82,7 +82,7 @@ export function protectedFragments(unit: TextUnit, tree?: MarkdownNode): readonl
 function analyzeProtectedFragments(unit: TextUnit, tree?: MarkdownNode): readonly ProtectedFragment[] {
   if (unit.format === "yaml") return []
   const input = standalone(unit.text)
-  const root = unit.kind === "string" ? undefined : (tree ?? markdownTree(input).topNode)
+  const root = unit.kind === "string" ? undefined : (tree ?? markdownTree(input, unit.format === "text").topNode)
   const labels = unit.linkLabels ?? (root ? markdownLinkLabels(input, root) : [])
   let fragments: ProtectedFragment[] = []
   const lines: { input: number; source: number }[] = []
@@ -181,6 +181,8 @@ function analyzeProtectedFragments(unit: TextUnit, tree?: MarkdownNode): readonl
       }
       // A path prefix followed only by punctuation is an operator or prose, not a filename.
       if (pattern === PATH_PATTERN && !/[^.,!?;:()[\]{}\\/]/u.test(text.replace(/^(?:[A-Za-z]:[\\/]|\.{1,2}[\\/]|\/)/u, ""))) continue
+      // Slash-separated degree values are measurements, not absolute paths.
+      if (pattern === PATH_PATTERN && /\d°$/u.test(unit.text.slice(0, match.index)) && /^(?:\/[+-]?\d+(?:\.\d+)?°)+(?=$|\p{Script=Han})/u.test(text)) continue
       const start = match.index
       const end = start + text.length
       // Escapes and interpolations are lexical boundaries, not identifier characters.

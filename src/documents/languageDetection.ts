@@ -5,6 +5,7 @@ import type { TextUnit } from "../model/document.ts"
 import type { PreserveTerms } from "../model/translation.ts"
 
 const cjk = /[\p{Script_Extensions=Han}\p{Script_Extensions=Hiragana}\p{Script_Extensions=Katakana}\p{Script_Extensions=Hangul}]/u
+const simplifiedChinese = /[这说话语读译请让为从对该页监态码显设载档览缓错删选项标识链]/u
 const sourceAnalyses = new WeakMap<TextUnit, ReturnType<typeof analyzeSource>>()
 
 /** Negative evidence is advisory; failure to confirm the target language is not enough. */
@@ -18,6 +19,9 @@ export function unlikelyTargetLanguage(text: string, target: string): { language
   const eastern = letters.filter((letter) => cjk.test(letter)).length
   if (eastern && eastern !== letters.length) return
   if (letters.length < (eastern ? 20 : 80) || (!eastern && (text.match(/\p{L}+/gu)?.length ?? 0) < 12)) return
+  // Shared Han alone is uncertain. Explicit simplified forms in an all-Han
+  // response are positive target evidence that a statistical guess cannot negate.
+  if (language === "zh" && letters.every((letter) => /\p{Script=Han}/u.test(letter)) && simplifiedChinese.test(text)) return
   const scores = detectAll(text)
   const [first, second] = scores
   const targetScore = scores.find((candidate) => candidate.lang === language)?.accuracy ?? 0
@@ -62,7 +66,7 @@ export function isTargetLanguage(unit: TextUnit, target: string, preserveTerms?:
   for (const part of [text, ...parts]) {
     if ((part.match(/\p{L}/gu)?.length ?? 0) < 4) return false
     // These simplified forms provide positive evidence; shared Han characters alone do not establish Chinese.
-    if (chinese && /[这说话语读译请让为从对该页监态码显设载档览缓错删选项标识链]/u.test(part)) continue
+    if (chinese && simplifiedChinese.test(part)) continue
     const [first, second] = detectAll(part)
     if (!first || first.lang !== language || first.accuracy < 0.9 || first.accuracy - (second?.accuracy ?? 0) < 0.25) return false
   }
