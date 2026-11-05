@@ -2,9 +2,12 @@ import * as vscode from "vscode"
 import type { BrowseSnapshot, TranslatedUnit } from "./session.ts"
 import { displayMode } from "../../host/configuration.ts"
 import { translationDisplayText, displayTranslations } from "../../documents/presentation.ts"
+import { blockCommentProcessor } from "../../documents/commentSyntax.ts"
 
 function prose(text: string, unit: TranslatedUnit): string {
   const { format, kind, commentPrefix } = unit
+  const comment = kind === "comment" ? blockCommentProcessor(text) : undefined
+  if (comment?.kind === "html" && comment.body) text = text.slice(comment.body.start, comment.body.end)
   const lines = translationDisplayText(text, format).split(/\r?\n/)
   if (kind === "string") return text.replace(/\r\n|[\r\n]/gu, "\\n").trim()
   if (format === "text")

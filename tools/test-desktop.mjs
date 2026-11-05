@@ -95,6 +95,8 @@ function dropLastProtection(text) {
 
 const translatedText = (text) =>
   text
+    .replace("Gallery choice <pick from the list>.", "画廊选项<列表中的一个>。")
+    .replace(/^Codex:$/u, "Codex：")
     .replace(/^Missing exhibit (\{record\.title\}) in (\{record\.gallery\})\.$/u, "在 $2 中找不到藏品 $1。")
     .replace(/^Open the sample sheet at (<CTP(?:\d+_)?\d+>)\.$/u, "打开示例表格 $1。")
     .replaceAll("example_catalog_snapshot", "示例目录快照")

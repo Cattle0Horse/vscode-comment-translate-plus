@@ -111,6 +111,17 @@ function analyzeProtectedFragments(unit: TextUnit, tree?: MarkdownNode): readonl
   }
 
   function visit(node: MarkdownNode): void {
+    if (node.name === "AngleProse") {
+      for (const [from, to] of [
+        [node.from, node.from + 1],
+        [node.to - 1, node.to]
+      ]) {
+        const start = original(from)
+        const end = original(to)
+        fragments.push({ kind: "AngleMark", text: unit.text.slice(start, end), start, end })
+      }
+      return
+    }
     const reference = linkReferenceKind(node, input, labels)
     if (reference === "prose") {
       for (const child of children(node)) if (child.name !== "LinkMark") visit(child)

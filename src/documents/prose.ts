@@ -1,5 +1,8 @@
-/** Paragraphs, list items and docstring fields own their continuations; labels own no following prose. */
-export function proseBlocks(text: string, protectedRanges: readonly { start: number; end: number }[]): { start: number; end: number }[] {
+import type { TextUnit } from "../model/document.ts"
+import { makeUnit } from "./tree.ts"
+
+/** Text blocks become source-aligned items; request preparation folds each item's prose continuations. */
+export function proseUnits(text: string, protectedRanges: readonly { start: number; end: number }[] = []): TextUnit[] {
   const blocks: { start: number; end: number }[] = []
   const multiline = protectedRanges.filter((range) => /[\r\n]/u.test(text.slice(range.start, range.end)))
   let current: { start: number; end: number } | undefined
@@ -48,5 +51,11 @@ export function proseBlocks(text: string, protectedRanges: readonly { start: num
       if (/^(?:examples?|usage):$/iu.test(content)) exampleIndent = indent
     }
   }
-  return blocks
+  return blocks.map((block) => {
+    const unit = makeUnit(text, block.start, block.end, "text")
+    return {
+      ...unit,
+      protected: protectedRanges.filter((range) => range.start >= unit.start && range.end <= unit.end).map((range) => ({ start: range.start - unit.start, end: range.end - unit.start }))
+    }
+  })
 }

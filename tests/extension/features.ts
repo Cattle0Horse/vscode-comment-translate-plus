@@ -366,6 +366,78 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   await config.update("browse.strings", false, vscode.ConfigurationTarget.Global)
   checks.push("Rust browse merges overlapping comment/string references into the original source once without source edits")
 
+  for (const language of ["html", "markdown"]) {
+    const htmlSource = language === "html" ? "<div><!-- Read the original document. --></div>\n" : "```html\n<div><!-- Read the original document. --></div>\n```\n"
+    const html = await open("local-comment-shell." + (language === "html" ? "html" : "md"), language, htmlSource)
+    const beforeHtml = (await requests()).length
+    await start(html.document, 1)
+    const htmlRequests = (await requests()).slice(beforeHtml)
+    assert(htmlRequests.length === 1 && htmlRequests[0].inputFingerprint === (await requestFingerprint("Read the original document.")), "HTML comment delimiters reached HTTP.")
+    assert(owner.browse.inspect(html.document.uri)!.units[0].translation === "<!-- 阅读原始文档。 -->", "HTML comment delimiters were not restored.")
+    assert(html.document.getText() === htmlSource && !html.document.isDirty, "HTML comment browse modified source.")
+    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  }
+  checks.push("HTML files and Markdown HTML fences send comment prose alone and restore delimiters without source edits")
+
+  const htmlParagraphSource = "<!--\nRead the original\ndocument.\nKeep two lines together.\n\nKeep `sourceId` unchanged.\n-->\n"
+  const htmlParagraph = await open("comment-paragraphs.html", "html", htmlParagraphSource)
+  const htmlParsed = await owner.documents.parse(htmlParagraph.document)
+  const htmlUnits = htmlParsed.groups.flatMap((group) => group.units)
+  assert(htmlUnits.length === 2, "HTML comment paragraph boundaries were not preserved.")
+  assert(prepareTranslation(htmlUnits[0], 32).text === "Read the original document. Keep two lines together.", "HTML paragraph lines were not merged.")
+  await start(htmlParagraph.document, 2)
+  assert(
+    owner.browse.inspect(htmlParagraph.document.uri)!.units.every((unit) => unit.translation && validateTranslation(unit, unit.translation) === undefined),
+    "HTML paragraphs failed translation validation."
+  )
+  assert(htmlParagraph.document.getText() === htmlParagraphSource && !htmlParagraph.document.isDirty, "HTML paragraph browse modified source.")
+  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  checks.push("HTML comments merge sentence and continuation lines inside paragraphs while blank lines retain separate units")
+
+  await config.update("browse.strings", true, vscode.ConfigurationTarget.Global)
+  for (const language of ["json", "jsonl"]) {
+    const jsonSource = '{"title": "Read the original document.", "open": true, "count": 7}\n{"title": "Keep `sourceId` unchanged.", "open": false}\n'
+    const target = await open("structured-display." + language, language, jsonSource)
+    await start(target.document, 7)
+    const rows = displayTranslations(jsonSource, owner.browse.inspect(target.document.uri)!.units)
+    assert(
+      rows.length === 2 && rows[0].translation.includes('"title": "阅读原始文档。"') && rows[1].translation.includes('"title": "保留 `sourceId` unchanged."'),
+      "JSON key/value display lost its colon or source pairing."
+    )
+    assert(JSON.parse(rows[0].translation).数量 === 7 && JSON.parse(rows[1].translation).open === false, "JSON display changed native values.")
+    assert(target.document.getText() === jsonSource && !target.document.isDirty, "JSON display modified source.")
+    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  }
+  await config.update("browse.strings", false, vscode.ConfigurationTarget.Global)
+  checks.push("JSON and JSONL display reassemble translated strings with source colons, punctuation and native values per physical line")
+
+  const punctuation = await open("punctuation-only.md", "markdown", "Codex:\n")
+  await start(punctuation.document, 1)
+  const punctuationUnits = owner.browse.inspect(punctuation.document.uri)!.units
+  assert(punctuationUnits[0].translation === "Codex:", "Punctuation-only translation did not complete as unchanged.")
+  assert(displayTranslations(punctuation.document.getText(), punctuationUnits).length === 0, "Punctuation-only translation produced a duplicate row.")
+  assert(
+    (await vscode.commands.executeCommand<vscode.CodeLens[]>("vscode.executeCodeLensProvider", punctuation.document.uri))?.length === 0,
+    "Punctuation-only translation reserved an immersive row."
+  )
+  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  const beforePunctuationCache = (await requests()).length
+  await start(punctuation.document, 1)
+  assert((await requests()).length === beforePunctuationCache, "Completed punctuation-only result was requested again.")
+  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  checks.push("punctuation-only translation completes and caches as unchanged without an immersive translation row")
+
+  const angleSource = "**Gallery choice <pick from the list>.**\n"
+  const angle = await open("angle-prose.md", "markdown", angleSource)
+  const beforeAngle = (await requests()).length
+  await start(angle.document, 1)
+  const angleUnits = owner.browse.inspect(angle.document.uri)!.units
+  assert(angleUnits[0].translation === "**画廊选项<列表中的一个>。**", "Angle-bracket prose was treated as immutable HTML.")
+  assert((await requests()).length === beforeAngle + 1, "Valid angle-bracket prose required a recovery request.")
+  assert(angle.document.getText() === angleSource && !angle.document.isDirty, "Angle-bracket translation modified source.")
+  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  checks.push("angle-bracket prose inside Markdown emphasis translates in one HTTP request while source syntax stays intact")
+
   const quotedTableSource = "> | Label | Value |\r\n> | --- | --- |\r\n> | Read the original document. | Keep `sourceId` unchanged. |\r\n"
   const quotedTable = await open("quoted-crlf-table.md", "markdown", quotedTableSource)
   const beforeQuotedTable = (await requests()).length

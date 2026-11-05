@@ -52,7 +52,14 @@ export function displayTranslations(source: string, units: readonly (TextUnit & 
   const groups = new Map<string, { unit: TextUnit; parts: (TextUnit & { readonly translation: string })[] }>()
   for (const part of units) {
     if (part.translation === part.text) continue
-    const { start, end } = part.display ?? part
+    let { start, end } = part.display ?? part
+    if (part.kind === "string" && part.language && ["json", "jsonc", "jsonl"].includes(part.language)) {
+      // A JSON row owns its keys, values and punctuation even when only one string changed.
+      start = source.lastIndexOf("\n", start - 1) + 1
+      const next = source.indexOf("\n", end)
+      end = next < 0 ? source.length : next
+      if (source[end - 1] === "\r") end--
+    }
     const key = start + ":" + end
     let group = groups.get(key)
     if (!group) {
@@ -65,7 +72,7 @@ export function displayTranslations(source: string, units: readonly (TextUnit & 
   let previousLiteral: TextUnit | undefined
   for (const { unit, parts } of [...groups.values()].sort((a, b) => a.unit.start - b.unit.start)) {
     const translation =
-      parts.length === 1 && !parts[0].display
+      parts.length === 1 && !parts[0].display && unit.start === parts[0].start && unit.end === parts[0].end
         ? translationDisplayText(parts[0].translation, unit.format, parts[0])
         : assembleText(
             source,

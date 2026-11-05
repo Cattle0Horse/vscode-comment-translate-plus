@@ -5,7 +5,8 @@ import { pythonStringUnits, pythonTokens, joinPythonLiterals } from "./python.ts
 import type { PythonLiteral } from "./python.ts"
 import { regionToken, sourceTokens } from "./tokenization.ts"
 import type { CodeTokenizer, CodeSpan, RegionToken } from "./tokenization.ts"
-import { proseBlocks } from "./prose.ts"
+import { proseUnits } from "./prose.ts"
+import { blockCommentProcessor } from "./commentSyntax.ts"
 import { SourceMap } from "./sourceMap.ts"
 
 export interface CodeRegion extends TextUnit {
@@ -70,16 +71,21 @@ function commentParagraphs(source: string, spans: readonly CodeSpan[]): CodeSpan
 function blockCommentSpans(source: string, span: CodeSpan): CodeSpan[] {
   if (span.kind !== "comment" || !span.scope.startsWith("comment.block")) return [span]
   const raw = source.slice(span.start, span.end)
-  const opening = raw.match(/^\/\*+!?/u)
-  if (!opening || !raw.includes("\n")) return [span]
-  const closing = raw.match(/\r?\n[\t ]*\*\/[\t ]*$/u)
-  const inlineClosing = !closing && raw.endsWith("*/")
+  const processor = blockCommentProcessor(raw)
+  if (!processor || !raw.includes("\n")) return [span]
+  const html = processor.kind === "html"
+  if (html && !processor.body) return [span]
+  const tail = raw.trimEnd()
+  const closeAt = tail.endsWith(processor.closing) ? tail.length - processor.closing.length : -1
+  const closeLine = closeAt < 0 ? -1 : raw.lastIndexOf("\n", closeAt) + 1
+  const closing = closeAt >= 0 && !raw.slice(closeLine, closeAt).trim()
+  const inlineClosing = !closing && closeAt >= 0
   let end = raw.length
-  if (closing) end = closing.index!
-  else if (inlineClosing) end -= 2
-  const body = raw.slice(opening[0].length, end)
+  if (closing) end = closeLine
+  else if (inlineClosing) end = closeAt
+  const body = raw.slice(processor.opening.length, end)
   const lines = [...body.matchAll(/[^\n]*(?:\n|$)/gu)].filter((line) => line[0])
-  const decorated = lines.slice(1).every((line) => !line[0].trim() || /^[\t ]*\*(?:[\t ]|$)/u.test(line[0].trimEnd()))
+  const decorated = !html && lines.slice(1).every((line) => !line[0].trim() || /^[\t ]*\*(?:[\t ]|$)/u.test(line[0].trimEnd()))
   const indent = Math.min(...lines.filter((line) => line[0].trim()).map((line) => line[0].match(/^[\t ]*/u)![0].length))
   const positions = new SourceMap()
   let text = ""
@@ -87,7 +93,7 @@ function blockCommentSpans(source: string, span: CodeSpan): CodeSpan[] {
     let prefix: number
     if (decorated && index > 0) prefix = line[0].match(/^[\t ]*\*(?:[\t ]|(?=[\r\n]|$))/u)?.[0].length ?? 0
     else prefix = Math.min(indent, line[0].match(/^[\t ]*/u)![0].length)
-    const start = span.start + opening[0].length + line.index + prefix
+    const start = span.start + processor.opening.length + line.index + prefix
     const content = line[0].slice(prefix)
     text += content
     positions.append(content.length, start, start + content.length)
@@ -97,13 +103,13 @@ function blockCommentSpans(source: string, span: CodeSpan): CodeSpan[] {
     const end = positions.logical(range.end, true)
     return start !== undefined && end !== undefined && end > start ? [{ start, end }] : []
   })
-  return proseBlocks(text, protectedRanges).map((block, index) => {
+  return proseUnits(text, protectedRanges).map((block, index) => {
     const mapped = positions.range(block.start, block.end)
     const lineStart = source.lastIndexOf("\n", mapped.start - 1) + 1
-    const prefix = source.slice(lineStart, mapped.start).match(/^[\t ]*(\*[\t ]*)$/u)
+    const prefix = !html ? source.slice(lineStart, mapped.start).match(/^[\t ]*(\*[\t ]*)$/u) : undefined
     let start = prefix ? lineStart + prefix[0].length - prefix[1].length : mapped.start
-    if (index === 0 && !text.slice(0, block.start).trim()) start = span.start
-    const end = inlineClosing && !text.slice(block.end).trim() ? span.end : mapped.end
+    if (!html && index === 0 && !text.slice(0, block.start).trim()) start = span.start
+    const end = inlineClosing && !html && !text.slice(block.end).trim() ? span.end : mapped.end
     return { ...span, start, end, commentPrefix: prefix && start !== span.start ? "*" : undefined, protected: span.protected.filter((range) => range.start >= start && range.end <= end) }
   })
 }
@@ -182,9 +188,12 @@ export async function extractCode(source: string, language: string, tokenizer: C
   )
   const semantic: readonly (CodeSpan & { readonly literals?: readonly PythonLiteral[] })[] = language === "python" ? joinPythonLiterals(source, paragraphs) : paragraphs
   const regions = semantic
-    .flatMap<CodeSpan & { readonly literals?: readonly PythonLiteral[] }>((span) =>
-      span.literals ? [span] : blockCommentSpans(source, span).flatMap((part) => sentenceSpans(source, part))
-    )
+    .flatMap<CodeSpan & { readonly literals?: readonly PythonLiteral[] }>((span) => {
+      if (span.literals) return [span]
+      const blocks = blockCommentSpans(source, span)
+      if (span.kind === "comment" && source.startsWith("<!--", span.start)) return blocks
+      return blocks.flatMap((part) => sentenceSpans(source, part))
+    })
     .filter((span) => /\p{L}/u.test(source.slice(span.start, span.end)))
     .flatMap((span) => {
       const region: CodeRegion = {
@@ -192,7 +201,7 @@ export async function extractCode(source: string, language: string, tokenizer: C
         start: span.start,
         end: span.end,
         text: source.slice(span.start, span.end),
-        content: span.kind === "string" && (language === "json" || language === "jsonc") ? (JSON.parse(source.slice(span.start, span.end)) as string) : undefined,
+        content: span.kind === "string" && ["json", "jsonc", "jsonl"].includes(language) ? (JSON.parse(source.slice(span.start, span.end)) as string) : undefined,
         format: "text" as const,
         kind: span.kind,
         commentPrefix: span.commentPrefix,
