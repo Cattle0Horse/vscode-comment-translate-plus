@@ -1,3 +1,4 @@
+import { validatedText } from "../support/assertions.ts"
 import * as vscode from "vscode"
 import type { Application } from "../../src/host/application.ts"
 
@@ -37,7 +38,7 @@ export async function runTransport(workspace: vscode.Uri, owner: Application, or
     if (sent.length !== 3 || sent[1].started - sent[0].started < 1000 || sent[2].started - sent[1].started < 80)
       throw Error("Native settings did not preserve Retry-After, backoff or the item attempt budget: " + JSON.stringify(sent))
     if (sent.some((item) => item.retryFeedbackIncluded)) throw Error("Transport retries added model correction instructions.")
-    if (document.getText() !== source || document.isDirty || !owner.browse.inspect(uri)?.units[0].translation.includes("阅读原始文档"))
+    if (document.getText() !== source || document.isDirty || !validatedText(owner.browse.inspect(uri)?.units[0].translation).includes("阅读原始文档"))
       throw Error("Transport recovery changed source or failed to publish the validated translation.")
     owner.browse.stop(uri, true)
     await config.update("requestScheduling.retry", { http503: false, respectRetryAfter: false, initialDelayMs: 0 }, vscode.ConfigurationTarget.Global)

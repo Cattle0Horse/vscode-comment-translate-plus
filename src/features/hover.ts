@@ -2,6 +2,7 @@ import * as vscode from "vscode"
 import { translatedMarkdown, translationDisplayText } from "../documents/presentation.ts"
 import { translationIsUnchanged } from "../documents/validation.ts"
 import type { TextUnit } from "../model/document.ts"
+import type { TranslationValue } from "../model/translation.ts"
 import { describeError } from "../model/diagnostics.ts"
 import type { CancellationReason } from "../model/diagnostics.ts"
 
@@ -71,7 +72,7 @@ export class TranslationHover implements vscode.Disposable, vscode.HoverProvider
         const identity = await replacementIdentity(document.uri, this.translations)
         controller.signal.throwIfAborted()
         if (document.isClosed || document.version !== version) return
-        let translated: string | undefined
+        let translated: TranslationValue | undefined
         if (selected) {
           translated = await this.translations.translateSelection(document, selected, controller.signal)
         } else {
@@ -80,13 +81,16 @@ export class TranslationHover implements vscode.Disposable, vscode.HoverProvider
           translated = result.get(unit.id)
         }
         // Selections are already canonicalized per parsed unit, including decoded strings.
-        if (translated && (selected ? translated !== unit.text : !translationIsUnchanged(unit, translated))) {
+        if (translated && (typeof translated !== "string" || (selected ? translated !== unit.text : !translationIsUnchanged(unit, translated)))) {
           const content = new vscode.MarkdownString()
-          content.appendCodeblock(translationDisplayText(translated, unit.format, unit), unit.language ?? document.languageId)
+          content.appendCodeblock(
+            typeof translated === "string" ? translationDisplayText(translated, unit.format, unit) : translated.text,
+            typeof translated === "string" ? (unit.language ?? document.languageId) : "text"
+          )
           contents.push(content)
           range = new vscode.Range(document.positionAt(unit.start), document.positionAt(unit.end))
           header = new vscode.MarkdownString("[注释翻译+]", true)
-          if (document.isUntitled || vscode.workspace.fs.isWritableFileSystem(document.uri.scheme) === true) {
+          if (typeof translated === "string" && (document.isUntitled || vscode.workspace.fs.isWritableFileSystem(document.uri.scheme) === true)) {
             const replacement: SourceReplacement = { uri, version, start: unit.start, end: unit.end, source: unit.text, text: translated, identity }
             // VS Code decodes command queries again before parsing JSON; protect literal percent escapes in all snapshot fields.
             const args = encodeURIComponent(JSON.stringify([replacement]).replaceAll("%", "\\u0025"))

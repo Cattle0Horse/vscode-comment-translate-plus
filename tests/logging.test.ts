@@ -1,3 +1,4 @@
+import { validatedText } from "./support/assertions.ts"
 import { prepareTranslation } from "../src/documents/terms.ts"
 import assert from "node:assert/strict"
 import { test } from "node:test"
@@ -44,7 +45,7 @@ test("repeated diagnostic leakage exhausts attempts without publishing or cachin
       (batch, signal, completed) => requestTranslation(fixture.service, fixture.settings, batch, signal, fixture.gate, completed),
       new AbortController().signal,
       false,
-      (item) => published.push(item.text)
+      (item) => published.push(validatedText(item.text))
     )
   await assert.rejects(translate(), /translation-feedback-leaked/)
   assert.equal(fixture.seen.length, fixture.settings.maxTranslationAttempts)

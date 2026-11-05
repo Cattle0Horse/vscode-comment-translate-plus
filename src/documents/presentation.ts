@@ -6,6 +6,7 @@ import { unembedTranslation } from "./embedding.ts"
 import { validateTranslation, markdownDocumentShape } from "./validation.ts"
 import { assertYamlStructure } from "./yaml.ts"
 import { commentDisplayProcessor } from "./commentSyntax.ts"
+import type { TranslationValue } from "../model/translation.ts"
 
 /** Short editor rows strip only syntax owned by the source unit; literals retain their punctuation. */
 export function readingText(text: string, unit: TextUnit): string {
@@ -66,15 +67,23 @@ export interface DisplayTranslation extends TextUnit {
   readonly translation: string
   /** Syntax ownership stays with the original unit after its displayed text has been decoded. */
   readonly source: TextUnit
+  readonly candidate?: true
 }
 
 /** Reassemble translated fields and table rows from their original separators for editor display. */
-export function displayTranslations(source: string, units: readonly (TextUnit & { readonly translation: string })[]): DisplayTranslation[] {
-  const groups = new Map<string, { unit: TextUnit; parts: (TextUnit & { readonly translation: string })[] }>()
+export function displayTranslations(source: string, units: readonly (TextUnit & { readonly translation: TranslationValue })[]): DisplayTranslation[] {
+  const groups = new Map<string, { unit: TextUnit; parts: (TextUnit & { readonly translation: string })[]; candidate?: true }>()
+  const candidates: DisplayTranslation[] = []
   for (const part of units) {
+    const json = part.kind === "string" && part.language !== undefined && ["json", "jsonc", "jsonl"].includes(part.language)
+    if (typeof part.translation !== "string" && !json) {
+      candidates.push({ id: part.id, start: part.start, end: part.end, text: part.text, format: "text", translation: part.translation.text, source: part, candidate: true })
+      continue
+    }
     if (part.translation === part.text) continue
+    const translation = typeof part.translation === "string" ? part.translation : JSON.stringify(part.translation.text)
     let { start, end } = part.display ?? part
-    if (part.kind === "string" && part.language && ["json", "jsonc", "jsonl"].includes(part.language)) {
+    if (json) {
       // A JSON row owns its keys, values and punctuation even when only one string changed.
       start = source.lastIndexOf("\n", start - 1) + 1
       const next = source.indexOf("\n", end)
@@ -87,11 +96,12 @@ export function displayTranslations(source: string, units: readonly (TextUnit & 
       group = { unit: { id: key, start, end, text: source.slice(start, end), format: part.format, kind: part.kind, commentPrefix: part.commentPrefix }, parts: [] }
       groups.set(key, group)
     }
-    group.parts.push(part)
+    group.parts.push({ ...part, translation })
+    if (typeof part.translation !== "string") group.candidate = true
   }
   const rows: DisplayTranslation[] = []
   let previousLiteral: TextUnit | undefined
-  for (const { unit, parts } of [...groups.values()].sort((a, b) => a.unit.start - b.unit.start)) {
+  for (const { unit, parts, candidate } of [...groups.values()].sort((a, b) => a.unit.start - b.unit.start)) {
     const translation =
       parts.length === 1 && !parts[0].display && unit.start === parts[0].start && unit.end === parts[0].end
         ? translationDisplayText(parts[0].translation, unit.format, parts[0])
@@ -100,7 +110,7 @@ export function displayTranslations(source: string, units: readonly (TextUnit & 
             parts.map((part) => ({ start: part.start, end: part.end, text: part.translation })),
             unit
           )
-    const row = { ...unit, translation, source: parts.length === 1 ? parts[0] : unit }
+    const row = { ...unit, translation, source: parts.length === 1 ? parts[0] : unit, candidate }
     let literal: TextUnit | undefined = parts.length === 1 ? parts[0] : undefined
     while (literal?.projection?.kind === "container") literal = literal.projection.unit
     const preceding = literal?.projection?.kind === "literal" ? literal.projection.preceding : undefined
@@ -118,11 +128,58 @@ export function displayTranslations(source: string, units: readonly (TextUnit & 
     } else rows.push(row)
     previousLiteral = literal
   }
-  return rows
+  return [...rows, ...candidates].sort((a, b) => a.start - b.start)
+}
+
+/** Candidate text is shown outside its enclosing block, never interpreted as replacement source syntax. */
+function candidateInsertions(document: ParsedDocument, translations: ReadonlyMap<string, TranslationValue>): { start: number; end: number; text: string }[] {
+  const units = document.groups
+    .flatMap((group) => group.units)
+    .flatMap((unit) => {
+      const value = translations.get(unit.id)
+      return value !== undefined && typeof value !== "string" ? [{ unit, value }] : []
+    })
+  if (!units.length) return []
+  const frontmatter = document.groups.find((group) => group.start === 0 && group.units.some((unit) => unit.format === "yaml" && !unit.projection))
+  const from = frontmatter?.end ?? 0
+  const blocks = children(markdownTree(document.source.slice(from)).topNode)
+  const insertions = new Map<number, string[]>()
+  for (const { unit, value } of units) {
+    const block = blocks.find((node) => from + node.from <= unit.start && from + node.to >= unit.end)
+    const end = unit.end <= from ? from : block ? from + block.to : document.source.length
+    let width = 3
+    for (const match of value.text.matchAll(/`+/gu)) width = Math.max(width, match[0].length + 1)
+    const fence = "`".repeat(width)
+    const texts = insertions.get(end) ?? []
+    texts.push("\n\n" + fence + "text\n" + value.text + "\n" + fence + "\n\n")
+    insertions.set(end, texts)
+  }
+  return [...insertions].map(([start, texts]) => ({ start, end: start, text: texts.join("") })).sort((a, b) => a.start - b.start)
+}
+
+function renderMarkdown(document: ParsedDocument, translations: ReadonlyMap<string, TranslationValue>) {
+  const accepted = new Map([...translations].filter((entry): entry is [string, string] => typeof entry[1] === "string"))
+  const text = validatedMarkdown(document, accepted)
+  const units = document.groups.flatMap((group) => group.units)
+  const candidates = candidateInsertions(document, translations)
+  const insertions = candidates.map((insertion) => {
+    let offset = insertion.start
+    for (const unit of units) {
+      const translated = accepted.get(unit.id)
+      if (translated !== undefined && unit.end <= insertion.start) offset += translated.length - (unit.end - unit.start)
+    }
+    return { ...insertion, start: offset, end: offset }
+  })
+  return { text: assembleText(text, insertions), candidates }
+}
+
+/** Full preview text and progressive loading share the same rendering and source mapping. */
+export function translatedMarkdown(document: ParsedDocument, translations: ReadonlyMap<string, TranslationValue>): string {
+  return renderMarkdown(document, translations).text
 }
 
 /** Validate the assembled document too: individually valid cells or list items can change their parent structure. */
-export function translatedMarkdown(document: ParsedDocument, translations: ReadonlyMap<string, string>): string {
+function validatedMarkdown(document: ParsedDocument, translations: ReadonlyMap<string, string>): string {
   const units = document.groups.flatMap((group) => group.units)
   const replacements = units.flatMap((unit) => {
     const text = translations.get(unit.id)
@@ -152,7 +209,7 @@ export function translatedMarkdown(document: ParsedDocument, translations: Reado
           return text === undefined ? [] : [{ start: unit.start, end: unit.end, text }]
         })
       assertYamlStructure(block.source, assembleText(block.source, replacements))
-    } else if (["markdown", "md", "skill", "prompt", "instructions", "chatagent"].includes(block.language)) translatedMarkdown(block.parsed, inner)
+    } else if (["markdown", "md", "skill", "prompt", "instructions", "chatagent"].includes(block.language)) validatedMarkdown(block.parsed, inner)
   }
   // Only the assembler can permit fence-body changes: every edit above owns a validated unit.
   const embedded = units.some((unit) => unit.projection?.kind === "container")
@@ -165,8 +222,8 @@ export function translatedMarkdown(document: ParsedDocument, translations: Reado
 export const previewLoadingMarker = '<span class="ctp-preview-loading" role="progressbar" aria-label="正在翻译"></span>'
 
 /** Loading markers belong only to the rendered preview, after validating the actual document. */
-export function progressiveMarkdown(document: ParsedDocument, translations: ReadonlyMap<string, string>): string {
-  const text = translatedMarkdown(document, translations)
+export function progressiveMarkdown(document: ParsedDocument, translations: ReadonlyMap<string, TranslationValue>): string {
+  const { text, candidates } = renderMarkdown(document, translations)
   const units = document.groups.flatMap((group) => group.units).sort((a, b) => a.start - b.start)
   const pendingEnds = new Set(units.filter((unit) => unit.projection?.kind !== "container" && unit.format === "markdown" && !translations.has(unit.id)).map((unit) => unit.end))
   const icon = previewLoadingMarker
@@ -206,12 +263,14 @@ export function progressiveMarkdown(document: ParsedDocument, translations: Read
   let cursor = 0
   let index = 0
   let delta = 0
+  let candidateIndex = 0
   for (const [offset, marker] of [...points].sort(([a], [b]) => a - b)) {
     while (index < units.length && units[index].end <= offset) {
       const unit = units[index++]
       const translated = translations.get(unit.id)
-      if (translated !== undefined) delta += translated.length - (unit.end - unit.start)
+      if (typeof translated === "string") delta += translated.length - (unit.end - unit.start)
     }
+    while (candidateIndex < candidates.length && candidates[candidateIndex].start <= offset) delta += candidates[candidateIndex++].text.length
     const position = offset + delta
     chunks.push(text.slice(cursor, position), marker)
     cursor = position

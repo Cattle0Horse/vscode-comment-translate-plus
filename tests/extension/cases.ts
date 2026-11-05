@@ -1,3 +1,4 @@
+import { validatedText } from "../support/assertions.ts"
 import * as vscode from "vscode"
 import type { Application } from "../../src/host/application.ts"
 import { translationDisplayText } from "../../src/documents/presentation.ts"
@@ -116,7 +117,7 @@ export async function runHostCases(workspace: vscode.Uri, controller: Applicatio
         )
       if (expected !== (unit.content ?? unit.text) && (unit.content !== undefined || unit.format === "markdown" || unit.kind === "string"))
         expected = expected.replace(/[\t ]*(?:\r\n|[\r\n])(?:[\t >]*(?:\r\n|[\r\n]))*[\t >]*/gu, " ")
-      const actual = unit.content === undefined ? unit.translation : unit.translation === unit.text ? unit.content : translationDisplayText(unit.translation, "yaml")
+      const actual = unit.content === undefined ? unit.translation : unit.translation === unit.text ? unit.content : translationDisplayText(validatedText(unit.translation), "yaml")
       assert(actual === expected, item.id + ": reordered HTTP results crossed unit identities: " + JSON.stringify({ original: unit.text, actual, expected }))
     }
     for (const field of item.contains ?? [])

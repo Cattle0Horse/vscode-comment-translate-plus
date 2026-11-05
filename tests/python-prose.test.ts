@@ -1,3 +1,4 @@
+import { validatedText } from "./support/assertions.ts"
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import { INITIAL, type IGrammar } from "vscode-textmate"
@@ -45,7 +46,7 @@ test("Python quoted URL attributes restore and cache the first response without 
     store.translate("python-quoted-url", { units }, (input, signal) => requestTranslation(fixture.service, fixture.settings, input, signal, fixture.gate), new AbortController().signal)
   const result = await run()
   assert.equal(result.get(units[0].id), units[0].text)
-  assert.equal(validateTranslation(units[0], result.get(units[0].id)!), undefined)
+  assert.equal(validateTranslation(units[0], validatedText(result.get(units[0].id)!)), undefined)
   assert.deepEqual(await run(), result)
   assert.equal(fixture.seen.length, 1)
 })
@@ -98,7 +99,7 @@ test("Python reordered interpolations restore complete expressions across litera
     const run = () =>
       store.translate("reordered-python", { units }, (input, signal) => requestTranslation(fixture.service, fixture.settings, input, signal, fixture.gate), new AbortController().signal)
     const result = await run()
-    assert.equal(projectionContent(unit, result.get(unit.id)!), output)
+    assert.equal(projectionContent(unit, validatedText(result.get(unit.id)!)), output)
     assert.deepEqual(await run(), result)
     assert.equal(fixture.seen.length, 1)
   }
@@ -128,12 +129,12 @@ test("Python projected closing-delimiter recovery publishes and caches the first
         (input, signal, completed) => requestTranslation(fixture.service, fixture.settings, input, signal, fixture.gate, completed),
         new AbortController().signal,
         false,
-        (item) => published.push(item.text)
+        (item) => published.push(validatedText(item.text))
       )
     const result = await run()
     const translated = result.get(units[0].id)!
-    assert.equal(projectionContent(units[0], translated), "装好{sum(values)}件包裹，来自{bins[index]}号箱。")
-    assert.equal(validateTranslation(units[0], translated), undefined)
+    assert.equal(projectionContent(units[0], validatedText(translated)), "装好{sum(values)}件包裹，来自{bins[index]}号箱。")
+    assert.equal(validateTranslation(units[0], validatedText(translated)), undefined)
     assert.deepEqual(published, [translated])
     assert.deepEqual(await run(), result)
     assert.equal(fixture.seen.length, 1)
@@ -237,7 +238,7 @@ test("Python adjacent source lines split completed sentences and preserve decode
       )
     const result = await run()
     assert.deepEqual(
-      units.map((unit) => projectionContent(unit, result.get(unit.id)!)),
+      units.map((unit) => projectionContent(unit, validatedText(result.get(unit.id)!))),
       [translations[0] + " ", translations[1] + " ", translations[2] + " ", translations[3], translations[4]]
     )
     const requests = fixture.seen.length
@@ -541,7 +542,7 @@ test("indented docstring prose folds continuation lines and caches a single-line
         new AbortController().signal
       )
     const result = await run()
-    assert.equal(projectionContent(unit, result.get(unit.id)!), unit.projection!.unit.text.match(/^[\t ]*/u)![0] + output)
+    assert.equal(projectionContent(unit, validatedText(result.get(unit.id)!)), unit.projection!.unit.text.match(/^[\t ]*/u)![0] + output)
     assert.deepEqual(await run(), result)
     assert.equal(fixture.seen.length, 1, "Ordinary prose wrapping caused retries or prevented caching.")
   }
@@ -678,7 +679,7 @@ test("Python interpolation quote repair completes through HTTP and caches exact 
   const run = () =>
     store.translate("python-quote-repair", { units }, (input, signal) => requestTranslation(fixture.service, fixture.settings, input, signal, fixture.gate), new AbortController().signal)
   const result = await run()
-  assert.equal(projectionContent(units[0], result.get(units[0].id)!), "概览：" + expression)
+  assert.equal(projectionContent(units[0], validatedText(result.get(units[0].id)!)), "概览：" + expression)
   assert.deepEqual(await run(), result)
   assert.equal(fixture.seen.length, 1, "Repairable quotation changes caused retries or prevented cache reuse.")
 })
@@ -763,10 +764,10 @@ test("Python paragraph recovery excludes distant docstring fields and restores a
     )
   const result = await run()
   const translated = result.get(target.id)!
-  assert.equal(validateTranslation(target, translated), undefined)
-  assert.equal(translated.split("/archive").length - 1, 2)
-  assert.equal(translated.split("/gallery").length - 1, 1)
-  assert.ok(!translated.includes("额外参考内容"))
+  assert.equal(validateTranslation(target, validatedText(translated)), undefined)
+  assert.equal(validatedText(translated).split("/archive").length - 1, 2)
+  assert.equal(validatedText(translated).split("/gallery").length - 1, 1)
+  assert.ok(!validatedText(translated).includes("额外参考内容"))
   assert.equal(attempts.length, 3)
   assert.ok(attempts.every((text) => text === "Route gallery requests to /archive and send requests outside /archive to /gallery when visits are allowed."))
   assert.deepEqual(await run(), result)

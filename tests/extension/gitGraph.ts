@@ -1,3 +1,4 @@
+import { validatedText } from "../support/assertions.ts"
 import * as vscode from "vscode"
 import { automatic as automaticScope } from "../../src/host/configuration.ts"
 import type { Application } from "../../src/host/application.ts"
@@ -39,8 +40,8 @@ export async function runGitGraph(workspace: vscode.Uri, owner: Application): Pr
     )
     assert(automaticScope(graphOriginal) && automaticScope(graphModified), "Git Graph historical diff did not resolve workspace paths on both virtual sides.")
     await waitFor(() => owner.browse.inspect(graphOld)?.status === "ready" && owner.browse.inspect(graphNew)?.status === "ready", "Git Graph historical sides automatically translate")
-    assert(owner.browse.inspect(graphOld)!.units[0].translation.includes("阅读原始文档"), "Historical original did not translate its own content.")
-    assert(owner.browse.inspect(graphNew)!.units[0].translation.includes("阅读完整字段"), "Historical modified did not translate its own content.")
+    assert(validatedText(owner.browse.inspect(graphOld)!.units[0].translation).includes("阅读原始文档"), "Historical original did not translate its own content.")
+    assert(validatedText(owner.browse.inspect(graphNew)!.units[0].translation).includes("阅读完整字段"), "Historical modified did not translate its own content.")
     await graphConfig.update("auto.exclude", ["docs/deleted-history.md"], vscode.ConfigurationTarget.WorkspaceFolder)
     await waitFor(() => !owner.browse.has(graphOld) && owner.browse.inspect(graphNew)?.status === "ready", "renamed history uses each side's own path")
     await graphConfig.update("auto.exclude", [], vscode.ConfigurationTarget.WorkspaceFolder)

@@ -1,3 +1,4 @@
+import { validatedText } from "../support/assertions.ts"
 import * as vscode from "vscode"
 import type { Application } from "../../src/host/application.ts"
 
@@ -119,7 +120,8 @@ export async function run(): Promise<void> {
     const document = await vscode.workspace.openTextDocument(uri)
     const snapshot = controller.browse.inspect(uri)!
     if (document.getText() !== sample || document.isDirty) throw Error("Local browse changed the source.")
-    if (!snapshot.units.every((unit) => /\p{Script=Han}/u.test(unit.translation) && unit.translation !== unit.text)) throw Error("Local service did not produce Chinese translations.")
+    if (!snapshot.units.every((unit) => /\p{Script=Han}/u.test(validatedText(unit.translation)) && unit.translation !== unit.text))
+      throw Error("Local service did not produce Chinese translations.")
     const config = vscode.workspace.getConfiguration("commentTranslatePlus")
     const profile = config.get<{ model: string; apiUrl: string }[]>("profiles", [])[0]
     if (profile?.model !== test.serviceSettings.profiles[0].model || profile.apiUrl !== test.serviceSettings.profiles[0].apiUrl)

@@ -83,7 +83,7 @@ export class BrowseRenderer implements vscode.Disposable, vscode.CodeLensProvide
         const prefix = document.lineAt(position.line).text.slice(0, position.character) + first.slice(0, stripped && index >= 0 ? index : (first.match(/^\s*/)?.[0].length ?? 0))
         const tabSize = Number(vscode.workspace.getConfiguration("editor", document.uri).get("tabSize", 4))
         const column = [...prefix].reduce((column, character) => (character === "\t" ? column + tabSize - (column % tabSize) : column + 1), 0)
-        return { unit, text: readingText(unit.translation, unit.source), column, nextLine: document.positionAt(unit.end).line + 1 }
+        return { unit, text: readingText(unit.translation, unit.candidate ? unit : unit.source), column, nextLine: document.positionAt(unit.end).line + 1 }
       })
       .filter((item) => !!item.text)
   }

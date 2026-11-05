@@ -1,3 +1,4 @@
+import { validatedText } from "./support/assertions.ts"
 import { emptyPreserveTerms, prepareTranslation } from "../src/documents/terms.ts"
 import assert from "node:assert/strict"
 import { readFile } from "node:fs/promises"
@@ -861,7 +862,7 @@ test("folded YAML block values omit the header in requests, partial field displa
     batch.units.map((unit) => ({ ...unit, translation: result.get(unit.id)! }))
   )
   assert.equal(translationDisplayText(complete[0].translation, "yaml"), "描述: 这是值")
-  assert.equal(translationDisplayText(result.get(value.id)!, "yaml"), "这是值")
+  assert.equal(translationDisplayText(validatedText(result.get(value.id)!), "yaml"), "这是值")
   assert.equal(translatedMarkdown(parsed, result), '---\n"描述": "这是值"\n---')
   assert.equal(parsed.source, source)
 })

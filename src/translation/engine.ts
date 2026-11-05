@@ -111,6 +111,7 @@ class TranslationRun {
       httpRequests: this.httpRequests,
       elapsedMs: Math.round(performance.now() - this.started),
       failures: remaining.map((unit) => unit.diagnostic(unit.failure ?? error)),
+      candidates: accepted.flatMap((unit) => (typeof unit.translation === "string" ? [] : [{ id: unit.source.id, attempt: unit.translation!.attempt, code: unit.translation!.code }])),
       cancellationReasons:
         status === "cancelled"
           ? [
@@ -404,6 +405,7 @@ class TranslationRun {
       await Promise.all(active)
       if (failure) throw failure.error
       this.combined.throwIfAborted()
+      for (const unit of this.units) if (unit.pending && !unit.canRetry && unit.finishCandidate()) this.deliver(unit)
       const unresolved = this.units.find((unit) => unit.pending && unit.failure !== undefined)
       if (unresolved) throw unresolved.failure
       this.finish()
@@ -411,8 +413,20 @@ class TranslationRun {
     } catch (error) {
       if (!(error instanceof CacheCapacityFailure)) this.controller.abort("request-failed")
       await Promise.allSettled(active)
-      this.finish(error)
-      throw this.signal.aborted ? error : new TranslationFailure(failureCode(error), !!this.trace)
+      let finalError = error
+      if (!this.signal.aborted && !(error instanceof CacheCapacityFailure)) {
+        try {
+          for (const unit of this.units) if (unit.finishCandidate()) this.deliver(unit)
+          if (this.units.every((unit) => !unit.pending)) {
+            this.finish()
+            return this.units.filter((unit) => unit.translation !== undefined).map((unit) => ({ id: unit.source.id, text: unit.translation! }))
+          }
+        } catch (deliveryError) {
+          finalError = deliveryError
+        }
+      }
+      this.finish(finalError)
+      throw this.signal.aborted ? finalError : new TranslationFailure(failureCode(finalError), !!this.trace)
     }
   }
 }

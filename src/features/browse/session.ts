@@ -1,5 +1,5 @@
 import type { TranslationInput } from "../../model/translation.ts"
-import type { TranslationItem } from "../../model/translation.ts"
+import type { TranslationItem, TranslationValue } from "../../model/translation.ts"
 import type { ParsedDocument, TextUnit } from "../../model/document.ts"
 import { ParseFailure } from "../../model/diagnostics.ts"
 import type { CancellationReason } from "../../model/diagnostics.ts"
@@ -12,7 +12,7 @@ export interface VisibleRange {
 }
 
 export interface TranslatedUnit extends TextUnit {
-  readonly translation: string
+  readonly translation: TranslationValue
 }
 
 export interface BrowseSnapshot {
@@ -33,7 +33,7 @@ export type Translate = (
   force?: boolean,
   completed?: (item: TranslationItem) => void,
   interests?: ReadonlyMap<string, AbortSignal>
-) => Promise<ReadonlyMap<string, string>>
+) => Promise<ReadonlyMap<string, TranslationValue>>
 
 interface BrowseRequest {
   readonly controller: AbortController

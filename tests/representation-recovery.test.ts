@@ -1,3 +1,4 @@
+import { validatedText } from "./support/assertions.ts"
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import type { TextUnit } from "../src/model/document.ts"
@@ -49,7 +50,7 @@ test("recovered markers publish and cache the restored source fragment without r
       (batch, signal, complete) => requestTranslation(fixture.service, fixture.settings, batch, signal, fixture.gate, complete),
       new AbortController().signal,
       false,
-      (item) => published.push(item.text)
+      (item) => published.push(validatedText(item.text))
     )
   const result = await run()
   assert.equal(result.get(markerUnit.id), "检查 " + literal + "。")
@@ -73,7 +74,7 @@ test("translated request instructions beside a reference envelope never publish 
       (batch, signal, complete) => requestTranslation(fixture.service, fixture.settings, batch, signal, fixture.gate, complete),
       new AbortController().signal,
       false,
-      (item) => published.push(item.text)
+      (item) => published.push(validatedText(item.text))
     )
   const result = await run()
   assert.deepEqual([...result.values()], ["打开附件前先检查附件。"])

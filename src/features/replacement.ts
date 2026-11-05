@@ -4,6 +4,7 @@ import { translatedMarkdown } from "../documents/presentation.ts"
 import { assertMarkdownStructure } from "../documents/validation.ts"
 import { assertYamlStructure } from "../documents/yaml.ts"
 import type { TextUnit } from "../model/document.ts"
+import type { TranslationValue } from "../model/translation.ts"
 import { describeError, TranslationFailure } from "../model/diagnostics.ts"
 import type { CancellationReason } from "../model/diagnostics.ts"
 import { requestPolicyIdentity } from "../translation/settings.ts"
@@ -61,7 +62,7 @@ export class SourceReplacementAction implements vscode.Disposable {
         void vscode.window.showWarningMessage("请先选择要翻译的文本，或将光标放入注释、字符串或 Markdown 单元。")
         return false
       }
-      let translated: string | undefined
+      let translated: TranslationValue | undefined
       if (selected) {
         translated = await this.translations.translateSelection(document, selected, controller.signal)
       } else {
@@ -71,6 +72,10 @@ export class SourceReplacementAction implements vscode.Disposable {
       }
       controller.signal.throwIfAborted()
       if (translated === undefined) return false
+      if (typeof translated !== "string") {
+        void vscode.window.showInformationMessage("该译文仅供阅读，未替换原文。")
+        return false
+      }
       return await this.replace({ uri, version, start: unit.start, end: unit.end, source: unit.text, text: translated, identity })
     } catch (error) {
       if (!controller.signal.aborted) {

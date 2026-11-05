@@ -1,3 +1,4 @@
+import { validatedText } from "./support/assertions.ts"
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import { parseMarkdown } from "../src/documents/markdown.ts"
@@ -32,7 +33,7 @@ for (const echo of ["request", "correction", "instruction"] as const) {
         "echo",
         input,
         (batch, signal) =>
-          requestTranslation(fixture.service, { ...fixture.settings, batchShrinkFactor: 1 }, batch, signal, fixture.gate, (item) => published.push(item.text), {
+          requestTranslation(fixture.service, { ...fixture.settings, batchShrinkFactor: 1 }, batch, signal, fixture.gate, (item) => published.push(validatedText(item.text)), {
             details: false,
             emit: (event) => events.push(event)
           }),
@@ -41,7 +42,7 @@ for (const echo of ["request", "correction", "instruction"] as const) {
     const result = await translate()
     assert.equal(result.size, input.units.length)
     assert.ok(
-      [...result.values()].every((text) => text.includes("正确译文")),
+      [...result.values()].every((text) => validatedText(text).includes("正确译文")),
       "Copied source tails were accepted as unchanged translations."
     )
     assert.ok(
@@ -72,7 +73,9 @@ test("persistent request echoes exhaust attempts without publishing or caching a
       "persistent-echo",
       input,
       (batch, signal) =>
-        requestTranslation(fixture.service, { ...fixture.settings, maxTranslationAttempts: 2, batchShrinkFactor: 1 }, batch, signal, fixture.gate, (item) => published.push(item.text)),
+        requestTranslation(fixture.service, { ...fixture.settings, maxTranslationAttempts: 2, batchShrinkFactor: 1 }, batch, signal, fixture.gate, (item) =>
+          published.push(validatedText(item.text))
+        ),
       new AbortController().signal
     )
   await assert.rejects(translate(), /translation-feedback-leaked/)
@@ -82,7 +85,7 @@ test("persistent request echoes exhaust attempts without publishing or caching a
   echo = false
   const result = await translate()
   assert.equal(result.size, 2)
-  assert.ok([...result.values()].every((text) => text.includes("正确译文")))
+  assert.ok([...result.values()].every((text) => validatedText(text).includes("正确译文")))
   assert.ok(fixture.seen.length > before, "Failed echo results prevented a fresh request.")
 })
 
@@ -185,16 +188,24 @@ test("ambiguous item counts recover through smaller batches without carrying obs
     const published: string[] = []
     const fixture = await chatFixture(t, (_body, items) => (items.length > 1 ? "名称：ai-writer" : items[0].replace("Original", "译文")))
     const input = listBatch(count)
-    const result = await requestTranslation(fixture.service, { ...fixture.settings }, input, new AbortController().signal, fixture.gate, (item) => published.push(item.text), {
-      details: false,
-      emit: (event) => events.push(event)
-    })
+    const result = await requestTranslation(
+      fixture.service,
+      { ...fixture.settings },
+      input,
+      new AbortController().signal,
+      fixture.gate,
+      (item) => published.push(validatedText(item.text)),
+      {
+        details: false,
+        emit: (event) => events.push(event)
+      }
+    )
     assert.equal(result.length, count)
     assert.deepEqual(
       published,
       result.map((item) => item.text)
     )
-    assert.ok(result.every((item) => item.text.includes("译文") && !item.text.includes("名称：ai-writer")))
+    assert.ok(result.every((item) => validatedText(item.text).includes("译文") && !validatedText(item.text).includes("名称：ai-writer")))
     assert.deepEqual(
       fixture.seen.map((request) => request.items.length),
       count === 2 ? [2, 1, 1] : [4, 2, 1, 1, 2, 1, 1]
@@ -239,7 +250,7 @@ test("multiple invalid items retry together with the complete assistant response
   )
   assert.ok(blocks[0][2].includes("<CTP0>") && blocks[0][3].includes("marker"), "The marker feedback lost its source ownership.")
   assert.ok(blocks[1][2].includes("empty") && blocks[1][3].includes("non-empty"), "The empty-output feedback lost its source ownership.")
-  assert.ok(result[0].text.includes("`firstId_abcdefghijklmnopqrstuvwxyz_123456789`"))
+  assert.ok(validatedText(result[0].text).includes("`firstId_abcdefghijklmnopqrstuvwxyz_123456789`"))
 })
 
 test("shrinking an aligned failed batch selects the prior outputs matching each current source and renumbers corrections", async (t) => {

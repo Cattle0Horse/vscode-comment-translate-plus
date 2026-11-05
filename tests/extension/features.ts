@@ -1,3 +1,4 @@
+import { validatedText } from "../support/assertions.ts"
 import { automatic as automaticScope } from "../../src/host/configuration.ts"
 import { prepareTranslation } from "../../src/documents/terms.ts"
 import { projectionContent } from "../../src/documents/projection.ts"
@@ -389,6 +390,32 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   }
   checks.push("real C comment shells and star continuations use source-owned reading text without changing source")
 
+  const candidateSource = "Read /gallery/final-candidate.md before entering.\n"
+  const candidateTarget = await open("final-candidate.md", "markdown", candidateSource)
+  const beforeCandidate = (await requests()).length
+  await start(candidateTarget.document, 1)
+  const candidateValue = owner.browse.inspect(candidateTarget.document.uri)!.units[0].translation
+  assert(typeof candidateValue !== "string" && candidateValue.kind === "candidate" && candidateValue.text === "进入前阅读画廊指南。", "Retry exhaustion discarded a usable candidate.")
+  assert((await requests()).length === beforeCandidate + 3, "Candidate selection changed the attempt budget.")
+  const candidateHover = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", candidateTarget.document.uri, new vscode.Position(0, 5))
+  assert(
+    values(candidateHover).includes(candidateValue.text) && !values(candidateHover).includes("command:commentTranslatePlus.replaceHover"),
+    "Candidate hover lost its text or exposed source replacement."
+  )
+  const candidatePreview = await vscode.workspace.openTextDocument(markdownPreviewUri(candidateTarget.document.uri))
+  await waitFor(() => candidatePreview.getText().includes(candidateValue.text), "candidate native preview")
+  assert(!candidatePreview.getText().includes("翻译失败："), "Candidate preview replaced the result with an error banner.")
+  await vscode.window.showTextDocument(candidateTarget.document, { viewColumn: vscode.ViewColumn.One, preview: false })
+  candidateTarget.editor.selection = new vscode.Selection(0, 5, 0, 5)
+  assert(!(await vscode.commands.executeCommand<boolean>("commentTranslatePlus.translateAndReplace")), "Display candidate was applied to source.")
+  assert(candidateTarget.document.getText() === candidateSource && !candidateTarget.document.isDirty, "Candidate display modified source.")
+  assert((await requests()).length === beforeCandidate + 3, "Candidate hover, preview or replacement re-requested a completed memory result.")
+  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  await start(candidateTarget.document, 1)
+  assert((await requests()).length === beforeCandidate + 3, "Reopening candidate reading repeated the wait.")
+  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  checks.push("retry exhaustion displays one memory-cached candidate in reading, hover and native preview while source replacement stays unavailable")
+
   const htmlParagraphSource = "<!--\nRead the original\ndocument.\nKeep two lines together.\n\nKeep `sourceId` unchanged.\n-->\n"
   const htmlParagraph = await open("comment-paragraphs.html", "html", htmlParagraphSource)
   const htmlParsed = await owner.documents.parse(htmlParagraph.document)
@@ -397,7 +424,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   assert(prepareTranslation(htmlUnits[0], 32).text === "Read the original document. Keep two lines together.", "HTML paragraph lines were not merged.")
   await start(htmlParagraph.document, 2)
   assert(
-    owner.browse.inspect(htmlParagraph.document.uri)!.units.every((unit) => unit.translation && validateTranslation(unit, unit.translation) === undefined),
+    owner.browse.inspect(htmlParagraph.document.uri)!.units.every((unit) => unit.translation && validateTranslation(unit, validatedText(unit.translation)) === undefined),
     "HTML paragraphs failed translation validation."
   )
   assert(htmlParagraph.document.getText() === htmlParagraphSource && !htmlParagraph.document.isDirty, "HTML paragraph browse modified source.")
@@ -458,7 +485,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     "CRLF quoted tables lost their raw header, delimiter or row context."
   )
   assert(
-    owner.browse.inspect(quotedTable.document.uri)!.units.some((unit) => unit.translation.includes("阅读原始文档")),
+    owner.browse.inspect(quotedTable.document.uri)!.units.some((unit) => validatedText(unit.translation).includes("阅读原始文档")),
     "CRLF table cells did not pass the formal translation chain."
   )
   assert(quotedTable.document.getText() === quotedTableSource && !quotedTable.document.isDirty, "CRLF table browse modified source syntax or line endings.")
@@ -530,7 +557,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     assert(markers || prepared.text.includes("This is"), "JSON preparation hid This behind an escape marker.")
     const before = (await requests()).length
     const result = await owner.translations.translate(target.document, { units: [unit] }, new AbortController().signal)
-    const translated = JSON.parse(result.get(unit.id)!) as string
+    const translated = JSON.parse(validatedText(result.get(unit.id)!)) as string
     assert(
       markers ? translated.includes(longData) && translated.includes("阅读原始文档") : translated.includes("<示例目录快照>"),
       "JSON labels or opaque data did not survive the real request chain."
@@ -678,7 +705,10 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     const before = (await requests()).length
     await start(target.document, 1)
     const result = owner.browse.inspect(target.document.uri)!.units[0].translation
-    assert(projectionContent(unit, result) === expected && validateTranslation(unit, result) === undefined, "Reordered Python interpolations failed restoration or display.")
+    assert(
+      projectionContent(unit, validatedText(result)) === expected && validateTranslation(unit, validatedText(result)) === undefined,
+      "Reordered Python interpolations failed restoration or display."
+    )
     assert((await requests()).length <= before + 1, "A valid reordered interpolation required recovery requests.")
     assert(target.document.getText() === source && !target.document.isDirty, "Python browse changed the source.")
     target.editor.selection = new vscode.Selection(target.document.positionAt(unit.start + 1), target.document.positionAt(unit.start + 1))
@@ -757,8 +787,8 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
       const paragraph = completed.find((unit) => unit.text.includes("Read the original document. {labels}"))
       assert(
         paragraph?.translation &&
-          validateTranslation(paragraph, paragraph.translation) === undefined &&
-          projectionContent(paragraph, paragraph.translation) === "阅读原始文档。 {labels} 保留两行在一起。",
+          validateTranslation(paragraph, validatedText(paragraph.translation)) === undefined &&
+          projectionContent(paragraph, validatedText(paragraph.translation)) === "阅读原始文档。 {labels} 保留两行在一起。",
         "Multiline f-string browsing did not translate complete prose while preserving the interpolation."
       )
       const sent = (await requests()).slice(before).flatMap((request) => request.itemFingerprints ?? [])
@@ -881,7 +911,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     await start(target.document, units.length)
     const completed = owner.browse.inspect(target.document.uri)!.units
     assert(
-      completed.every((unit) => unit.translation !== undefined && validateTranslation(unit, unit.translation) === undefined),
+      completed.every((unit) => unit.translation !== undefined && validateTranslation(unit, validatedText(unit.translation)) === undefined),
       "Python prose did not complete with valid restored literals."
     )
     const last = completed.at(-1)!
@@ -967,9 +997,9 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
       provider + " protocol"
     )
     assert(
-      owner.browse.inspect(profile.document.uri)!.units[1].translation.includes("`sourceId`") &&
-        owner.browse.inspect(profile.document.uri)!.units[1].translation.includes("[guide](https://example.com)") &&
-        owner.browse.inspect(profile.document.uri)!.units[1].translation.includes("![cover](./cover.svg)"),
+      validatedText(owner.browse.inspect(profile.document.uri)!.units[1].translation).includes("`sourceId`") &&
+        validatedText(owner.browse.inspect(profile.document.uri)!.units[1].translation).includes("[guide](https://example.com)") &&
+        validatedText(owner.browse.inspect(profile.document.uri)!.units[1].translation).includes("![cover](./cover.svg)"),
       provider + " changed protected content."
     )
   }
@@ -1053,9 +1083,12 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   let partialPreview: vscode.TextDocument
   try {
     partialPreview = await vscode.workspace.openTextDocument(markdownPreviewUri(partial.document.uri))
-    await waitFor(() => partialPreview.getText().includes(firstTranslation) && partialPreview.getText().includes(previewLoadingMarker), "partially translated preview")
+    await waitFor(() => partialPreview.getText().includes(validatedText(firstTranslation)) && partialPreview.getText().includes(previewLoadingMarker), "partially translated preview")
     await vscode.commands.executeCommand("commentTranslatePlus.cancel")
-    await waitFor(() => partialPreview.getText().includes(firstTranslation) && !partialPreview.getText().includes(previewLoadingMarker), "cancel preserves preview translation")
+    await waitFor(
+      () => partialPreview.getText().includes(validatedText(firstTranslation)) && !partialPreview.getText().includes(previewLoadingMarker),
+      "cancel preserves preview translation"
+    )
     assert(partialPreview.getText().includes("Keep the unfinished lantern paragraph."), "Cancelled preview lost pending source text.")
     const cancelledText = partialPreview.getText()
     await vscode.commands.executeCommand("commentTranslatePlus.cancel")
@@ -1065,7 +1098,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   }
   await new Promise((resolve) => setTimeout(resolve, 250))
   assert(
-    partialPreview!.getText().includes(firstTranslation) && partialPreview!.getText().includes("Keep the unfinished lantern paragraph."),
+    partialPreview!.getText().includes(validatedText(firstTranslation)) && partialPreview!.getText().includes("Keep the unfinished lantern paragraph."),
     "A late preview response changed cancelled content."
   )
   assert(partial.document.getText() === partialSource && !partial.document.isDirty && !partialPreview!.isDirty, "Preview cancellation changed a document.")
@@ -1168,12 +1201,12 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   assert((await requests()).slice(beforeTerms).flatMap((request) => request.itemFingerprints ?? []).length === 2, "Custom preserved terms did not replace the default short-name list.")
   const translation = owner.browse.inspect(terms.document.uri)!.units[0].translation
   assert(
-    translation.includes("Read Feature") &&
-      translation.includes("API") &&
-      translation.includes("控件与项目锁") &&
-      !translation.includes("Widget") &&
-      !translation.includes("project.lock") &&
-      translation.includes("`API`"),
+    validatedText(translation).includes("Read Feature") &&
+      validatedText(translation).includes("API") &&
+      validatedText(translation).includes("控件与项目锁") &&
+      !validatedText(translation).includes("Widget") &&
+      !validatedText(translation).includes("project.lock") &&
+      validatedText(translation).includes("`API`"),
     "Custom preserved terms changed model input or prevented translation of mixed prose."
   )
   assert(
@@ -1486,8 +1519,8 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
       () => owner.browse.inspect(diffOriginalUri)?.status === "ready" && owner.browse.inspect(modified.document.uri)?.status === "ready",
       "both diff sides automatically translate"
     )
-    assert(owner.browse.inspect(diffOriginalUri)!.units[0].translation.includes("阅读原始文档"), "Diff original did not translate its own content.")
-    assert(owner.browse.inspect(modified.document.uri)!.units[0].translation.includes("阅读完整字段"), "Diff modified side did not translate its own content.")
+    assert(validatedText(owner.browse.inspect(diffOriginalUri)!.units[0].translation).includes("阅读原始文档"), "Diff original did not translate its own content.")
+    assert(validatedText(owner.browse.inspect(modified.document.uri)!.units[0].translation).includes("阅读完整字段"), "Diff modified side did not translate its own content.")
     const unrelated = await vscode.workspace.openTextDocument(vscode.Uri.parse("ctp-auto-diff:/unrelated.md"))
     assert(!automaticScope(unrelated), "An unrelated virtual document inherited the diff workspace.")
     await config.update("auto.exclude", ["docs/**"], vscode.ConfigurationTarget.Global)
@@ -1521,7 +1554,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   await start(custom.document, 1)
   assert((await requests()).at(-1)?.customPrompts && (await requests()).at(-1)?.customLanguage, "Custom prompts or language names were overwritten.")
   assert(
-    owner.browse.inspect(custom.document.uri)!.units[0].translation.includes("阅读原始文档") && !custom.document.isDirty,
+    validatedText(owner.browse.inspect(custom.document.uri)!.units[0].translation).includes("阅读原始文档") && !custom.document.isDirty,
     "Custom template did not translate through the real configuration chain."
   )
   await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
@@ -1794,7 +1827,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
         "Contamination was accepted or the completed neighbour was discarded."
       )
       assert(
-        snapshot.units.every((unit) => unit.start !== target.start || !unit.translation.includes("sample_task")),
+        snapshot.units.every((unit) => unit.start !== target.start || !validatedText(unit.translation).includes("sample_task")),
         "Reference code appeared in the target's translation."
       )
       await waitFor(
@@ -1845,7 +1878,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   await vscode.commands.executeCommand("commentTranslatePlus.retry")
   await waitFor(() => owner.browse.inspect(leakDocument.document.uri)?.status === "ready", "retry after diagnostic leakage")
   assert(
-    (await requests()).length === beforeLeakRepair + 1 && owner.browse.inspect(leakDocument.document.uri)!.units[0].translation.includes("阅读原始文档"),
+    (await requests()).length === beforeLeakRepair + 1 && validatedText(owner.browse.inspect(leakDocument.document.uri)!.units[0].translation).includes("阅读原始文档"),
     "An invalid diagnostic was cached instead of repaired."
   )
   await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
@@ -2047,7 +2080,14 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
       await pendingDocument.editor.edit((builder) => builder.insert(pendingDocument.document.positionAt(pendingSource.length), " New paragraph context.")),
       "Preview error probe edit failed."
     )
-    await waitFor(() => pendingPreview.getText().includes("翻译失败") && !pendingPreview.getText().includes('role="progressbar"'), "failed preview clears markers and remains readable")
+    await waitFor(
+      () => pendingPreview.getText().includes("New paragraph context.") && !pendingPreview.getText().includes('role="progressbar"'),
+      "partially completed preview clears loading and retains source after failure"
+    )
+    assert(
+      pendingPreview.getText().includes("# Preview lifecycle probe") && !pendingPreview.getText().includes("翻译失败："),
+      "A later failed item replaced accepted preview content with an error banner."
+    )
   } finally {
     await fetch(origin + "/control", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ broken: false }) })
   }
@@ -2197,9 +2237,12 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   const protectedDocument = await open("protected-content.md", "markdown", protectedSource)
   await start(protectedDocument.document, 2)
   const protectedUnits = owner.browse.inspect(protectedDocument.document.uri)!.units
-  assert(protectedUnits[0].translation.startsWith("当设置 `edition` 时，必须提供 `pages`。"), "Browse rejected reordered code or restored the wrong code identifier.")
-  assert(protectedUnits[0].translation.includes("{1}") && protectedUnits[0].translation.includes("<CTP0>"), "Literal source markers were consumed as generated placeholders.")
-  assert(protectedUnits[1].translation.startsWith("**C — 图书/期刊。** 确认范围"), "Browse lost the safe paired formatting boundary around Chinese punctuation.")
+  assert(validatedText(protectedUnits[0].translation).startsWith("当设置 `edition` 时，必须提供 `pages`。"), "Browse rejected reordered code or restored the wrong code identifier.")
+  assert(
+    validatedText(protectedUnits[0].translation).includes("{1}") && validatedText(protectedUnits[0].translation).includes("<CTP0>"),
+    "Literal source markers were consumed as generated placeholders."
+  )
+  assert(validatedText(protectedUnits[1].translation).startsWith("**C — 图书/期刊。** 确认范围"), "Browse lost the safe paired formatting boundary around Chinese punctuation.")
   const protectedRequests = (await requests()).length
   const protectedHover = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", protectedDocument.document.uri, new vscode.Position(0, 10))
   assert(values(protectedHover).includes("当设置 `edition` 时，必须提供 `pages`。"), "Hover did not reuse the restored protected result.")
@@ -2667,7 +2710,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     await open("configured-policy-idle.txt", "plaintext", "No translation requested.")
     const before = (await requests()).length
     const result = await owner.translations.translate(target.document, { units }, new AbortController().signal)
-    assert(result.size === 6 && [...result.values()].every((text) => text.includes("阅读原始文档")), "Configured policy lost translations.")
+    assert(result.size === 6 && [...result.values()].every((text) => validatedText(text).includes("阅读原始文档")), "Configured policy lost translations.")
     const fingerprints = await Promise.all([0, 2, 4].map((index) => requestFingerprint(paragraphs.slice(index, index + 2).join("\n\n%%\n\n"))))
     const sent = (await requests()).slice(before).filter((request) => fingerprints.includes(request.inputFingerprint ?? ""))
     assert(sent.length === 3 && sent.every((request) => request.count === 2), "Native settings did not retain fixed two-item batches across semantic scopes.")
@@ -2803,7 +2846,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     assert(
       snapshot.units
         .filter((unit) => unit.kind === "comment")
-        .every((unit) => unit.translation.includes(unit.text.includes("Read the original document.") ? "阅读原始文档。" : "保留 `sourceId` unchanged.")),
+        .every((unit) => validatedText(unit.translation).includes(unit.text.includes("Read the original document.") ? "阅读原始文档。" : "保留 `sourceId` unchanged.")),
       "Real TextMate grammars did not translate fenced JS/TS, Python, Rust or quoted multiline comments."
     )
     const preview = await vscode.workspace.openTextDocument(markdownPreviewUri(target.document.uri))
@@ -2846,7 +2889,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
       owner.browse
         .inspect(target.document.uri)!
         .units.filter((unit) => unit.kind === "string")
-        .every((unit) => unit.translation.includes("阅读原始文档。")),
+        .every((unit) => validatedText(unit.translation).includes("阅读原始文档。")),
       "Enabled fenced strings were not translated."
     )
     assert(target.document.getText() === source && !target.document.isDirty, "Embedded reading or preview wrote to the source.")
@@ -2891,7 +2934,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     )
     const translated = owner.browse.inspect(target.document.uri)!.units[0].translation
     assert(
-      model === "language-choice-fixture" ? translated === scenarioSource : translated.includes("优先选择"),
+      model === "language-choice-fixture" ? translated === scenarioSource : validatedText(translated).includes("优先选择"),
       "A soft language review forced a rewrite or lost the corrected translation."
     )
     assert(target.document.getText() === scenarioSource && !target.document.isDirty, "Language review modified source.")
@@ -2918,26 +2961,29 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   const rewriteTarget = await open("language-rewrite.md", "markdown", rewriteSource)
   const beforeRewrite = (await requests()).length
   await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
-  await waitFor(() => owner.browse.inspect(rewriteTarget.document.uri)?.status === "error", "other-language rewrites exhaust recovery")
+  await waitFor(() => owner.browse.inspect(rewriteTarget.document.uri)?.status === "ready", "other-language rewrites finish with a candidate")
   const rewriteState = owner.browse.inspect(rewriteTarget.document.uri)!
   const rewriteSent = (await requests()).slice(beforeRewrite).filter((request) => request.model === "language-rewrite-fixture" && request.inputFingerprint === rewriteFingerprint)
-  assert(rewriteState.units.length === 0 && rewriteState.failedUnits.length === 1 && rewriteSent.length === 3, "An English rewrite was completed or bypassed the attempt limit.")
+  assert(
+    rewriteState.units.length === 1 && typeof rewriteState.units[0].translation !== "string" && rewriteState.failedUnits.length === 0 && rewriteSent.length === 3,
+    "Language recovery lost its candidate or bypassed the attempt limit."
+  )
   assert(
     rewriteSent.slice(1).every((request) => request.retryFeedbackCompact),
     "A single-item failure sent batch labels or diagnostic codes."
   )
   assert(rewriteTarget.document.getText() === rewriteSource && !rewriteTarget.document.isDirty, "Exhausted language recovery edited source.")
-  await vscode.commands.executeCommand("commentTranslatePlus.retry")
+  await vscode.commands.executeCommand("commentTranslatePlus.retranslate")
   await waitFor(
-    () => owner.browse.inspect(rewriteTarget.document.uri)?.status === "error" && owner.browse.inspect(rewriteTarget.document.uri)?.pending === 0,
-    "manual language retry exhausts recovery"
+    () => owner.browse.inspect(rewriteTarget.document.uri)?.status === "ready" && owner.browse.inspect(rewriteTarget.document.uri)?.pending === 0,
+    "manual language retranslation selects another candidate"
   )
   assert(
     (await requests()).slice(beforeRewrite).filter((request) => request.model === "language-rewrite-fixture" && request.inputFingerprint === rewriteFingerprint).length === 6,
-    "The rejected English rewrite was cached."
+    "Explicit retranslation did not refresh the candidate."
   )
   await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
-  checks.push("repeated English rewrites remain failed, uncached and invisible as translations; manual retry requests the source again and preserves the document")
+  checks.push("repeated English rewrites become display candidates after bounded recovery; explicit retranslation refreshes the result without editing source")
 
   await config.update(
     "profiles",
@@ -3028,7 +3074,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     "Joint recovery lost the exact assistant response or per-item corrections: " + JSON.stringify(historyRequests)
   )
   assert(
-    owner.browse.inspect(historyTarget.document.uri)!.units.every((unit) => unit.translation.includes("保留") || unit.translation.includes("阅读")),
+    owner.browse.inspect(historyTarget.document.uri)!.units.every((unit) => validatedText(unit.translation).includes("保留") || validatedText(unit.translation).includes("阅读")),
     "Joint recovery published an invalid result."
   )
   await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
@@ -3056,7 +3102,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   await start(echoTarget.document, 4)
   const echoUnits = owner.browse.inspect(echoTarget.document.uri)!.units
   assert(
-    echoUnits.every((unit) => unit.translation.includes("阅读原始文档。")),
+    echoUnits.every((unit) => validatedText(unit.translation).includes("阅读原始文档。")),
     "Request echo tails were accepted as unchanged results."
   )
   const echoRequests = await echoRecords()
@@ -3100,7 +3146,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     const before = (await requests()).length
     await start(target.document, 1)
     const translated = owner.browse.inspect(target.document.uri)!.units[0].translation
-    assert(translated.includes("阅读原始文档。") && translated.includes("/gallery/<code>/"), "Indented comment markup was rejected or changed.")
+    assert(validatedText(translated).includes("阅读原始文档。") && validatedText(translated).includes("/gallery/<code>/"), "Indented comment markup was rejected or changed.")
     assert((await requests()).length === before + 1, "An intact comment translation required a retry.")
     await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
     await start(target.document, 1)
@@ -3126,7 +3172,10 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     const before = (await requests()).length
     await start(target.document, parsed.length)
     const translated = owner.browse.inspect(target.document.uri)!.units.find((unit) => unit.id === prose.id)!.translation
-    assert(translated.includes("阅读原始文档。") && !projectionContent(prose, translated).includes("\n"), "Docstring prose did not accept its folded translation.")
+    assert(
+      validatedText(translated).includes("阅读原始文档。") && !projectionContent(prose, validatedText(translated)).includes("\n"),
+      "Docstring prose did not accept its folded translation."
+    )
     const sent = (await requests()).slice(before)
     assert(sent.length > 0 && sent.every((request) => !request.retryFeedbackIncluded), "Ordinary docstring wrapping required recovery.")
     await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
@@ -3194,7 +3243,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
         owner.browse
           .inspect(target.document.uri)!
           .units.filter((unit) => prose.some((item) => item.id === unit.id))
-          .every((unit) => unit.translation.includes("阅读原始文档。")),
+          .every((unit) => validatedText(unit.translation).includes("阅读原始文档。")),
         "Shell comments or quoted strings did not translate through the normal reading chain."
       )
       if (fenced) {
@@ -3249,7 +3298,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     await owner.browse.start(original)
     await waitFor(() => owner.browse.inspect(originalUri)?.status === "ready" && owner.browse.inspect(originalUri)?.units.length === 3, "deleted XML-wrapped Markdown translation")
     const snapshot = owner.browse.inspect(originalUri)!
-    assert(snapshot.units[0].translation.includes("阅读原始文档"), "Deleted Markdown inside XML delimiters was not translated.")
+    assert(validatedText(snapshot.units[0].translation).includes("阅读原始文档"), "Deleted Markdown inside XML delimiters was not translated.")
     const hovers = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", originalUri, new vscode.Position(1, 5))
     assert(values(hovers).includes("阅读原始文档"), "Diff original hover lost its translation.")
     assert(original.getText() === deletedSource && !original.isDirty, "Translation modified the read-only diff original.")

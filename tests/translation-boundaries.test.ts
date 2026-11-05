@@ -1,3 +1,4 @@
+import { validatedText } from "./support/assertions.ts"
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import { prepareTranslation } from "../src/documents/terms.ts"
@@ -122,7 +123,7 @@ test("ambiguous batch output is never published or cached under a neighbouring i
       (batch, signal, completed) => requestTranslation(fixture.service, { ...fixture.settings, batchBySemanticScope: false }, batch, signal, fixture.gate, completed),
       new AbortController().signal,
       false,
-      (item) => published.push(item.text)
+      (item) => published.push(validatedText(item.text))
     )
   const results = await run()
   assert.deepEqual(

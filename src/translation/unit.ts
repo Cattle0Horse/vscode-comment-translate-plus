@@ -1,4 +1,4 @@
-import type { PreparedInput } from "../model/translation.ts"
+import type { PreparedInput, TranslationValue, TranslationCandidate } from "../model/translation.ts"
 import type { FailedTranslation } from "../model/events.ts"
 import { ModelRetry, TranslationFailure, describeError, failureCode } from "../model/diagnostics.ts"
 import { prepareTranslation } from "../documents/terms.ts"
@@ -9,12 +9,13 @@ import type { TranslationProvider } from "./providers/protocol.ts"
 
 export class TranslationUnit {
   prepared?: ReturnType<typeof prepareTranslation>
-  translation?: string
+  translation?: TranslationValue
   failure?: unknown
   feedback?: ModelRetry
   attempts = 0
   skipped = false
   private languageReviewed = false
+  private candidate?: { readonly value: TranslationCandidate; readonly restored: boolean }
 
   constructor(
     readonly source: PreparedInput["units"][number],
@@ -58,26 +59,47 @@ export class TranslationUnit {
   }
 
   accept(text: string, canReview: (review: ModelRetry) => boolean, diagnosticCodes: readonly string[] = []): void {
-    const restored = this.prepared!.restore(text)
-    const failure = validateTranslation(this.source, restored)
-    if (failure) throw failure
     const leaked = diagnosticCodes.find((code) => text.includes(code) && !(this.source.content ?? this.source.text).includes(code))
-    if (leaked)
-      throw new ModelRetry(
-        {
-          reason: "The response included a retry diagnostic identifier absent from the source.",
-          instruction: `Exclude diagnostic text, including ${leaked}, and explanations from the translation.`
-        },
-        {
-          code: "translation-feedback-leaked",
-          difference: { reason: "模型将重试错误标识混入译文。", expected: "仅翻译当前原文，不翻译或引用重试诊断。", actual: leaked }
-        }
-      )
-    const unchanged = translationIsUnchanged(this.source, restored)
-    this.reviewLanguage(text, unchanged, canReview)
-    this.translation = unchanged ? this.source.text : restored
-    this.failure = undefined
-    this.feedback = undefined
+    let restored: string | undefined
+    let body: string | undefined
+    try {
+      restored = this.prepared!.restore(text, (normalized) => {
+        body = normalized
+      })
+      const failure = validateTranslation(this.source, restored)
+      if (failure) throw failure
+      if (leaked)
+        throw new ModelRetry(
+          {
+            reason: "The response included a retry diagnostic identifier absent from the source.",
+            instruction: `Exclude diagnostic text, including ${leaked}, and explanations from the translation.`
+          },
+          {
+            code: "translation-feedback-leaked",
+            difference: { reason: "模型将重试错误标识混入译文。", expected: "仅翻译当前原文，不翻译或引用重试诊断。", actual: leaked }
+          }
+        )
+      const unchanged = translationIsUnchanged(this.source, restored)
+      this.reviewLanguage(text, unchanged, canReview)
+      this.translation = unchanged ? this.source.text : restored
+      this.failure = undefined
+      this.feedback = undefined
+      this.candidate = undefined
+    } catch (error) {
+      if (error instanceof ModelRetry && body !== undefined && !leaked) {
+        const candidate = this.prepared!.candidate(body)
+        if (candidate !== undefined && (!this.candidate || restored !== undefined || !this.candidate.restored))
+          this.candidate = { value: { kind: "candidate", text: candidate, attempt: this.attempts, code: failureCode(error) }, restored: restored !== undefined }
+      }
+      throw error
+    }
+  }
+
+  finishCandidate(): boolean {
+    if (!this.pending || !this.candidate) return false
+    this.translation = this.candidate.value
+    this.candidate = undefined
+    return true
   }
 
   private reviewLanguage(text: string, unchanged: boolean, canReview: (review: ModelRetry) => boolean): void {

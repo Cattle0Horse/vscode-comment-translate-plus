@@ -1,3 +1,4 @@
+import { validatedText } from "./support/assertions.ts"
 import { ModelRetry } from "../src/model/diagnostics.ts"
 import { emptyPreserveTerms, prepareTranslation, parsePreserveTerms } from "../src/documents/terms.ts"
 import assert from "node:assert/strict"
@@ -639,11 +640,11 @@ test("unchanged results stay completed and cached while representation noise is 
     const unit = { id: "one", start: 0, end: item.original.length, text: item.original, content: item.content, format: item.format, kind: item.kind }
     const input = { units: [unit] }
     const store = new TranslationStore()
-    const action = (batch: TranslationInput, signal: AbortSignal, completed: (item: { id: string; text: string }) => void) =>
+    const action = (batch: TranslationInput, signal: AbortSignal, completed: (item: TranslationItem) => void) =>
       requestTranslation(fixture.service, { ...fixture.settings, preserveTerms: emptyPreserveTerms }, batch, signal, fixture.gate, completed)
     const before = fixture.seen.length
     const progress: string[] = []
-    const result = await store.translate(String(index), input, action, new AbortController().signal, false, (item) => progress.push(item.text))
+    const result = await store.translate(String(index), input, action, new AbortController().signal, false, (item) => progress.push(validatedText(item.text)))
     const expected = item.unchanged ? item.original : item.format === "yaml" ? JSON.stringify(item.returned) : item.returned
     assert.equal(result.get(unit.id), expected, JSON.stringify(item))
     assert.deepEqual(progress, [expected])
@@ -734,7 +735,7 @@ test("invalid units exhaust a finite budget while verified neighbours survive fa
   const text = "1. Keep `code` unchanged.\n2. Retain the second paragraph.\n3. Retain the third paragraph."
   const original = inputOf(parseMarkdown(text))
   const store = new TranslationStore()
-  const action = (input: TranslationInput, signal: AbortSignal, completed: (item: { id: string; text: string }) => void) =>
+  const action = (input: TranslationInput, signal: AbortSignal, completed: (item: TranslationItem) => void) =>
     requestTranslation(fixture.service, fixture.settings, input, signal, fixture.gate, completed)
   const progress: string[] = []
   await assert.rejects(
@@ -851,7 +852,7 @@ test("target-language units avoid HTTP, preserve batch context and cache, and di
   const input = inputOf(parseMarkdown(chinese + "\n\nRead the original document."))
   const settings = { ...fixture.settings, skipSameLanguage: true }
   const store = new TranslationStore()
-  const action = (batch: TranslationInput, signal: AbortSignal, completed: (item: { id: string; text: string }) => void) =>
+  const action = (batch: TranslationInput, signal: AbortSignal, completed: (item: TranslationItem) => void) =>
     requestTranslation(fixture.service, settings, batch, signal, fixture.gate, completed)
   const result = await store.translate(serviceIdentity(settings), input, action, new AbortController().signal)
   assert.equal(result.get(input.units[0].id), chinese)
@@ -911,11 +912,11 @@ test("YAML keys and values with identical text keep separate pending work and ca
   const input = prepareInput(settings, inputOf(parseMarkdown("---\nlabel: label\n---")))
   const [key, value] = input.units
   const store = new TranslationStore()
-  const action = (batch: TranslationInput, signal: AbortSignal, completed: (item: { id: string; text: string }) => void) =>
+  const action = (batch: TranslationInput, signal: AbortSignal, completed: (item: TranslationItem) => void) =>
     requestTranslation(fixture.service, settings, batch, signal, fixture.gate, completed)
   const result = await store.translate(serviceIdentity(settings), input, action, new AbortController().signal)
-  assert.equal(translationDisplayText(result.get(key.id)!, "yaml"), "标签")
-  assert.equal(translationDisplayText(result.get(value.id)!, "yaml"), "标签：")
+  assert.equal(translationDisplayText(validatedText(result.get(key.id)!), "yaml"), "标签")
+  assert.equal(translationDisplayText(validatedText(result.get(value.id)!), "yaml"), "标签：")
   const before = fixture.seen.length
   for (const unit of [value, key]) {
     const cached = await store.translate(serviceIdentity(settings), { units: [unit] }, action, new AbortController().signal)
@@ -928,7 +929,7 @@ test("a trailing empty response retries only its missing item and caches the val
   const fixture = await chatFixture(t, (_body, items, call) => (call === 1 ? items[0] + "\n%%\n" : items.join("\n%%\n")))
   const input = listBatch(2)
   const store = new TranslationStore()
-  const action = (batch: TranslationInput, signal: AbortSignal, completed: (item: { id: string; text: string }) => void) =>
+  const action = (batch: TranslationInput, signal: AbortSignal, completed: (item: TranslationItem) => void) =>
     requestTranslation(fixture.service, fixture.settings, batch, signal, fixture.gate, completed)
   const published: string[] = []
   const result = await store.translate("aligned-empty", input, action, new AbortController().signal, false, (item) => published.push(item.id))

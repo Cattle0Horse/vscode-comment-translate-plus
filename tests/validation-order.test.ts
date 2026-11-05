@@ -1,3 +1,4 @@
+import { validatedText } from "./support/assertions.ts"
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import type { TextUnit } from "../src/model/document.ts"
@@ -100,7 +101,7 @@ test("synthetic context-only output retries the source with line-break feedback 
       (input, signal, completed) => requestTranslation(fixture.service, fixture.settings, input, signal, fixture.gate, completed, { details: false, emit: (event) => events.push(event) }),
       new AbortController().signal,
       false,
-      (item) => published.push(item.text)
+      (item) => published.push(validatedText(item.text))
     )
   const result = await run()
   assert.equal(result.get(input.units[1].id), fixed)
@@ -125,7 +126,7 @@ test("line-break feedback precedes diagnostic leakage, which still rejects struc
   const input = inputOf(parseMarkdown("Read the current rule."))
   const events: TranslationEvent[] = []
   const published: string[] = []
-  const result = await requestTranslation(fixture.service, settings, input, new AbortController().signal, fixture.gate, (item) => published.push(item.text), {
+  const result = await requestTranslation(fixture.service, settings, input, new AbortController().signal, fixture.gate, (item) => published.push(validatedText(item.text)), {
     details: false,
     emit: (event) => events.push(event)
   })

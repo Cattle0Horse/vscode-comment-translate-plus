@@ -1,3 +1,4 @@
+import { validatedText } from "./support/assertions.ts"
 import { prepareTranslation } from "../src/documents/terms.ts"
 import assert from "node:assert/strict"
 import { test } from "node:test"
@@ -120,7 +121,7 @@ test("same-text link labels publish and cache exact destinations on the first re
         (batch, signal, complete) => requestTranslation(fixture.service, fixture.settings, batch, signal, fixture.gate, complete),
         new AbortController().signal,
         false,
-        (item) => published.push(item.text)
+        (item) => published.push(validatedText(item.text))
       )
     const result = await run()
     assert.deepEqual([...result.values()], [source.replace("Read", "阅读")])
@@ -254,7 +255,7 @@ test("decoded JSON content translates labels without exposing serialization esca
   const fixture = await chatFixture(t, () => output)
   const results = await requestTranslation(fixture.service, fixture.settings, { units: [unit] }, new AbortController().signal, fixture.gate)
   assert.equal(fixture.seen.length, 1)
-  assert.equal(validateTranslation(unit, results[0].text), undefined)
-  assert.ok(JSON.parse(results[0].text).includes("<示例目录快照>"))
-  assert.ok(JSON.parse(results[0].text).includes("Europe/London"))
+  assert.equal(validateTranslation(unit, validatedText(results[0].text)), undefined)
+  assert.ok(JSON.parse(validatedText(results[0].text)).includes("<示例目录快照>"))
+  assert.ok(JSON.parse(validatedText(results[0].text)).includes("Europe/London"))
 })

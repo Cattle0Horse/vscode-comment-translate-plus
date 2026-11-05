@@ -53,6 +53,7 @@ export type TranslationDetail =
       readonly elapsedMs: number
       readonly failures: readonly FailedTranslation[]
       readonly code?: string
+      readonly candidates?: readonly { readonly id: string; readonly attempt: number; readonly code: string }[]
       readonly cancellationReasons?: readonly CancellationReason[]
     }
 

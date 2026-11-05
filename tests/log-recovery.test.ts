@@ -1,3 +1,4 @@
+import { validatedText } from "./support/assertions.ts"
 import { prepareTranslation } from "../src/documents/terms.ts"
 import assert from "node:assert/strict"
 import { test } from "node:test"
@@ -74,9 +75,9 @@ test("synthetic visitor notes recover a single style-boundary line break before 
         )
       const result = await run()
       const translation = result.get(unit.id)!
-      assert.equal(validateTranslation(unit, translation), undefined)
-      assert.ok(translation.includes("**阅览室") || translation.includes("5. **编写"))
-      assert.ok(!translation.includes("\n"))
+      assert.equal(validateTranslation(unit, validatedText(translation)), undefined)
+      assert.ok(validatedText(translation).includes("**阅览室") || validatedText(translation).includes("5. **编写"))
+      assert.ok(!validatedText(translation).includes("\n"))
       assert.deepEqual(await run(), result)
       assert.equal(fixture.seen.length, 1, "A recoverable boundary consumed retries or failed to cache.")
       store.clear()
@@ -107,7 +108,7 @@ test("a source-owned inline code marker may echo its exact backtick wrapper with
   const fixture = await chatFixture(t, () => output)
   const input = inputOf(parseMarkdown(source))
   const result = await requestTranslation(fixture.service, fixture.settings, input, new AbortController().signal, fixture.gate)
-  assert.ok(result[0].text.includes("`Example reading room: the northern exhibition hall`") && !result[0].text.includes("``"))
+  assert.ok(validatedText(result[0].text).includes("`Example reading room: the northern exhibition hall`") && !validatedText(result[0].text).includes("``"))
   assert.equal(fixture.seen.length, 1)
   const prepared = prepareTranslation(input.units[0], 32)
   assert.throws(() => prepared.restore(output + " <CTP0>"), /marker-mismatch/)
