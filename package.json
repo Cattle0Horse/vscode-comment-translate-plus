@@ -1250,7 +1250,7 @@
           },
           "default": [],
           "scope": "resource",
-          "description": "翻译模式和翻译预览使用的保留词文件列表，填写 JSON/JSONC 文件路径或 HTTPS 地址，多个文件会合并。未设置时使用内置词表，自定义列表替换内置词表，空列表禁用词表。仅整段待译内容匹配时跳过翻译，句子中出现词条不会跳过整句；悬停和“翻译并替换”不使用词表。支持工作区相对路径、绝对路径、网络共享路径、~/ 和文件系统 URI；HTTP 仅支持本机回环地址。"
+          "description": "翻译模式和翻译预览使用的保留词文件列表，填写 JSON/JSONC 文件路径或 HTTPS 地址，多个文件会合并。未设置时使用内置词表，自定义列表替换内置词表，空列表禁用词表。仅整段待译内容匹配时跳过翻译，句子中出现词条不会跳过整句；悬停和“翻译并替换”不使用词表。支持工作区相对路径、绝对路径、网络共享路径、~/ 和文件系统 URI；HTTP 仅支持本机回环地址。预设词表: 'https://raw.githubusercontent.com/Cattle0Horse/vscode-comment-translate-plus/refs/heads/main/resources/preserve-terms.full.json'、'https://raw.githubusercontent.com/Cattle0Horse/vscode-comment-translate-plus/refs/heads/main/resources/preserve-terms.json'。其中，preserve-terms.json 是内置词表的。"
         },
         "commentTranslatePlus.minimumMarkerCharacters": {
           "type": "integer",
