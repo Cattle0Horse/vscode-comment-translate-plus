@@ -46,6 +46,24 @@ const inlineHtmlMarkdown = markdown.configure({ remove: ["HTMLBlock"] })
 
 export type MarkdownNode = ReturnType<typeof markdown.parse>["topNode"]
 
+/** A code span owns equal backtick runs; the first matching run must close the whole input. */
+export function inlineCodeProcessor(text: string): { delimiter: string; content: string } | undefined {
+  let width = 0
+  while (text[width] === "`") width++
+  if (!width) return
+  for (let position = width; position < text.length;) {
+    if (text[position] !== "`") {
+      position++
+      continue
+    }
+    const start = position
+    while (text[position] === "`") position++
+    if (position - start !== width) continue
+    if (position !== text.length) return
+    return { delimiter: text.slice(0, width), content: text.slice(width, start) }
+  }
+}
+
 export function endsProseLine(text: string): boolean {
   return /[.!?。！？]$/u.test(text.trimEnd())
 }

@@ -2,7 +2,7 @@ import { isScalar, parseDocument } from "yaml"
 import { ModelRetry, type ModelFeedback } from "../model/diagnostics.ts"
 import type { TextUnit } from "../model/document.ts"
 import type { MarkdownNode } from "./tree.ts"
-import { children, markdownTree, markdownLinkLabels, standalone } from "./tree.ts"
+import { children, markdownTree, markdownLinkLabels, standalone, inlineCodeProcessor } from "./tree.ts"
 import { yamlShape } from "./yaml.ts"
 import { fragmentContents, linkReferenceKind, linkTargetText, protectedFragments } from "./protection.ts"
 import { projectionContent } from "./projection.ts"
@@ -155,7 +155,10 @@ function validateProtectedFragments(expected: ReturnType<typeof fragmentContents
         }
 
         visit(markdownTree(output).topNode)
-        const literals = inlineCodeLiterals(source).filter((literal) => labels.includes(literal.replace(/^`+|`+$/gu, "")))
+        const literals = inlineCodeLiterals(source).filter((literal) => {
+          const code = inlineCodeProcessor(literal)
+          return code !== undefined && labels.includes(code.content)
+        })
         if (literals.length === 1)
           return retry(
             {

@@ -1,32 +1,11 @@
 import * as vscode from "vscode"
-import type { BrowseSnapshot, TranslatedUnit } from "./session.ts"
+import type { BrowseSnapshot } from "./session.ts"
 import { displayMode } from "../../host/configuration.ts"
-import { translationDisplayText, displayTranslations } from "../../documents/presentation.ts"
-import { blockCommentProcessor } from "../../documents/commentSyntax.ts"
-
-function prose(text: string, unit: TranslatedUnit): string {
-  const { format, kind, commentPrefix } = unit
-  const comment = kind === "comment" ? blockCommentProcessor(text) : undefined
-  if (comment?.kind === "html" && comment.body) text = text.slice(comment.body.start, comment.body.end)
-  const lines = translationDisplayText(text, format).split(/\r?\n/)
-  if (kind === "string") return text.replace(/\r\n|[\r\n]/gu, "\\n").trim()
-  if (format === "text")
-    return lines
-      .map((line) => {
-        if (commentPrefix && line.trimStart().startsWith(commentPrefix)) return line.trimStart().slice(commentPrefix.length).trim()
-        return line
-          .replace(/^\s*(?:\/\*+\s?|\*\/\s?|\*\s?|\/+\s?|#\s?)/, "")
-          .replace(/\s*\*\/$/, "")
-          .trim()
-      })
-      .filter(Boolean)
-      .join(" ")
-  if (format === "yaml") return lines.map((line) => line.trim()).join(" ")
-  return lines.map((line) => line.replace(/^\s*(?:>\s*)*(?:(?:#{1,6}|[-+*]|\d+[.)])\s+)?(?:\[[ xX]\]\s+)?/, "").trim()).join(" ")
-}
+import { translationDisplayText, displayTranslations, readingText } from "../../documents/presentation.ts"
+import type { DisplayTranslation } from "../../documents/presentation.ts"
 
 interface DisplayUnit {
-  readonly unit: TranslatedUnit
+  readonly unit: DisplayTranslation
   readonly column: number
   readonly nextLine: number
   readonly text: string
@@ -99,12 +78,12 @@ export class BrowseRenderer implements vscode.Disposable, vscode.CodeLensProvide
       .map((unit) => {
         const position = document.positionAt(unit.start)
         const first = unit.text.split(/\r?\n/, 1)[0]
-        const stripped = unit.format === "yaml" ? first.trimStart() : prose(first, unit)
+        const stripped = unit.format === "yaml" ? first.trimStart() : readingText(first, { ...unit.source, text: first })
         const index = first.indexOf(stripped)
         const prefix = document.lineAt(position.line).text.slice(0, position.character) + first.slice(0, stripped && index >= 0 ? index : (first.match(/^\s*/)?.[0].length ?? 0))
         const tabSize = Number(vscode.workspace.getConfiguration("editor", document.uri).get("tabSize", 4))
         const column = [...prefix].reduce((column, character) => (character === "\t" ? column + tabSize - (column % tabSize) : column + 1), 0)
-        return { unit, text: prose(unit.translation, unit), column, nextLine: document.positionAt(unit.end).line + 1 }
+        return { unit, text: readingText(unit.translation, unit.source), column, nextLine: document.positionAt(unit.end).line + 1 }
       })
       .filter((item) => !!item.text)
   }
@@ -176,7 +155,9 @@ export class BrowseRenderer implements vscode.Disposable, vscode.CodeLensProvide
               range,
               hoverMessage: new vscode.MarkdownString().appendCodeblock(unit.translation),
               renderOptions: {
-                before: { contentText: unit.kind === "string" ? prose(unit.translation, unit) : translationDisplayText(unit.translation, unit.format).replace(/\s*\r?\n\s*/g, " ") }
+                before: {
+                  contentText: unit.kind === "string" ? readingText(unit.translation, unit.source) : translationDisplayText(unit.translation, unit.format).replace(/\s*\r?\n\s*/g, " ")
+                }
               }
             }
           ]
