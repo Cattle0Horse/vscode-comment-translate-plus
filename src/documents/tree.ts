@@ -1,5 +1,6 @@
 import type { TextUnit } from "../model/document.ts"
 import { parser, GFM } from "@lezer/markdown"
+import { angleProseEnd } from "./angleProse.ts"
 
 // XML-style prompt delimiters own one line, not the Markdown up to the next blank line.
 function xmlDelimiter(text: string): boolean {
@@ -10,6 +11,18 @@ function xmlDelimiter(text: string): boolean {
 const markdown = parser.configure([
   GFM,
   {
+    defineNodes: ["AngleProse"],
+    parseInline: [
+      {
+        name: "AngleProse",
+        before: "HTMLTag",
+        parse(context, next, position) {
+          if (next !== 60) return -1
+          const end = angleProseEnd(context.text, position - context.offset)
+          return end === undefined ? -1 : context.addElement(context.elt("AngleProse", position, end + context.offset))
+        }
+      }
+    ],
     parseBlock: [
       {
         name: "XMLDelimiter",

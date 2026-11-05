@@ -2,6 +2,7 @@ import { protectedFragments, translationBodyRange } from "./protection.ts"
 import type { TextUnit } from "../model/document.ts"
 import type { MarkdownNode } from "./tree.ts"
 import { children, markdownTree, standalone } from "./tree.ts"
+import { blockCommentProcessor } from "./commentSyntax.ts"
 
 const analyses = new WeakMap<TextUnit, ReturnType<typeof analyzeTranslationBody>>()
 
@@ -53,11 +54,13 @@ function analyzeTranslationBody(unit: TextUnit) {
     while (end > start && /\s/.test(original[end - 1])) end--
   }
   // Some grammars (notably Rust) identify the comment region but do not label its delimiter tokens.
-  const block = unit.kind === "comment" ? original.match(/^\/\*+[!]?/u) : undefined
+  const processor = unit.kind === "comment" ? blockCommentProcessor(original) : undefined
+  const block = processor && (processor.kind === "c" || processor.body) ? processor : undefined
   const decorated =
     !!block &&
+    block.kind === "c" &&
     original
-      .slice(block[0].length)
+      .slice(block.opening.length)
       .split(/\r\n|[\r\n]/u)
       .slice(1, -1)
       .every((line) => !line.trim() || /^[\t ]*\*(?:[\t ]|$)/u.test(line))
@@ -72,8 +75,9 @@ function analyzeTranslationBody(unit: TextUnit) {
     }
   }
   if (block) {
-    start = Math.max(start, block[0].length)
-    if (original.endsWith("*/")) end = Math.min(end, original.length - 2)
+    start = Math.max(start, block.opening.length)
+    if (block.body) end = Math.min(end, block.body.end)
+    else if (block.kind === "c" && original.endsWith(block.closing)) end = Math.min(end, original.length - block.closing.length)
     if (decorated) {
       for (const match of original.matchAll(/(?:\r\n|[\r\n])[\t ]*(?:\*(?=[\t \r\n]|$)[\t ]?)?/gu)) {
         if (match.index < end) layout.push({ start: match.index, end: Math.min(end, match.index + match[0].length), fold: true })

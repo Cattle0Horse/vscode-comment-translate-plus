@@ -1,4 +1,4 @@
-import { proseBlocks } from "./prose.ts"
+import { proseUnits } from "./prose.ts"
 import type { TextUnit } from "../model/document.ts"
 import { parseMarkdown } from "./markdown.ts"
 import { sourceReferences } from "./references.ts"
@@ -245,7 +245,7 @@ export function pythonStringUnits(source: string, region: TextUnit, literals: re
   }
 
   if (sentenceBoundaries.size) protectInline(markdownTree(text).topNode)
-  const blocks = proseBlocks(text, protectedRanges).flatMap((block) => {
+  const blocks = proseUnits(text, protectedRanges).flatMap((block) => {
     const starts = [block.start, ...[...sentenceBoundaries].filter((boundary) => boundary > block.start && boundary < block.end)]
     return starts.map((start, index) => ({ start, end: starts[index + 1] ?? block.end }))
   })

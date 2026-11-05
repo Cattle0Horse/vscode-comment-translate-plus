@@ -4,9 +4,10 @@ import type { TextUnit } from "../model/document.ts"
 import type { MarkdownNode } from "./tree.ts"
 import { children, markdownTree, markdownLinkLabels, standalone } from "./tree.ts"
 import { yamlShape } from "./yaml.ts"
-import { fragmentContents, linkReferenceKind, linkTargetText } from "./protection.ts"
+import { fragmentContents, linkReferenceKind, linkTargetText, protectedFragments } from "./protection.ts"
 import { projectionContent } from "./projection.ts"
 import { translationBody } from "./body.ts"
+import { blockCommentProcessor } from "./commentSyntax.ts"
 
 function translatedString(unit: TextUnit, text: string): string | undefined {
   if (unit.format !== "yaml") {
@@ -355,33 +356,54 @@ function markdownShape(node: MarkdownNode, source: string, embedded = false, lin
   return [node.name, inline ? shapes.map((shape) => JSON.stringify(shape)).sort() : shapes]
 }
 
-function comparisonProse(unit: TextUnit): string {
-  const { source, ranges } = translationBody(unit)
+function comparisonProse(unit: TextUnit, literal = false): string {
+  const body = literal ? { source: unit.text, ranges: protectedFragments(unit) } : translationBody(unit)
+  const { source } = body
+  const ranges: readonly { start: number; end: number; side?: "open" | "close"; fold?: boolean }[] = body.ranges
   let result = ""
   let cursor = 0
   for (const range of ranges) {
-    result += source.slice(cursor, range.start).replace(/\s/gu, "")
+    result += equivalentProse(source.slice(cursor, range.start), !literal)
     if (!range.fold) {
       const fragment = source.slice(range.start, range.end)
-      result += range.side ? fragment.replace(/\s/gu, "") : fragment
+      result += range.side && !literal ? fragment.replace(/\s/gu, "") : fragment
     }
     cursor = range.end
   }
-  return result + source.slice(cursor).replace(/\s/gu, "")
+  return result + equivalentProse(source.slice(cursor), !literal)
 }
 
-/** Compare validated results; ignore prose whitespace while keeping literal fragments and decoded strings exact. */
+/** Normalize punctuation forms only in prose; protected data and syntax never enter here. */
+function equivalentProse(text: string, ignoreWhitespace: boolean): string {
+  let result = ""
+  for (const character of text) {
+    if (ignoreWhitespace && /\s/u.test(character)) continue
+    const code = character.codePointAt(0)!
+    if (character === "。") result += "."
+    else if (code >= 0xff01 && code <= 0xff5e && /\p{P}/u.test(character)) result += String.fromCodePoint(code - 0xfee0)
+    else result += character
+  }
+  return result
+}
+
+/** Compare validated results with equivalent prose punctuation; literal whitespace and protected data stay exact. */
 export function translationIsUnchanged(unit: TextUnit, translated: string): boolean {
   if (translated === unit.text) return true
+  let literal = unit.kind === "string"
   if (unit.projection) {
     const logical = projectionContent(unit, translated)
-    return unit.projection.kind === "literal" ? logical === unit.projection.unit.text : translationIsUnchanged(unit.projection.unit, logical)
+    if (unit.projection.kind === "container") return translationIsUnchanged(unit.projection.unit, logical)
+    unit = unit.projection.unit
+    translated = logical
+    literal = true
+  } else if (unit.content !== undefined) {
+    const value = translatedString(unit, translated)
+    if (value === undefined) return false
+    unit = { ...unit, text: unit.content, content: undefined, protected: undefined, kind: undefined, format: "text" }
+    translated = value
+    literal = true
   }
-  if (unit.kind === "string") return false
-  if (unit.content !== undefined) {
-    return translatedString(unit, translated) === unit.content
-  }
-  return comparisonProse(unit) === comparisonProse({ ...unit, text: translated, protected: undefined })
+  return comparisonProse(unit, literal) === comparisonProse({ ...unit, text: translated, protected: undefined }, literal)
 }
 
 /** Bound raw responses before restoration and restored text before document parsing. */
@@ -438,14 +460,15 @@ export function validateTranslation(unit: TextUnit, translated: string, code = "
       )
     return validateTranslation({ ...unit, text: unit.content, content: undefined, protected: undefined, format: "text" }, value, code)
   }
-  if (unit.kind === "comment" && unit.text.startsWith("/*")) {
-    const expected = unit.text.match(/\/\*|\*\//g) ?? []
-    const actual = translated.match(/\/\*|\*\//g) ?? []
+  const comment = unit.kind === "comment" ? blockCommentProcessor(unit.text) : undefined
+  if (comment) {
+    const expected = comment.delimiters(unit.text)
+    const actual = comment.delimiters(translated)
     if (JSON.stringify(expected) !== JSON.stringify(actual))
       return new ModelRetry(
         {
           reason: "The response changed block-comment delimiters or their order.",
-          instruction: "Preserve source /* and */ delimiters in their original order; do not add or remove comment boundaries."
+          instruction: `Preserve source ${comment.kind === "c" ? "/* and */" : "<!-- and -->"} delimiters in their original order; do not add or remove comment boundaries.`
         },
         { code, difference: { reason: "模型修改了块注释定界符或其顺序。", expected: expected.join(" "), actual: actual.length ? actual.join(" ") : "（缺失）" } }
       )
