@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="400" viewBox="0 0 1200 400" role="img" aria-labelledby="title desc">
+  <title id="title">三种阅读方式：下方对照、局部悬停、侧边预览</title>
+  <desc id="desc">阅读效果示意。左：英文注释下方显示中文译文。中：鼠标悬停后浮层显示译文。右：Markdown 源文与中文预览并排显示。</desc>
+  <rect width="1200" height="400" rx="24" fill="#0B2635"/>
+  <g font-family="'Segoe UI', 'Microsoft YaHei', sans-serif">
+    <path d="M400 48V352M800 48V352" stroke="#375362"/>
+    <g id="browse" transform="translate(40 0)">
+      <text y="65" fill="#3DDEC1" font-size="22">01</text>
+      <text y="115" fill="#F4FAFC" font-size="40" font-weight="600">下方对照</text>
+      <text y="196" fill="#C7D8DE" font-family="Consolas, monospace" font-size="30">// Save a copy.</text>
+      <path d="M1 218V264" stroke="#3DDEC1" stroke-width="4"/>
+      <text x="20" y="252" fill="#3DDEC1" font-size="36">保留副本。</text>
+      <text y="324" fill="#F4FAFC" font-family="Consolas, monospace" font-size="30"><tspan fill="#3DDEC1">return</tspan> copy</text>
+    </g>
+    <g id="hover" transform="translate(440 0)">
+      <text y="65" fill="#3DDEC1" font-size="22">02</text>
+      <text y="115" fill="#F4FAFC" font-size="40" font-weight="600">局部悬停</text>
+      <rect x="-12" y="164" width="330" height="50" rx="6" fill="#1C4658"/>
+      <text y="198" fill="#F4FAFC" font-family="Consolas, monospace" font-size="30">// Try again.</text>
+      <rect x="14" y="238" width="304" height="98" rx="10" fill="#153B4C" stroke="#507381"/>
+      <text x="38" y="298" fill="#3DDEC1" font-size="36">再试一次。</text>
+      <path d="M211 190L214 238L227 225L239 249L251 242L239 219L258 218Z" fill="#F4FAFC" stroke="#0B2635" stroke-width="3" stroke-linejoin="round"/>
+    </g>
+    <g id="preview" transform="translate(840 0)">
+      <text y="65" fill="#3DDEC1" font-size="22">03</text>
+      <text y="115" fill="#F4FAFC" font-size="40" font-weight="600">侧边预览</text>
+      <text y="186" fill="#9DBAC4" font-size="22">原文</text>
+      <text x="180" y="186" fill="#9DBAC4" font-size="22">译文</text>
+      <path d="M152 164V336" stroke="#375362"/>
+      <text y="244" fill="#F4FAFC" font-family="Consolas, monospace" font-size="28"># Read</text>
+      <text x="180" y="244" fill="#3DDEC1" font-size="36" font-weight="600">阅读</text>
+      <path d="M0 275H112M0 303H92M0 331H112" stroke="#9DBAC4" stroke-width="5" stroke-linecap="round"/>
+      <path d="M180 275H302M180 303H280M180 331H302" stroke="#3DDEC1" stroke-width="5" stroke-linecap="round"/>
+    </g>
+  </g>
+</svg>

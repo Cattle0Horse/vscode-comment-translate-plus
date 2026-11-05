@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="380" viewBox="0 0 1200 380" role="img" aria-labelledby="title desc">
+  <title id="title">注释翻译+ — 原文在上，理解在下</title>
+  <desc id="desc">VS Code 注释与文档翻译。左侧以英文注释和中文译文表现对照阅读，右侧展示注释翻译+ 的扩展图标。</desc>
+  <rect width="1200" height="380" rx="24" fill="#0B2635"/>
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif">
+    <g id="identity" transform="translate(60 50)">
+      <text y="22" fill="#9DBAC4" font-size="22" letter-spacing="3">COMMENT TRANSLATE PLUS / VS CODE</text>
+      <text y="119" fill="#F4FAFC" font-size="82" font-weight="700">注释翻译<tspan fill="#3DDEC1">+</tspan></text>
+      <text y="185" fill="#F4FAFC" font-size="40" font-weight="500">原文在上，理解在下。</text>
+    </g>
+    <g id="paired-reading" transform="translate(60 282)">
+      <path d="M0 0V58" stroke="#3DDEC1" stroke-width="4"/>
+      <text x="24" y="13" fill="#9DBAC4" font-family="Consolas, ui-monospace, monospace" font-size="27">// Read the original document.</text>
+      <text x="24" y="53" fill="#3DDEC1" font-size="30">阅读原始文档。</text>
+    </g>
+    <svg id="project-icon" x="920" y="74" width="232" height="232" viewBox="0 0 512 512" fill="none" aria-hidden="true">
+      <defs>
+        <linearGradient id="hero-icon-background" x1="64" y1="32" x2="448" y2="480" gradientUnits="userSpaceOnUse">
+          <stop stop-color="#159CA8"/>
+          <stop offset="1" stop-color="#1467B8"/>
+        </linearGradient>
+      </defs>
+      <rect x="16" y="16" width="480" height="480" rx="112" fill="url(#hero-icon-background)"/>
+      <path d="M144 108H368C396.719 108 420 131.281 420 160V340C420 368.719 396.719 392 368 392H200L120 436L136 391.39C111.087 387.548 92 366.001 92 340V160C92 131.281 115.281 108 144 108Z" fill="#F8FEFF"/>
+      <g stroke="#117B98" stroke-width="18" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M154 169L174 185M144 222H169V314L195 294"/>
+        <path d="M222 163H314C299 195 267 220 219 233M232 181C249 205 280 224 326 233"/>
+        <path d="M226 266H316M215 302H328M272 240V334"/>
+      </g>
+      <circle cx="404" cy="112" r="52" fill="#20D9BE" stroke="#147EAA" stroke-width="10"/>
+      <path d="M404 91V133M383 112H425" stroke="#073F61" stroke-width="14" stroke-linecap="round"/>
+    </svg>
+  </g>
+</svg>
