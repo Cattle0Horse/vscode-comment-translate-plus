@@ -1,7 +1,7 @@
 {
   "name": "vscode-comment-translate-plus",
   "displayName": "注释翻译+",
-  "description": "注释、Markdown 与指令文件沉浸式翻译，独立悬停、Markdown 翻译预览和可切换翻译服务",
+  "description": "注释、Markdown 与指令文件沉浸式翻译，独立悬浮、Markdown 翻译预览和可切换翻译服务",
   "icon": "resources/icon.png",
   "version": "0.14.0",
   "publisher": "cattle-horse",
@@ -181,7 +181,7 @@
       },
       {
         "command": "commentTranslatePlus.toggleHover",
-        "title": "开启或关闭悬停翻译",
+        "title": "开启或关闭悬浮翻译",
         "category": "Comment Translate Plus",
         "icon": "$(comment)"
       },
@@ -750,7 +750,7 @@
           "minimum": 0,
           "maximum": 60000,
           "scope": "window",
-          "description": "翻译模式或翻译预览中，停止编辑后等待多久再翻译，单位为毫秒。增大可减少连续输入时的重复请求，0 表示不等待；等待期间悬停也不会提前发起翻译。修改从下一次编辑生效。"
+          "description": "翻译模式或翻译预览中，停止编辑后等待多久再翻译，单位为毫秒。增大可减少连续输入时的重复请求，0 表示不等待；等待期间悬浮也不会提前发起翻译。修改从下一次编辑生效。"
         },
         "commentTranslatePlus.requestScheduling.slowStart": {
           "type": "object",
@@ -1150,55 +1150,55 @@
           "type": "boolean",
           "default": true,
           "scope": "window",
-          "description": "开启当前文档的翻译模式后，翻译代码注释。此选项只控制翻译模式中的内容，悬停翻译由 hover.comments 单独控制。"
+          "description": "注释浏览：翻译代码注释。"
         },
         "commentTranslatePlus.browse.strings": {
           "type": "boolean",
           "default": true,
           "scope": "window",
-          "description": "开启当前文档的翻译模式后，翻译代码中引号内的字符串，保留引号、转义和模板中的变量。悬停字符串是否翻译由 hover.strings 单独控制。"
+          "description": "注释浏览：翻译代码中引号内的字符串，保留引号、转义和模板中的变量"
         },
         "commentTranslatePlus.hover.enabled": {
           "type": "boolean",
           "default": true,
           "scope": "window",
-          "description": "鼠标停留在内容上时显示译文，无需先开启翻译模式。关闭后停止悬停翻译；下方各类悬停选项仅在此开关开启时生效。"
+          "description": "鼠标停留在内容上时显示译文。关闭后停止悬浮翻译。"
         },
         "commentTranslatePlus.hover.comments": {
           "type": "boolean",
           "default": true,
           "scope": "window",
-          "description": "鼠标停留在代码注释上时显示译文。需要开启 hover.enabled。"
+          "description": "悬浮翻译：鼠标停留在代码注释上时显示译文"
         },
         "commentTranslatePlus.hover.strings": {
           "type": "boolean",
           "default": false,
           "scope": "window",
-          "description": "鼠标停留在代码字符串上时显示译文，保留转义和模板中的变量。需要开启 hover.enabled。"
+          "description": "悬浮翻译：鼠标停留在代码字符串上时显示译文，保留转义和模板中的变量。"
         },
         "commentTranslatePlus.hover.selection": {
           "type": "boolean",
           "default": true,
           "scope": "window",
-          "description": "选中文本后，将鼠标停留在选区内可翻译所选内容。可点击译文浮层中的替换按钮将译文写回原文。需要开启 hover.enabled。"
+          "description": "悬浮翻译：选中文本后，将鼠标停留在选区内可翻译所选内容。可点击译文浮层中的替换按钮将译文写回原文。"
         },
         "commentTranslatePlus.hover.documentation": {
           "type": "boolean",
           "default": true,
           "scope": "window",
-          "description": "翻译语言扩展提供的悬停说明和当前位置的错误、警告信息，例如函数说明或类型错误；保留原有提示和操作。需要开启 hover.enabled。"
+          "description": "悬浮翻译：翻译语言扩展提供的悬浮说明和当前位置的错误、警告信息，例如函数说明或类型错误；保留原有提示和操作。"
         },
         "commentTranslatePlus.hover.nearCursor": {
           "type": "boolean",
           "default": true,
           "scope": "window",
-          "description": "让译文浮层靠近鼠标停留的位置；关闭后按被翻译内容的范围定位。需要开启 hover.enabled。"
+          "description": "悬浮翻译：让译文浮层靠近鼠标停留的位置；关闭后按被翻译内容的范围定位。"
         },
         "commentTranslatePlus.auto.enabled": {
           "type": "boolean",
           "default": false,
           "scope": "window",
-          "description": "打开受支持的工作区文件时，自动开启翻译模式并翻译可见内容。翻译范围由 auto.include 和 auto.exclude 决定；默认关闭，需要手动开启翻译模式。"
+          "description": "自动翻译：打开受支持的工作区文件时，自动开启翻译模式并翻译可见内容。翻译范围由 auto.include 和 auto.exclude 决定；"
         },
         "commentTranslatePlus.auto.include": {
           "type": "array",
@@ -1210,7 +1210,7 @@
             "**/*"
           ],
           "scope": "resource",
-          "description": "选择自动翻译和后台翻译所有文件的工作区范围；自动翻译需要开启 auto.enabled，后台命令可独立执行。使用相对工作区根目录的通配路径，并以 / 分隔，例如 **/*.md 匹配所有 Markdown 文件、docs/** 匹配 docs 目录内文件。任意一条匹配即可；默认 **/* 包含全部文件，空列表不包含任何文件，auto.exclude 优先。"
+          "description": "自动翻译：选择自动翻译和后台翻译所有文件的工作区范围；自动翻译需要开启 auto.enabled，后台命令可独立执行。使用相对工作区根目录的通配路径，并以 / 分隔，例如 **/*.md 匹配所有 Markdown 文件、docs/** 匹配 docs 目录内文件。任意一条匹配即可；默认 **/* 包含全部文件，空列表不包含任何文件，auto.exclude 优先。"
         },
         "commentTranslatePlus.auto.exclude": {
           "type": "array",
@@ -1234,13 +1234,13 @@
             "**/coverage/**"
           ],
           "scope": "resource",
-          "description": "选择哪些工作区文件不自动开启翻译模式，优先于 auto.include；后台翻译所有文件也遵循此列表。默认排除 .git、.venv、node_modules、Python 缓存和常见构建输出。使用相对工作区根目录的通配路径，以 / 分隔；手动翻译仍可使用。"
+          "description": "自动翻译：选择哪些工作区文件不自动开启翻译模式，优先于 auto.include；后台翻译所有文件也遵循此列表。使用相对工作区根目录的通配路径。"
         },
         "commentTranslatePlus.preserveTermsWriteFile": {
           "type": "string",
           "default": "",
           "scope": "resource",
-          "description": "执行“添加保留词”时写入的 JSON/JSONC 文件，例如 .vscode/preserve-terms.jsonc。留空时首次使用命令会让你选择并保存路径；文件或父目录不存在时自动创建。支持工作区相对路径、绝对路径、网络共享路径、~/ 和可写文件系统 URI。要让此文件参与翻译，还需将它加入 preserveTerms。"
+          "description": "保留词：执行“添加保留词”时写入的 JSON/JSONC 文件，例如 .vscode/preserve-terms.jsonc。留空时首次使用命令会让你选择并保存路径；文件或父目录不存在时自动创建。支持工作区相对路径、绝对路径、网络共享路径、~/ 和可写文件系统 URI。要让此文件参与翻译，还需将它加入 preserveTerms。"
         },
         "commentTranslatePlus.preserveTerms": {
           "type": "array",
@@ -1250,7 +1250,7 @@
           },
           "default": [],
           "scope": "resource",
-          "description": "翻译模式和翻译预览使用的保留词文件列表，填写 JSON/JSONC 文件路径或 HTTPS 地址，多个文件会合并。未设置时使用内置词表，自定义列表替换内置词表，空列表禁用词表。仅整段待译内容匹配时跳过翻译，句子中出现词条不会跳过整句；悬停和“翻译并替换”不使用词表。支持工作区相对路径、绝对路径、网络共享路径、~/ 和文件系统 URI；HTTP 仅支持本机回环地址。预设词表: 'https://raw.githubusercontent.com/Cattle0Horse/vscode-comment-translate-plus/refs/heads/main/resources/preserve-terms.full.json'、'https://raw.githubusercontent.com/Cattle0Horse/vscode-comment-translate-plus/refs/heads/main/resources/preserve-terms.json'。其中，preserve-terms.json 是内置词表的。"
+          "description": "保留词：翻译模式和翻译预览使用的保留词文件列表，填写 JSON/JSONC 文件路径或 HTTPS 地址，多个文件会合并。未设置时使用内置词表，自定义列表替换内置词表，空列表禁用词表。仅整段待译内容匹配时跳过翻译，句子中出现词条不会跳过整句；悬浮和“翻译并替换”不使用词表。支持工作区相对路径、绝对路径、网络共享路径、~/ 和文件系统 URI；HTTP 仅支持本机回环地址。预设词表: 'https://raw.githubusercontent.com/Cattle0Horse/vscode-comment-translate-plus/refs/heads/main/resources/preserve-terms.full.json'、'https://raw.githubusercontent.com/Cattle0Horse/vscode-comment-translate-plus/refs/heads/main/resources/preserve-terms.json'。其中，preserve-terms.json 是内置词表的。"
         },
         "commentTranslatePlus.minimumMarkerCharacters": {
           "type": "integer",
@@ -1406,7 +1406,7 @@
               "源语言与目标语言",
               "选择翻译配置",
               "切换对照 / 占位模式",
-              "开启 / 关闭悬停翻译",
+              "开启 / 关闭悬浮翻译",
               "开启 / 关闭工作区自动注释浏览",
               "添加当前文件到自动翻译排除规则",
               "添加当前文件到自动翻译包含规则",
