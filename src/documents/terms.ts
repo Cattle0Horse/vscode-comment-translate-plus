@@ -6,7 +6,7 @@ import { ModelRetry } from "../model/diagnostics.ts"
 import { validateTranslation, validateTranslationText, translationIsUnchanged } from "./validation.ts"
 import { protectedFragments } from "./protection.ts"
 import { indexScreeningPhrases } from "./screening.ts"
-import { children, markdownTree, inlineCodeProcessor, type MarkdownNode } from "./tree.ts"
+import { children, isLocalizableMarkdownEscape, markdownTree, inlineCodeProcessor, type MarkdownNode } from "./tree.ts"
 
 const markerFeedback = "Keep every <CTP...> marker unchanged and exactly once in its own item."
 
@@ -125,7 +125,7 @@ export function prepareTranslation(
     const marker = prefix + markers.size + ">"
     // Native syntax is easier to read and repeat than a marker. Mask only long
     // indivisible fragments when the body saves at least three quarters of its size.
-    const flexibleEscape = range.kind === "Escape" && /^\\[&.#_+-]$/u.test(value)
+    const flexibleEscape = range.kind === "Escape" && isLocalizableMarkdownEscape(value)
     const flexibleTechnical = range.kind === "Technical" && (/^\d{3,}:$/u.test(value) || /^\d+-\d+[A-Za-z]+$/u.test(value) || /\.patch$/iu.test(value))
     if (range.side || range.kind === undefined || range.kind === "LineBoundary" || value.length < minimumMarkerCharacters || marker.length * 4 > value.length) {
       if (!range.side && range.kind !== "InlineCode" && !flexibleTechnical && !flexibleEscape) {

@@ -2,7 +2,7 @@ import { isScalar, parseDocument } from "yaml"
 import { ModelRetry, type ModelFeedback } from "../model/diagnostics.ts"
 import type { TextUnit } from "../model/document.ts"
 import type { MarkdownNode } from "./tree.ts"
-import { children, markdownTree, markdownLinkLabels, standalone, inlineCodeProcessor } from "./tree.ts"
+import { children, isLocalizableMarkdownEscape, markdownTree, markdownLinkLabels, standalone, inlineCodeProcessor } from "./tree.ts"
 import { yamlShape } from "./yaml.ts"
 import { fragmentContents, linkReferenceKind, linkTargetText, protectedFragments } from "./protection.ts"
 import { projectionContent } from "./projection.ts"
@@ -239,7 +239,7 @@ function validateProtectedFragments(expected: ReturnType<typeof fragmentContents
         { code: "translation-structure-invalid", difference: { reason: "引用前缀或嵌套与原文不一致。", ...details } }
       )
     case "Escape":
-      if (/^\\[&.#_+-]$/u.test(value)) return
+      if (isLocalizableMarkdownEscape(value)) return
       return retry(
         {
           reason: "Markdown escape sequences no longer match the source.",
@@ -332,7 +332,7 @@ function markdownShape(node: MarkdownNode, source: string, embedded = false, lin
     return /^[A-Za-z\d.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z\d](?:[A-Za-z\d-]*[A-Za-z\d])?(?:\.[A-Za-z\d](?:[A-Za-z\d-]*[A-Za-z\d])?)+$/u.test(target) ? ["Text", []] : [node.name, target]
   }
   if (["FencedCode", "CodeBlock", "HTMLTag", "HTMLBlock", "LinkLabel", "ListMark", "TaskMarker"].includes(node.name)) return [node.name, source.slice(node.from, node.to)]
-  if (node.name === "Escape") return /^\\[&.#_+-]$/u.test(source.slice(node.from, node.to)) ? ["Text", []] : [node.name, source.slice(node.from, node.to)]
+  if (node.name === "Escape") return isLocalizableMarkdownEscape(source.slice(node.from, node.to)) ? ["Text", []] : [node.name, source.slice(node.from, node.to)]
   const content: MarkdownNode[] = []
 
   function append(child: MarkdownNode): void {
@@ -340,7 +340,7 @@ function markdownShape(node: MarkdownNode, source: string, embedded = false, lin
       for (const nested of children(child)) if (nested.name !== "LinkMark") append(nested)
       return
     }
-    if (child.name === "Escape" && /^\\[&.#_+-]$/u.test(source.slice(child.from, child.to))) return
+    if (child.name === "Escape" && isLocalizableMarkdownEscape(source.slice(child.from, child.to))) return
     if (child.name === "URL" && source.slice(child.from, child.to).includes("@") && !/^https?:/iu.test(source.slice(child.from, child.to))) return
     // Emphasis is model-owned; compare its contents without losing nested links or other syntax.
     if (["StrongEmphasis", "Emphasis"].includes(child.name)) for (const nested of children(child)) append(nested)

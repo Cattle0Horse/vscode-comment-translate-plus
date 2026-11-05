@@ -758,7 +758,8 @@ test("short Markdown escapes and compact technical labels remain model-owned", (
   for (const [source, translated] of [
     ["点击标记\\&\\#34;已取消\\&\\#34;。", "单击标记“已取消”。"],
     ["保存到 123@example\\.com。", "保存至 123@example.com。"],
-    ["其中右侧邮件预览的交互和 6\\-1 保持一致。", "右侧预览的交互和 6-1 保持一致。"]
+    ["其中右侧邮件预览的交互和 6\\-1 保持一致。", "右侧预览的交互和 6-1 保持一致。"],
+    ["Where to position the symbol in the view when navigating \\(top, center, or bottom of the viewport\\)", "导航时符号应位于视图中的何处（视口顶部、中心或底部）"]
   ]) {
     const unit = parseMarkdown(source).groups[0].units[0]
     const prepared = prepareTranslation(unit, 32)
@@ -766,6 +767,10 @@ test("short Markdown escapes and compact technical labels remain model-owned", (
     assert.equal(prepared.restore(translated), translated)
     assert.equal(validateTranslation(unit, translated), undefined)
   }
+  const emphasis = parseMarkdown("Literal \\*marker\\*.").groups[0].units[0]
+  assert.ok(validateTranslation(emphasis, "文字 *标记*。") instanceof ModelRetry)
+  const link = parseMarkdown("See [guide]\\(https://example.com\\).").groups[0].units[0]
+  assert.ok(validateTranslation(link, "参见 [指南](https://example.com)。") instanceof ModelRetry)
   const range = "Transitions are smooth (150-300ms)"
   const rangeUnit = parseMarkdown(range).groups[0].units[0]
   const prepared = prepareTranslation(rangeUnit, 32)
