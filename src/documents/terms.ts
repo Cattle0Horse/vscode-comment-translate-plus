@@ -10,6 +10,16 @@ import { children, isLocalizableMarkdownEscape, markdownTree, inlineCodeProcesso
 
 const markerFeedback = "Keep every <CTP...> marker unchanged and exactly once in its own item."
 
+/** Literal escapes may disappear; every other Markdown syntax node must retain its role. */
+function escapeStructure(node: MarkdownNode): unknown {
+  return [
+    node.name,
+    children(node)
+      .filter((child) => child.name !== "Escape")
+      .map(escapeStructure)
+  ]
+}
+
 /** Visible link/image text has a separate role from its destination. */
 function linkTextRanges(text: string): readonly { start: number; end: number }[] {
   const labels: { start: number; end: number }[] = []
@@ -105,6 +115,18 @@ export function prepareTranslation(
     return { ...prepared, restore: (text, normalized) => restoreProjection(unit, prepared.restore(text, normalized)) }
   }
   const { original, source, start, end, ranges: protectedRanges, echoedPrefix } = translationBody(unit)
+  const escapes =
+    unit.kind === "string" || unit.language ? [] : protectedRanges.filter((range) => range.kind === "Escape" && isLocalizableMarkdownEscape(source.slice(range.start, range.end)))
+  let unescaped = ""
+  let cursor = 0
+  for (const range of escapes) {
+    unescaped += source.slice(cursor, range.start) + source.slice(range.start + 1, range.end)
+    cursor = range.end
+  }
+  if (escapes.length) unescaped += source.slice(cursor)
+  // An escaped period or parenthesis can own a list boundary or prevent a link.
+  // Decode only when the complete source retains its Markdown structure.
+  const decodeEscapes = escapes.length > 0 && JSON.stringify(escapeStructure(markdownTree(source).topNode)) === JSON.stringify(escapeStructure(markdownTree(unescaped).topNode))
   let prefix = "<CTP"
   let namespace = 0
   while ([unit.text, original, context].some((value) => value.includes(prefix))) prefix = "<CTP" + ++namespace + "_"
@@ -126,6 +148,7 @@ export function prepareTranslation(
     // Native syntax is easier to read and repeat than a marker. Mask only long
     // indivisible fragments when the body saves at least three quarters of its size.
     const flexibleEscape = range.kind === "Escape" && isLocalizableMarkdownEscape(value)
+    if (flexibleEscape && decodeEscapes) return value.slice(1)
     const flexibleTechnical = range.kind === "Technical" && (/^\d{3,}:$/u.test(value) || /^\d+-\d+[A-Za-z]+$/u.test(value) || /\.patch$/iu.test(value))
     if (range.side || range.kind === undefined || range.kind === "LineBoundary" || value.length < minimumMarkerCharacters || marker.length * 4 > value.length) {
       if (!range.side && range.kind !== "InlineCode" && !flexibleTechnical && !flexibleEscape) {

@@ -138,6 +138,63 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   await config.update("hover.strings", true, vscode.ConfigurationTarget.Global)
   await config.update("maxRequestsPerSecond", 100, vscode.ConfigurationTarget.Global)
 
+  const jsonConfig = vscode.workspace.getConfiguration("json")
+  const previousSchemas = jsonConfig.inspect<unknown[]>("schemas")?.globalValue
+  const escapedDescription = 'Read the original document. (map) {"Open": true}. Sub-panels.'
+  const escapedPunctuation = "\\*_{}[]()<>#+-.!" + String.fromCharCode(96)
+  const escapeProbe = await open("settings-escape-probe.json", "json", '{"note": true, "punctuation": true}')
+  try {
+    await config.update("hover.enabled", false, vscode.ConfigurationTarget.Global)
+    await jsonConfig.update(
+      "schemas",
+      [
+        {
+          fileMatch: ["**/settings-escape-probe.json"],
+          schema: {
+            type: "object",
+            properties: {
+              note: { type: "boolean", description: escapedDescription },
+              punctuation: { type: "boolean", description: "Literal punctuation: " + [...escapedPunctuation].join(" ") }
+            }
+          }
+        }
+      ],
+      vscode.ConfigurationTarget.Global
+    )
+    await vscode.extensions.getExtension("vscode.json-language-features")?.activate()
+    let nativeHover = ""
+    await waitFor(async () => {
+      nativeHover = values((await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", escapeProbe.document.uri, new vscode.Position(0, 3))) ?? [])
+      return nativeHover.includes("Read the original document")
+    }, "native JSON schema description hover")
+    assert(nativeHover.includes("\\.") && nativeHover.includes("\\(") && nativeHover.includes("\\{"), "JSON schema hover did not exercise generated Markdown escapes.")
+    const punctuationPosition = escapeProbe.document.positionAt(escapeProbe.document.getText().indexOf("punctuation") + 2)
+    const punctuationHover = values((await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", escapeProbe.document.uri, punctuationPosition)) ?? [])
+    for (const character of escapedPunctuation) assert(punctuationHover.includes("\\" + character), "Native JSON hover did not escape punctuation: " + character)
+    await config.update("hover.enabled", true, vscode.ConfigurationTarget.Global)
+    await config.update("hover.strings", false, vscode.ConfigurationTarget.Global)
+    await config.update("hover.documentation", true, vscode.ConfigurationTarget.Global)
+    const before = (await requests()).length
+    const translatedHover = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", escapeProbe.document.uri, new vscode.Position(0, 3))
+    const content = values(translatedHover)
+    assert(content.includes(nativeHover) && content.includes("阅读原始文档。"), "Settings hover lost the original description or its translation.")
+    const sent = (await requests()).slice(before)
+    assert(
+      sent.length === 1 && sent[0].itemFingerprints?.includes(await requestFingerprint(escapedDescription)) && !sent[0].retryFeedbackIncluded,
+      "Settings hover sent Markdown escapes or retried a valid decoded translation."
+    )
+    await vscode.commands.executeCommand("vscode.executeHoverProvider", escapeProbe.document.uri, new vscode.Position(0, 3))
+    assert((await requests()).length === before + 1, "Translated settings hover did not reuse its validated cache.")
+    assert(escapeProbe.document.getText() === '{"note": true, "punctuation": true}' && !escapeProbe.document.isDirty, "Settings hover changed the source document.")
+    checks.push("native JSON schema hover escapes 17 punctuation characters while ordinary prose reaches HTTP decoded, completes once and reuses the cache")
+    console.log(checks.at(-1))
+  } finally {
+    await jsonConfig.update("schemas", previousSchemas, vscode.ConfigurationTarget.Global)
+    await config.update("hover.documentation", false, vscode.ConfigurationTarget.Global)
+    await config.update("hover.strings", true, vscode.ConfigurationTarget.Global)
+    await config.update("hover.enabled", true, vscode.ConfigurationTarget.Global)
+  }
+
   const wholeSource = Array.from({ length: 8 }, (_, index) => "Read the original document. Section " + (index + 1) + ".").join("\n".repeat(30))
   const whole = await open("whole-document.md", "markdown", wholeSource)
   const wholeUnits = (await owner.documents.parse(whole.document)).groups.flatMap((group) => group.units)

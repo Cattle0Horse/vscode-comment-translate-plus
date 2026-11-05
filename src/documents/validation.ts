@@ -362,14 +362,15 @@ function markdownShape(node: MarkdownNode, source: string, embedded = false, lin
 function comparisonProse(unit: TextUnit, literal = false): string {
   const body = literal ? { source: unit.text, ranges: protectedFragments(unit) } : translationBody(unit)
   const { source } = body
-  const ranges: readonly { start: number; end: number; side?: "open" | "close"; fold?: boolean }[] = body.ranges
+  const ranges: readonly { start: number; end: number; kind?: string; side?: "open" | "close"; fold?: boolean }[] = body.ranges
   let result = ""
   let cursor = 0
   for (const range of ranges) {
     result += equivalentProse(source.slice(cursor, range.start), !literal)
     if (!range.fold) {
       const fragment = source.slice(range.start, range.end)
-      result += range.side && !literal ? fragment.replace(/\s/gu, "") : fragment
+      if (range.kind === "Escape" && isLocalizableMarkdownEscape(fragment) && !literal) result += equivalentProse(fragment.slice(1), true)
+      else result += range.side && !literal ? fragment.replace(/\s/gu, "") : fragment
     }
     cursor = range.end
   }
