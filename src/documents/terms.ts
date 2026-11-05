@@ -6,7 +6,7 @@ import { ModelRetry } from "../model/diagnostics.ts"
 import { validateTranslation, validateTranslationText } from "./validation.ts"
 import { protectedFragments } from "./protection.ts"
 import { indexScreeningPhrases } from "./screening.ts"
-import { children, markdownTree, type MarkdownNode } from "./tree.ts"
+import { children, markdownTree, inlineCodeProcessor, type MarkdownNode } from "./tree.ts"
 
 const markerFeedback = "Keep every <CTP...> marker unchanged and exactly once in its own item."
 
@@ -318,7 +318,7 @@ export function prepareTranslation(
       translated = translated.replace(markerCodeWrapperPattern, (match, ticks: string, marker: string) => {
         const value = markers.get(marker)
         if (!value) return match
-        if (value.inlineCode && value.value.match(/^`+/u)?.[0] === ticks) return marker
+        if (value.inlineCode && inlineCodeProcessor(value.value)?.delimiter === ticks) return marker
         return /^https?:\/\//iu.test(value.value) ? marker : match
       })
       // Native emphasis delimiters need no IDs. Repair only their immediate inner
@@ -408,7 +408,9 @@ export function prepareTranslation(
         const fragments = nativeFragments.flatMap((fragment) => {
           if (fragment.kind !== "InlineCode") return [fragment]
           if (protectedRanges.some((range) => range.kind === "InlineCode" && source.slice(range.start, range.end) === fragment.text)) return []
-          return protectedFragments({ ...candidate, text: fragment.text.replace(/^`+|`+$/gu, ""), kind: "string" })
+          const code = inlineCodeProcessor(fragment.text)
+          if (!code) throw Error("translation-structure-invalid")
+          return protectedFragments({ ...candidate, text: code.content, kind: "string" })
         })
         for (const fragment of fragments) if (fragment.kind === "Technical") technicalCounts.set(fragment.text, (technicalCounts.get(fragment.text) ?? 0) + 1)
       }

@@ -5,6 +5,21 @@ import { children, markdownTree, standalone } from "./tree.ts"
 import { unembedTranslation } from "./embedding.ts"
 import { validateTranslation, markdownDocumentShape } from "./validation.ts"
 import { assertYamlStructure } from "./yaml.ts"
+import { commentDisplayProcessor } from "./commentSyntax.ts"
+
+/** Short editor rows strip only syntax owned by the source unit; literals retain their punctuation. */
+export function readingText(text: string, unit: TextUnit): string {
+  if (unit.kind === "string") return text.replace(/\r\n|[\r\n]/gu, "\\n").trim()
+  const comment = commentDisplayProcessor(unit)
+  if (comment) text = comment.content(text) ?? text
+  const lines = translationDisplayText(text, unit.format).split(/\r?\n/)
+  if (unit.format === "text" || unit.format === "yaml")
+    return lines
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .join(" ")
+  return lines.map((line) => line.replace(/^\s*(?:>\s*)*(?:(?:#{1,6}|[-+*]|\d+[.)])\s+)?(?:\[[ xX]\]\s+)?/, "").trim()).join(" ")
+}
 
 /** Assemble source-owned ranges once, rejecting overlap instead of guessing alignment. */
 function assembleText(source: string, replacements: readonly { readonly start: number; readonly end: number; readonly text: string }[], range = { start: 0, end: source.length }): string {
@@ -47,8 +62,14 @@ export function translationDisplayText(text: string, format: TextUnit["format"],
   return displayNode(document.contents)
 }
 
+export interface DisplayTranslation extends TextUnit {
+  readonly translation: string
+  /** Syntax ownership stays with the original unit after its displayed text has been decoded. */
+  readonly source: TextUnit
+}
+
 /** Reassemble translated fields and table rows from their original separators for editor display. */
-export function displayTranslations(source: string, units: readonly (TextUnit & { readonly translation: string })[]): (TextUnit & { readonly translation: string })[] {
+export function displayTranslations(source: string, units: readonly (TextUnit & { readonly translation: string })[]): DisplayTranslation[] {
   const groups = new Map<string, { unit: TextUnit; parts: (TextUnit & { readonly translation: string })[] }>()
   for (const part of units) {
     if (part.translation === part.text) continue
@@ -68,7 +89,7 @@ export function displayTranslations(source: string, units: readonly (TextUnit & 
     }
     group.parts.push(part)
   }
-  const rows: (TextUnit & { readonly translation: string })[] = []
+  const rows: DisplayTranslation[] = []
   let previousLiteral: TextUnit | undefined
   for (const { unit, parts } of [...groups.values()].sort((a, b) => a.unit.start - b.unit.start)) {
     const translation =
@@ -79,7 +100,7 @@ export function displayTranslations(source: string, units: readonly (TextUnit & 
             parts.map((part) => ({ start: part.start, end: part.end, text: part.translation })),
             unit
           )
-    const row = { ...unit, translation }
+    const row = { ...unit, translation, source: parts.length === 1 ? parts[0] : unit }
     let literal: TextUnit | undefined = parts.length === 1 ? parts[0] : undefined
     while (literal?.projection?.kind === "container") literal = literal.projection.unit
     const preceding = literal?.projection?.kind === "literal" ? literal.projection.preceding : undefined

@@ -6,7 +6,7 @@ import * as vscode from "vscode"
 import { writePreserveTerm } from "../../src/host/addPreserveTerm.ts"
 import { parseTermFile } from "../../src/documents/termFiles.ts"
 import { markdownPreviewUri } from "../../src/features/preview.ts"
-import { displayTranslations, previewLoadingMarker, translationDisplayText } from "../../src/documents/presentation.ts"
+import { displayTranslations, previewLoadingMarker, translationDisplayText, readingText } from "../../src/documents/presentation.ts"
 import { defaultSystemPrompt } from "../../src/translation/providers/prompts.ts"
 import type { Application } from "../../src/host/application.ts"
 
@@ -378,6 +378,16 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
   }
   checks.push("HTML files and Markdown HTML fences send comment prose alone and restore delimiters without source edits")
+
+  for (const [index, source] of ["/* Read the original document. */\n", "/**\n * Read the original\n * document.\n */\n"].entries()) {
+    const target = await open("display-comment-boundaries-" + index + ".ts", "typescript", source)
+    await start(target.document, 1)
+    const [row] = displayTranslations(source, owner.browse.inspect(target.document.uri)!.units)
+    assert(readingText(row.translation, row.source) === "阅读原始文档。", "Comment reading text retained syntax or removed prose.")
+    assert(target.document.getText() === source && !target.document.isDirty, "Comment presentation changed source.")
+    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  }
+  checks.push("real C comment shells and star continuations use source-owned reading text without changing source")
 
   const htmlParagraphSource = "<!--\nRead the original\ndocument.\nKeep two lines together.\n\nKeep `sourceId` unchanged.\n-->\n"
   const htmlParagraph = await open("comment-paragraphs.html", "html", htmlParagraphSource)
