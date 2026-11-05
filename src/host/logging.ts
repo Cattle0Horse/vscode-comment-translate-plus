@@ -53,6 +53,7 @@ function modelOutput(raw: string): { text: string; reason?: string; raw: boolean
 function finishMessage(event: Extract<TranslationEvent, { kind: "finish" }>, context: TranslationLogContext): string {
   const title = { complete: "任务完成", partial: "部分完成", cancelled: "任务已取消", failed: event.completed === event.total ? "请求协议异常" : "翻译失败" }[event.status]
   let message = `${title}：${event.completed}/${event.total} 项，有变化 ${event.changed} 项，无变化 ${event.unchanged} 项，跳过 ${event.skipped} 项，失败 ${event.failures.length} 项，HTTP ${event.httpRequests} 次，${event.elapsedMs} ms`
+  if (event.candidates?.length) message += "\n  采用候选译文 " + event.candidates.length + " 项。"
   if (event.status === "cancelled")
     return (
       message +
@@ -162,7 +163,7 @@ export class TranslationLog {
       message +=
         "；" +
         [...new Set(event.failures.map((failure) => failure.difference.reason))].join("；") +
-        (event.nextBatchSize ? " 以 " + event.nextBatchSize + " 项重试。" : " 未完成项保留原文。")
+        (event.nextBatchSize ? " 以 " + event.nextBatchSize + " 项重试。" : " 恢复尝试已结束。")
     if (!event.cancelled && event.retryDelayMs) message += "\n  请求恢复等待至少 " + event.retryDelayMs + " ms；共享冷却与恢复发送间隔可能继续延长等待。"
     if (!event.cancelled)
       for (const group of failureGroups(event.failures)) {

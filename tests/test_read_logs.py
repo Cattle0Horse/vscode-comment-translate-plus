@@ -29,6 +29,20 @@ class ReadLogsTests(unittest.TestCase):
     self.assertEqual([record["requestId"] for record in records], ["T1/R2"])
     self.assertNotIn("private synthetic payload", result.stdout)
 
+  def test_candidate_completion_reports_selected_attempt_without_counting_it_as_a_final_error(self):
+    selected = {"id": "unit-a", "attempt": 2, "code": "translation-structure-invalid"}
+    events = [
+      {"kind": "request", "taskId": "T3", "failures": [{"code": "translation-structure-invalid"}]},
+      {"kind": "finish", "taskId": "T3", "status": "complete", "candidates": [{**selected, "text": "private synthetic payload"}]}
+    ]
+    result = self.run_cli(events, "--kind", "finish")
+    record = json.loads(result.stdout)
+    self.assertEqual(record["candidates"], [selected])
+    self.assertNotIn("errorCodes", record)
+    self.assertNotIn("private synthetic payload", result.stdout)
+    stats = self.run_cli(events, "--stats")
+    self.assertEqual(json.loads(stats.stdout)["errorCodes"], {"translation-structure-invalid": 1})
+
   def test_full_evidence_and_statistics_preserve_recovered_request_failures(self):
     events = [
       {"kind": "request", "taskId": "T2", "failures": [{"code": "marker-invalid"}], "modelResponse": "synthetic response\nwith details"},

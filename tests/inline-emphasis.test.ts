@@ -1,3 +1,4 @@
+import { validatedText } from "./support/assertions.ts"
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import { parseMarkdown } from "../src/documents/markdown.ts"
@@ -110,7 +111,7 @@ test("a comparison exposed by omitted emphasis remains a blockquote error until 
           input,
           (request, signal, completed) =>
             requestTranslation(fixture.service, fixture.settings, request, signal, fixture.gate, (item) => {
-              published.push(item.text)
+              published.push(validatedText(item.text))
               completed?.(item)
             }),
           new AbortController().signal

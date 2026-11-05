@@ -1,3 +1,4 @@
+import { validatedText } from "../support/assertions.ts"
 import * as vscode from "vscode"
 import { execFile } from "node:child_process"
 import { promisify } from "node:util"
@@ -61,8 +62,8 @@ export async function runStaged(workspace: vscode.Uri, owner: Application): Prom
     )
     assert(automatic(before) && automatic(after), "Staged Git diff did not match workspace automatic rules.")
     await waitFor(() => owner.browse.inspect(original)?.status === "ready" && owner.browse.inspect(staged)?.status === "ready", "staged diff translation")
-    assert(owner.browse.inspect(original)!.units[0].translation.includes("阅读原始文档"), "HEAD content was not translated.")
-    assert(owner.browse.inspect(staged)!.units[0].translation.includes("阅读完整字段"), "Index content was not translated.")
+    assert(validatedText(owner.browse.inspect(original)!.units[0].translation).includes("阅读原始文档"), "HEAD content was not translated.")
+    assert(validatedText(owner.browse.inspect(staged)!.units[0].translation).includes("阅读完整字段"), "Index content was not translated.")
     await config.update("auto.exclude", ["staged-repository/docs/**"], vscode.ConfigurationTarget.WorkspaceFolder)
     await waitFor(() => !owner.browse.has(original) && !owner.browse.has(staged), "staged exclusion")
     await config.update("auto.exclude", [], vscode.ConfigurationTarget.WorkspaceFolder)
@@ -92,7 +93,7 @@ export async function runStaged(workspace: vscode.Uri, owner: Application): Prom
       )
       assert(automatic(document), "Deleted Git file did not match workspace automatic rules.")
       await waitFor(() => owner.browse.inspect(revision)?.status === "ready", "deleted file automatic translation")
-      assert(owner.browse.inspect(revision)!.units[0].translation.includes(translation), "Deleted file revision was not translated.")
+      assert(validatedText(owner.browse.inspect(revision)!.units[0].translation).includes(translation), "Deleted file revision was not translated.")
       assert(!document.isDirty, "Deleted file revision was edited.")
     }
     await config.update("auto.exclude", ["**/*-deleted.md"], vscode.ConfigurationTarget.WorkspaceFolder)

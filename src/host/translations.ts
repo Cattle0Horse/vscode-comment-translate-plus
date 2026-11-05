@@ -12,7 +12,7 @@ import { TranslationStore } from "../translation/store.ts"
 import type { TextUnit, ParsedDocument } from "../model/document.ts"
 import type { SourceEdit } from "../documents/edits.ts"
 import type { PreparedInput, TranslationInput } from "../model/translation.ts"
-import type { TranslationItem } from "../model/translation.ts"
+import type { TranslationItem, TranslationValue } from "../model/translation.ts"
 import type { PreserveTerms } from "../model/translation.ts"
 import { describeError, TranslationFailure, ParseFailure } from "../model/diagnostics.ts"
 import { TermFiles } from "./termFiles.ts"
@@ -217,7 +217,7 @@ export class TranslationRuntime implements vscode.Disposable {
     interests?: ReadonlyMap<string, AbortSignal>,
     priority?: (unit: TextUnit) => number,
     background = false
-  ): Promise<ReadonlyMap<string, string>> {
+  ): Promise<ReadonlyMap<string, TranslationValue>> {
     if (this.disposed) throw Error("extension-disposed")
     const version = document.version
     this.translating++
@@ -277,8 +277,8 @@ export class TranslationRuntime implements vscode.Disposable {
     }
   }
 
-  async translateSelection(document: vscode.TextDocument, selection: ReturnType<typeof prepareSelection>, signal: AbortSignal): Promise<string> {
-    const translations = new Map<string, string>()
+  async translateSelection(document: vscode.TextDocument, selection: ReturnType<typeof prepareSelection>, signal: AbortSignal): Promise<TranslationValue> {
+    const translations = new Map<string, TranslationValue>()
     try {
       await this.translate(document, selection, signal, false, (item) => translations.set(item.id, item.text), await this.settings(document.uri, false))
     } catch (error) {
@@ -286,18 +286,29 @@ export class TranslationRuntime implements vscode.Disposable {
       if (!(error instanceof TranslationFailure) || !error.reported || !translations.size) throw error
     }
     signal.throwIfAborted()
-    return selection.restore(translations)
+    const candidates = [...translations.values()].filter((value) => typeof value !== "string")
+    if (!candidates.length) return selection.restore(new Map([...translations].filter((entry): entry is [string, string] => typeof entry[1] === "string")))
+    let text = ""
+    let cursor = 0
+    for (const unit of selection.units) {
+      const start = unit.start - selection.target.start
+      const value = translations.get(unit.id)
+      text += selection.target.text.slice(cursor, start) + (typeof value === "string" ? value : (value?.text ?? unit.text))
+      cursor = unit.end - selection.target.start
+    }
+    text += selection.target.text.slice(cursor)
+    return { ...candidates[candidates.length - 1], text }
   }
 
   async translateUnits(
     document: vscode.TextDocument,
     parsed: ParsedDocument,
     signal: AbortSignal,
-    progress?: (translations: ReadonlyMap<string, string>) => void,
+    progress?: (translations: ReadonlyMap<string, TranslationValue>) => void,
     settings?: TranslationSettings
-  ): Promise<ReadonlyMap<string, string>> {
+  ): Promise<ReadonlyMap<string, TranslationValue>> {
     const input = { units: parsed.groups.flatMap((group) => group.units) }
-    const translations = new Map<string, string>()
+    const translations = new Map<string, TranslationValue>()
     const completed = progress
       ? (item: TranslationItem) => {
           signal.throwIfAborted()

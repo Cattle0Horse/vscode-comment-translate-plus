@@ -1,3 +1,4 @@
+import { validatedText } from "./support/assertions.ts"
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import type { TranslationEvent } from "../src/model/events.ts"
@@ -170,7 +171,7 @@ test("line-break validation preserves multiline source, boundary whitespace and 
     const fixture = await chatFixture(t, () => newline + "阅读原始文档。" + newline)
     const input = inputOf(parseMarkdown("Read the original document."))
     const result = await requestTranslation(fixture.service, fixture.settings, input, new AbortController().signal, fixture.gate)
-    assert.ok(result[0].text.trim() === "阅读原始文档。")
+    assert.ok(validatedText(result[0].text).trim() === "阅读原始文档。")
     assert.equal(fixture.seen.length, 1, "Boundary whitespace was mistaken for an internal line break.")
   }
 })
@@ -188,7 +189,7 @@ test("repeated new internal line breaks exhaust existing attempts and never ente
       (input, signal, completed) => fixture.service.request(settings, input, signal, fixture.gate, completed),
       new AbortController().signal,
       false,
-      (item) => published.push(item.text)
+      (item) => published.push(validatedText(item.text))
     )
   await assert.rejects(run(), /translation-structure-invalid/)
   assert.equal(fixture.seen.length, 2)
@@ -221,7 +222,7 @@ test("added internal line breaks in single-line source retry without publishing 
           (input, signal, completed) => fixture.service.request(settings, input, signal, fixture.gate, completed, { details: false, emit: (event) => events.push(event) }),
           new AbortController().signal,
           false,
-          (item) => published.push(item.text)
+          (item) => published.push(validatedText(item.text))
         )
       const result = await run()
       assert.equal(fixture.seen.length, 2, "An explanation separated by a newline was accepted.")
@@ -251,7 +252,7 @@ test("context continuation after an internal line break is rejected, regenerated
     const store = new TranslationStore()
     const action: Parameters<TranslationStore["translate"]>[2] = (input, signal, completed, interests) =>
       fixture.service.request(fixture.settings, input, signal, fixture.gate, completed, { details: false, emit: (event) => events.push(event) }, interests)
-    const run = () => store.translate("reference-contamination", prepared, action, new AbortController().signal, false, (item) => published.push(item.text))
+    const run = () => store.translate("reference-contamination", prepared, action, new AbortController().signal, false, (item) => published.push(validatedText(item.text)))
     if (recover) {
       const result = await run()
       assert.equal(result.size, 1)
@@ -425,7 +426,7 @@ test("network recovery respects a one-attempt limit and explicit cancellation", 
         listBatch(1),
         controller.signal,
         fixture.gate,
-        (item) => published.push(item.text),
+        (item) => published.push(validatedText(item.text)),
         { details: false, emit: (event) => events.push(event) }
       )
     )
@@ -456,7 +457,7 @@ test("incomplete code boundaries take priority over apparent HTML damage and rec
       "code-boundary-recovery",
       input,
       (request, signal) =>
-        requestTranslation(fixture.service, fixture.settings, request, signal, fixture.gate, (item) => published.push(item.text), {
+        requestTranslation(fixture.service, fixture.settings, request, signal, fixture.gate, (item) => published.push(validatedText(item.text)), {
           details: false,
           emit: (event) => events.push(event)
         }),

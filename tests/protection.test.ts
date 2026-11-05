@@ -1,3 +1,4 @@
+import { validatedText } from "./support/assertions.ts"
 import { ModelRetry } from "../src/model/diagnostics.ts"
 import { emptyPreserveTerms, prepareTranslation, parsePreserveTerms, isPreservedTerm } from "../src/documents/terms.ts"
 import assert from "node:assert/strict"
@@ -326,7 +327,7 @@ test("Python docstring continuation indentation survives raw model output and un
     store.translate("docstring", { units }, (input, signal) => requestTranslation(fixture.service, settings, input, signal, fixture.gate), new AbortController().signal)
   const result = await translate()
   for (const [index, unit] of units.entries()) assert.equal(result.get(unit.id), sources[index][1])
-  assert.ok(translationIsUnchanged(units[1], result.get(units[1].id)!))
+  assert.ok(translationIsUnchanged(units[1], validatedText(result.get(units[1].id)!)))
   assert.deepEqual(await translate(), result)
   assert.equal(fixture.seen.length, 1, "Restored indentation or an unchanged label triggered another request.")
   assert.deepEqual(

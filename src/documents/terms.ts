@@ -3,7 +3,7 @@ import { restoreProjection } from "./projection.ts"
 import type { ProtectedFragment, TextUnit } from "../model/document.ts"
 import type { PreserveTerms } from "../model/translation.ts"
 import { ModelRetry } from "../model/diagnostics.ts"
-import { validateTranslation, validateTranslationText } from "./validation.ts"
+import { validateTranslation, validateTranslationText, translationIsUnchanged } from "./validation.ts"
 import { protectedFragments } from "./protection.ts"
 import { indexScreeningPhrases } from "./screening.ts"
 import { children, markdownTree, inlineCodeProcessor, type MarkdownNode } from "./tree.ts"
@@ -92,10 +92,17 @@ export function prepareTranslation(
   unit: TextUnit,
   minimumMarkerCharacters: number,
   context = ""
-): { text: string; source: string; hasMarkers: boolean; needsTranslation: boolean; restore(text: string): string } {
+): {
+  text: string
+  source: string
+  hasMarkers: boolean
+  needsTranslation: boolean
+  restore(text: string, normalized?: (body: string) => void): string
+  candidate(body: string): string | undefined
+} {
   if (unit.projection) {
     const prepared = prepareTranslation(unit.projection.unit, minimumMarkerCharacters, context)
-    return { ...prepared, restore: (text) => restoreProjection(unit, prepared.restore(text)) }
+    return { ...prepared, restore: (text, normalized) => restoreProjection(unit, prepared.restore(text, normalized)) }
   }
   const { original, source, start, end, ranges: protectedRanges, echoedPrefix } = translationBody(unit)
   let prefix = "<CTP"
@@ -274,7 +281,23 @@ export function prepareTranslation(
     source,
     hasMarkers: markers.size > 0,
     needsTranslation: !!remaining.trim() && (!protectedRanges.length || /\p{L}/u.test(remaining)),
-    restore: (translated) => {
+    candidate: (body) => {
+      // Only restore's normalized body is eligible: marker identity, counts and line boundaries are already checked.
+      const candidate = body.trim()
+      if (validateTranslationText(candidate)) return
+      const original: TextUnit = { id: unit.id, start: 0, end: source.length, text: source, format: "text", kind: unit.kind === "string" ? "string" : undefined }
+      if (translationIsUnchanged(original, candidate)) return
+      let natural = ""
+      let cursor = 0
+      for (const fragment of protectedFragments({ ...original, text: candidate, kind: undefined })) {
+        natural += candidate.slice(cursor, fragment.start)
+        cursor = fragment.end
+      }
+      natural += candidate.slice(cursor)
+      if (translationIsUnchanged({ ...original, text: remaining, kind: undefined }, natural)) return
+      return candidate
+    },
+    restore: (translated, normalized) => {
       const bounds = validateTranslationText(translated, translated.trim() ? "translation-structure-invalid" : "translation-item-invalid")
       if (bounds) throw bounds
       // Only a source-owned Markdown prefix may be echoed; restore its exact original numbering and syntax locally.
@@ -398,6 +421,7 @@ export function prepareTranslation(
       // TextMate ranges have no translated offsets. Verify their exact content and
       // multiplicity before parsing the surrounding translated document.
       if (repaired.failure) throw repaired.failure
+      normalized?.(translated.replace(pattern, (marker) => markers.get(marker)!.value))
       const technicalCounts = new Map<string, number>()
       let nativeFragments: readonly ProtectedFragment[] = []
       if (hasTechnicalLiterals) {

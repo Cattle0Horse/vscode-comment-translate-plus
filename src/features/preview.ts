@@ -17,7 +17,7 @@ interface Preview {
   text: string
   mtime: number
   controller?: AbortController
-  completedText?: () => string
+  completedText?: () => { readonly text: string; readonly count: number }
 }
 
 /** One read-only filesystem serves translated documents and their original relative resources. */
@@ -78,11 +78,11 @@ export class MarkdownPreview implements vscode.FileSystemProvider, vscode.Dispos
       controller.signal.throwIfAborted()
       if (document.isClosed || document.version !== version) return
       this.publish(view, progressiveMarkdown(parsed, new Map()))
-      view.completedText = () => parsed.source
+      view.completedText = () => ({ text: parsed.source, count: 0 })
       let nextRefresh = 0
       const translations = await this.translations.translateUnits(document, parsed, controller.signal, (translations) => {
         if (controller.signal.aborted || document.isClosed || document.version !== version) return
-        view.completedText = () => translatedMarkdown(parsed, translations)
+        view.completedText = () => ({ text: translatedMarkdown(parsed, translations), count: translations.size })
         if (performance.now() >= nextRefresh) {
           this.publish(view, progressiveMarkdown(parsed, translations))
           nextRefresh = performance.now() + 250
@@ -96,7 +96,8 @@ export class MarkdownPreview implements vscode.FileSystemProvider, vscode.Dispos
       if (!controller.signal.aborted) {
         const code = this.translations.diagnose(error, view.source)
         const document = vscode.workspace.textDocuments.find((document) => document.uri.toString() === view.source.toString())
-        this.publish(view, "> 翻译失败：" + describeError(code) + "\n\n" + (document?.getText() ?? ""))
+        const completed = view.completedText?.()
+        this.publish(view, completed?.count ? completed.text : "> 翻译失败：" + describeError(code) + "\n\n" + (document?.getText() ?? ""))
         controller.abort("request-failed")
       }
     } finally {
@@ -117,7 +118,7 @@ export class MarkdownPreview implements vscode.FileSystemProvider, vscode.Dispos
     if (!view || (reason === "user-cancelled" && view.controller?.signal.aborted)) return
     view.controller?.abort(reason)
     let text: string
-    if (reason === "user-cancelled") text = view.completedText?.() ?? view.text.replaceAll(previewLoadingMarker, "")
+    if (reason === "user-cancelled") text = view.completedText?.().text ?? view.text.replaceAll(previewLoadingMarker, "")
     else {
       const document = vscode.workspace.textDocuments.find((document) => document.uri.toString() === uri.toString())
       text = document?.getText() ?? ""

@@ -1,3 +1,4 @@
+import { validatedText } from "./support/assertions.ts"
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import { parseMarkdown } from "../src/documents/markdown.ts"
@@ -52,7 +53,7 @@ test("preserved units complete without compiling unused reference prompts, while
   const input = { units: [inputOf(parseMarkdown("# Guide\n\nWidget")).units.at(-1)!] }
   const settings = { ...fixture.settings, preserveTerms: parsePreserveTerms(["Widget"]), systemPrompt: "{{#if unknown}}Unused{{/if}}" }
   const completed: string[] = []
-  const result = await requestTranslation(fixture.service, settings, input, new AbortController().signal, fixture.gate, (item) => completed.push(item.text))
+  const result = await requestTranslation(fixture.service, settings, input, new AbortController().signal, fixture.gate, (item) => completed.push(validatedText(item.text)))
   assert.deepEqual(
     result.map((item) => item.text),
     ["Widget"]
@@ -134,7 +135,7 @@ test("preservation keeps source validation, service validation and cancellation 
   const invalid: TextUnit = { id: "invalid", text: '"Widget', content: "Widget", start: 0, end: 7, format: "text", kind: "string" }
   const completed: string[] = []
   await assert.rejects(
-    requestTranslation(fixture.service, settings, { units: [invalid] }, new AbortController().signal, fixture.gate, (item) => completed.push(item.text)),
+    requestTranslation(fixture.service, settings, { units: [invalid] }, new AbortController().signal, fixture.gate, (item) => completed.push(validatedText(item.text))),
     /translation-structure-invalid/
   )
   const valid = inputOf(parseMarkdown("Widget"))

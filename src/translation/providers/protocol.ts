@@ -1,4 +1,4 @@
-import type { TranslationItem, PreserveTerms } from "../../model/translation.ts"
+import type { PreserveTerms } from "../../model/translation.ts"
 import type { TextUnit } from "../../model/document.ts"
 import type { ProviderTrace } from "../../model/events.ts"
 import type { ModelFeedback } from "../../model/diagnostics.ts"
@@ -21,7 +21,7 @@ export interface TranslationRequest {
   readonly retryFeedback?: readonly (ModelFeedback & { readonly index: number })[]
   /** Exact prior response, or aligned prior items selected in the current source order. */
   readonly previousOutput?: string | readonly string[]
-  readonly items: readonly (TranslationItem & Pick<TextUnit, "format" | "kind"> & { readonly hasMarkers?: boolean })[]
+  readonly items: readonly (Pick<TextUnit, "id" | "text" | "format" | "kind"> & { readonly hasMarkers?: boolean })[]
 }
 
 export interface HttpResponse {
@@ -32,7 +32,7 @@ export interface HttpResponse {
 
 export interface ProviderContext {
   readonly signal: AbortSignal
-  accept(item: TranslationItem): void
+  accept(item: { readonly id: string; readonly text: string }): void
   output(text: string): void
   trace(event: ProviderTrace): void
   request(url: string, init?: Omit<RequestInit, "signal">, itemId?: string): Promise<HttpResponse>

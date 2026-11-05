@@ -20,7 +20,21 @@ export interface PreparedInput {
 
 export interface TranslationItem {
   readonly id: string
+  readonly text: TranslationValue
+}
+
+/** A candidate is display text, never serialized source or a persistent validated result. */
+export interface TranslationCandidate {
+  readonly kind: "candidate"
   readonly text: string
+  readonly attempt: number
+  readonly code: string
+}
+
+export type TranslationValue = string | TranslationCandidate
+
+export function translationText(value: TranslationValue): string {
+  return typeof value === "string" ? value : value.text
 }
 
 export interface PersistentTranslations {

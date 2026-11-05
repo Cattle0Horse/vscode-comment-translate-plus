@@ -1,3 +1,4 @@
+import { validatedText } from "../support/assertions.ts"
 import * as vscode from "vscode"
 import type { Application } from "../../src/host/application.ts"
 import { prepareTranslation } from "../../src/documents/terms.ts"
@@ -26,7 +27,7 @@ export async function runCommentParagraphs(workspace: vscode.Uri, owner: Applica
     await waitFor(() => owner.browse.inspect(uri)?.status === "ready" && owner.browse.inspect(uri)?.units.length === 3, "conflict browse")
     const units = owner.browse.inspect(uri)!.units
     assert(
-      units.every((unit) => unit.text === source.slice(unit.start, unit.end) && !/[<>|=]{7}/u.test(unit.translation)),
+      units.every((unit) => unit.text === source.slice(unit.start, unit.end) && !/[<>|=]{7}/u.test(validatedText(unit.translation))),
       "Conflict browse translated marker lines or shifted source ranges."
     )
     assert(document.getText() === source && !document.isDirty, "Conflict browsing changed source.")
@@ -147,7 +148,7 @@ export async function runCommentParagraphs(workspace: vscode.Uri, owner: Applica
     await owner.browse.start(document)
     await waitFor(() => owner.browse.inspect(uri)?.status === "ready", "block comment browse")
     const first = owner.browse.inspect(uri)!.units[0]
-    assert(first.translation?.includes("阅读原始文档。"), "Block comment translation did not complete.")
+    assert(validatedText(first.translation)?.includes("阅读原始文档。"), "Block comment translation did not complete.")
     const lenses = await vscode.commands.executeCommand<vscode.CodeLens[]>("vscode.executeCodeLensProvider", uri)
     assert(lenses?.some((lens) => lens.range.start.line === 3) && !lenses.some((lens) => lens.range.start.line === 4), "Block translation row was placed after its closing delimiter.")
     assert(document.getText() === source && !document.isDirty, "Block comment browsing modified source.")

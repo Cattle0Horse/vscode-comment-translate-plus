@@ -1,3 +1,4 @@
+import { validatedText } from "./support/assertions.ts"
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import { ModelRetry } from "../src/model/diagnostics.ts"
@@ -70,7 +71,7 @@ test("duplicate markup recovery retains the original occurrence, publishes only 
         requestTranslation(fixture.service, fixture.settings, request, signal, fixture.gate, completed, { details: false, emit: (event) => events.push(event) }),
       new AbortController().signal,
       false,
-      (item) => published.push(item.text)
+      (item) => published.push(validatedText(item.text))
     )
   const result = await run()
   assert.deepEqual([...result.values()], ["阅读相邻内容。", fixed])
@@ -131,7 +132,7 @@ test("literal recovery retries only damaged items, publishes repaired text and s
       (request, signal, completed) => requestTranslation(fixture.service, settings, request, signal, fixture.gate, completed, { details: false, emit: (event) => events.push(event) }),
       new AbortController().signal,
       false,
-      (item) => published.push(item.text)
+      (item) => published.push(validatedText(item.text))
     )
   const result = await run()
   assert.deepEqual([...result.values()], ["阅读相邻内容。", ...fixed])

@@ -1,3 +1,4 @@
+import type { TranslationItem } from "../src/model/translation.ts"
 import { ModelRetry } from "../src/model/diagnostics.ts"
 import { prepareTranslation } from "../src/documents/terms.ts"
 import assert from "node:assert/strict"
@@ -633,7 +634,7 @@ test("cancellation retains only already validated progress and retries neither c
   const input = listBatch(3)
   const store = new TranslationStore()
   const controller = new AbortController()
-  const action = (batch: TranslationInput, signal: AbortSignal, completed: (item: { id: string; text: string }) => void) =>
+  const action = (batch: TranslationInput, signal: AbortSignal, completed: (item: TranslationItem) => void) =>
     requestTranslation(fixture.service, fixture.settings, batch, signal, fixture.gate, completed)
   await assert.rejects(store.translate("cancelled", input, action, controller.signal, false, () => controller.abort()))
   await waitFor(() => fixture.seen.length === 1)

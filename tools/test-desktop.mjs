@@ -95,6 +95,7 @@ function dropLastProtection(text) {
 
 const translatedText = (text) =>
   text
+    .replace("Read /gallery/final-candidate.md before entering.", "进入前阅读画廊指南。")
     .replace("Gallery choice <pick from the list>.", "画廊选项<列表中的一个>。")
     .replace(/^Codex:$/u, "Codex：")
     .replace(/^Missing exhibit (\{record\.title\}) in (\{record\.gallery\})\.$/u, "在 $2 中找不到藏品 $1。")

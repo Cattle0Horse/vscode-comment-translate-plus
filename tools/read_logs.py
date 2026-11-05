@@ -74,6 +74,11 @@ def summary(record):
       {key: failure[key] for key in ("id", "start", "code", "attempts") if key in failure}
       for failure in record["failures"] if isinstance(failure, dict)
     ]
+  if record.get("candidates"):
+    result["candidates"] = [
+      {key: candidate[key] for key in ("id", "attempt", "code") if key in candidate}
+      for candidate in record["candidates"] if isinstance(candidate, dict)
+    ]
   return result
 
 

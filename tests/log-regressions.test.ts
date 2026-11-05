@@ -1,3 +1,4 @@
+import { validatedText } from "./support/assertions.ts"
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import { INITIAL, type IGrammar } from "vscode-textmate"
@@ -184,16 +185,16 @@ test("corrected string and comment paths publish only valid restorations and sha
       (input, signal, complete) => requestTranslation(fixture.service, fixture.settings, input, signal, fixture.gate, complete),
       new AbortController().signal,
       false,
-      (item) => published.push(item.text)
+      (item) => published.push(validatedText(item.text))
     )
   const results = await run()
   for (const unit of units) {
     const restored = results.get(unit.id)!
     assert.notEqual(restored, unit.text)
-    assert.equal(validateTranslation(unit, restored), undefined)
-    assert.ok(published.includes(restored))
+    assert.equal(validateTranslation(unit, validatedText(restored)), undefined)
+    assert.ok(published.includes(validatedText(restored)))
   }
-  assert.equal(projectionContent(units[1], results.get(units[1].id)!), "条目数： {len(records)}.")
+  assert.equal(projectionContent(units[1], validatedText(results.get(units[1].id)!)), "条目数： {len(records)}.")
   assert.ok(
     fixture.seen.every((request) => !modelFeedback(request.body)),
     "Valid restorations consumed recovery requests."

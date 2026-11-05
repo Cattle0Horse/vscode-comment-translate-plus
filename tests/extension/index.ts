@@ -1,3 +1,4 @@
+import { validatedText } from "../support/assertions.ts"
 import * as vscode from "vscode"
 import type { Application } from "../../src/host/application.ts"
 import { runHostCases } from "./cases.ts"
@@ -77,7 +78,7 @@ export async function run(): Promise<void> {
     await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
     await waitFor(() => controller.browse.inspect(uri)?.status === "ready" && controller.browse.inspect(uri)?.units.length === 2, "initial HTTP translation")
     assert(document.getText() === source && !document.isDirty, "Browse changed source.")
-    assert(controller.browse.inspect(uri)!.units[0].translation.includes("阅读原始文档"), "Wrong ID mapping.")
+    assert(validatedText(controller.browse.inspect(uri)!.units[0].translation).includes("阅读原始文档"), "Wrong ID mapping.")
     checks.push("plain-text desktop HTTP responses map ordered units without changing the source")
     const lenses = await vscode.commands.executeCommand<vscode.CodeLens[]>("vscode.executeCodeLensProvider", uri, 1000)
     const translatedLenses = lenses.filter((lens) => lens.command?.title === " ")
@@ -167,7 +168,10 @@ export async function run(): Promise<void> {
     await control({ damageCode: true })
     await vscode.commands.executeCommand("commentTranslatePlus.retranslate")
     await waitFor(() => controller.browse.inspect(uri)?.status === "error" && controller.browse.inspect(uri)?.units.length === 1, "partial validated results")
-    assert(controller.browse.inspect(uri)!.units[0].translation.includes("阅读原始文档") && document.getText() === source, "A damaged unit hid verified neighbours or changed source.")
+    assert(
+      validatedText(controller.browse.inspect(uri)!.units[0].translation).includes("阅读原始文档") && document.getText() === source,
+      "A damaged unit hid verified neighbours or changed source."
+    )
     await control({ damageCode: false })
     const beforePartialRetry = (await requests()).length
     await vscode.commands.executeCommand("commentTranslatePlus.retry")
@@ -277,7 +281,7 @@ export async function run(): Promise<void> {
 
     await config.update("targetLanguage", "zh-CN", vscode.ConfigurationTarget.Global)
     await waitFor(
-      () => controller.browse.inspect(uri)?.status === "ready" && controller.browse.inspect(uri)?.units[0]?.translation.includes("阅读原始文档") === true,
+      () => controller.browse.inspect(uri)?.status === "ready" && validatedText(controller.browse.inspect(uri)?.units[0]?.translation).includes("阅读原始文档") === true,
       "visible translation before cancellation"
     )
     await control({ slow: true })
@@ -303,7 +307,7 @@ export async function run(): Promise<void> {
     )
     const cancelledHovers = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", uri, new vscode.Position(0, 5))
     assert(
-      cancelledHovers.some((hover) => hover.contents.some((content) => typeof content !== "string" && content.value.includes(completedBeforeCancel[0].translation))),
+      cancelledHovers.some((hover) => hover.contents.some((content) => typeof content !== "string" && content.value.includes(validatedText(completedBeforeCancel[0].translation)))),
       "Cancellation removed the completed source hover."
     )
     await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")

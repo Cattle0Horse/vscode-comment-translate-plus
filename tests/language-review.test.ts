@@ -1,3 +1,4 @@
+import { validatedText } from "./support/assertions.ts"
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import { parseMarkdown } from "../src/documents/markdown.ts"
@@ -6,6 +7,7 @@ import { serviceIdentity } from "../src/translation/settings.ts"
 import { unlikelyTargetLanguage } from "../src/documents/languageDetection.ts"
 import { TranslationLog } from "../src/host/logging.ts"
 import type { TranslationEvent } from "../src/model/events.ts"
+import type { TranslationValue } from "../src/model/translation.ts"
 import { modelFeedback, chatFixture, inputOf, requestTranslation, dropLastProtection, logContext } from "./support/fixtures.ts"
 
 const source = "Prefer the quiet reading room near the north entrance. Visitors can borrow a printed map at the counter and return it before leaving the building."
@@ -25,7 +27,7 @@ test("post-translation language review retries only suspicious prose and caches 
       (batch, signal, completed) => requestTranslation(fixture.service, settings, batch, signal, fixture.gate, completed),
       new AbortController().signal,
       false,
-      (item) => published.push(item.text)
+      (item) => published.push(validatedText(item.text))
     )
   const result = await translate()
   assert.equal(result.get(input.units[0].id), translation, "An untranslated English paragraph was accepted without a language review.")
@@ -45,7 +47,7 @@ test("post-translation language review retries only suspicious prose and caches 
   assert.equal(fixture.seen.length, 2, "The reviewed result was not cached.")
 })
 
-test("a language review allows unchanged results but rejects other-language rewrites within the attempt limit", async (t) => {
+test("language reviews preserve unchanged results and release changed candidates only after the attempt limit", async (t) => {
   for (const maximum of [1, 2, 3]) {
     for (const rephrase of [false, true]) {
       const fixture = await chatFixture(t, (_body, items) => (rephrase ? items[0].replace("Prefer", "Use") : items[0]))
@@ -62,11 +64,11 @@ test("a language review allows unchanged results but rejects other-language rewr
             log.record(event, logContext)
           }
         })
-      if (rephrase) await assert.rejects(translate(), /translation-language-mismatch/)
+      if (rephrase) assert.deepEqual((await translate())[0].text, { kind: "candidate", text: source.replace("Prefer", "Use"), attempt: maximum, code: "translation-language-mismatch" })
       else assert.equal((await translate())[0].text, source)
       assert.equal(fixture.seen.length, rephrase ? maximum : maximum === 1 ? 1 : 2, "Language recovery exceeded its attempt limit or repeatedly retried unchanged text.")
       const finish = events.find((event) => event.kind === "finish")!
-      assert.ok(finish.kind === "finish" && finish.status === (rephrase ? "failed" : "complete") && finish.failures.length === (rephrase ? 1 : 0))
+      assert.ok(finish.kind === "finish" && finish.status === "complete" && finish.failures.length === 0 && finish.candidates?.length === (rephrase ? 1 : 0))
       if (maximum > 1) {
         const feedback = modelFeedback(fixture.seen[1].body)
         assert.ok(
@@ -76,7 +78,7 @@ test("a language review allows unchanged results but rejects other-language rewr
         assert.ok(entries.some((entry) => entry.includes("[WARNING]")))
         assert.equal(
           entries.some((entry) => entry.includes("[ERROR]")),
-          rephrase
+          false
         )
       }
     }
@@ -94,7 +96,7 @@ test("synthetic catalog rewrites recover on the last attempt without publishing 
   const fixture = await chatFixture(t, (_body, _items, call) => outputs[call - 1])
   const input = inputOf(parseMarkdown(original))
   const published: string[] = []
-  const result = await requestTranslation(fixture.service, fixture.settings, input, new AbortController().signal, fixture.gate, (item) => published.push(item.text))
+  const result = await requestTranslation(fixture.service, fixture.settings, input, new AbortController().signal, fixture.gate, (item) => published.push(validatedText(item.text)))
   const expected =
     "- 目录条目转存：保留纸质 `sampleId`；在图书说明旁用 `example_catalog_group_identifier=<group_id>` 记录书架分组，用 `example_catalog_previous_entry=<entry_id>` 记录较早版本。"
   assert.equal(result[0].text, expected)
@@ -107,7 +109,7 @@ test("synthetic catalog rewrites recover on the last attempt without publishing 
   }
 })
 
-test("exhausted other-language rewrites remain uncached while successful neighbours survive a manual retry", async (t) => {
+test("exhausted rewrites use the memory candidate while targeted retranslation preserves successful neighbours", async (t) => {
   let repaired = false
   const fixture = await chatFixture(t, (_body, items) =>
     items.map((item) => (item === "Read the next paragraph." ? "阅读下一段。" : repaired ? translation : item.replace("Prefer", "Use"))).join("\n%%\n")
@@ -115,7 +117,7 @@ test("exhausted other-language rewrites remain uncached while successful neighbo
   const input = inputOf(parseMarkdown(source + "\n\nRead the next paragraph."))
   const store = new TranslationStore()
   t.after(() => store.clear())
-  const published: string[] = []
+  const published: TranslationValue[] = []
   const translate = () =>
     store.translate(
       serviceIdentity(fixture.settings),
@@ -125,10 +127,20 @@ test("exhausted other-language rewrites remain uncached while successful neighbo
       false,
       (item) => published.push(item.text)
     )
-  await assert.rejects(translate(), /translation-language-mismatch/)
-  assert.deepEqual(published, ["阅读下一段。"])
+  const initial = await translate()
+  assert.deepEqual(initial.get(input.units[0].id), {
+    kind: "candidate",
+    text: source.replace("Prefer", "Use"),
+    attempt: fixture.settings.maxTranslationAttempts,
+    code: "translation-language-mismatch"
+  })
+  assert.deepEqual(published, ["阅读下一段。", initial.get(input.units[0].id)])
   assert.equal(fixture.seen.length, fixture.settings.maxTranslationAttempts)
+  const beforeReuse = fixture.seen.length
+  assert.deepEqual(await translate(), initial)
+  assert.equal(fixture.seen.length, beforeReuse)
   repaired = true
+  store.invalidate(serviceIdentity(fixture.settings), [{ units: [input.units[0]] }])
   const result = await translate()
   assert.equal(result.get(input.units[0].id), translation)
   assert.equal(result.get(input.units[1].id), "阅读下一段。")
@@ -162,16 +174,17 @@ test("post-translation evidence excludes short, mixed and protected content and 
   assert.equal(fixture.seen.length, 1, "Short labels or protected English triggered a language review.")
 })
 
-test("an over-budget language hint accepts only unchanged results and never releases an other-language rewrite", async (t) => {
+test("a language hint that cannot fit stops requests and retains a changed display candidate", async (t) => {
   for (const rephrase of [false, true]) {
     const fixture = await chatFixture(t, (_body, items) => (rephrase ? items[0].replace("Prefer", "Use") : items[0]))
     const settings = { ...fixture.settings, systemPrompt: "", userPrompt: "${content}", maxRequestCharacters: 256, maxContextCharacters: 0 }
     const input = inputOf(parseMarkdown(source))
-    const published: string[] = []
+    const published: TranslationValue[] = []
     const translate = () => requestTranslation(fixture.service, settings, input, new AbortController().signal, fixture.gate, (item) => published.push(item.text))
     if (rephrase) {
-      await assert.rejects(translate(), /service-request-too-large/)
-      assert.deepEqual(published, [])
+      const result = await translate()
+      assert.deepEqual(result[0].text, { kind: "candidate", text: source.replace("Prefer", "Use"), attempt: 1, code: "translation-language-mismatch" })
+      assert.deepEqual(published, [result[0].text])
     } else assert.equal((await translate())[0].text, source)
     assert.equal(fixture.seen.length, 1)
   }
@@ -181,7 +194,7 @@ test("language reviews still reject broken markers and recover within the origin
   const fixture = await chatFixture(t, (_body, items, call) => (call === 2 ? dropLastProtection(items[0]) : items[0]))
   const input = inputOf(parseMarkdown(source + " Keep `sourceId_abcdefghijklmnopqrstuvwxyz_123456789` safe."))
   const published: string[] = []
-  const result = await requestTranslation(fixture.service, fixture.settings, input, new AbortController().signal, fixture.gate, (item) => published.push(item.text))
+  const result = await requestTranslation(fixture.service, fixture.settings, input, new AbortController().signal, fixture.gate, (item) => published.push(validatedText(item.text)))
   assert.equal(result[0].text, input.units[0].text)
   assert.deepEqual(published, [input.units[0].text])
   assert.equal(fixture.seen.length, 3)
@@ -196,7 +209,7 @@ test("cancelling a language review publishes no provisional result", async (t) =
   })
   const input = inputOf(parseMarkdown(source))
   const published: string[] = []
-  await assert.rejects(requestTranslation(fixture.service, fixture.settings, input, controller.signal, fixture.gate, (item) => published.push(item.text)))
+  await assert.rejects(requestTranslation(fixture.service, fixture.settings, input, controller.signal, fixture.gate, (item) => published.push(validatedText(item.text))))
   assert.deepEqual(published, [])
   assert.equal(fixture.seen.length, 2)
 })

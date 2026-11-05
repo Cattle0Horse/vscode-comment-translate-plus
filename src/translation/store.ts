@@ -1,11 +1,12 @@
-import { validateTranslations } from "../translation/results.ts"
+import { validateTranslations, validateTranslationValue } from "../translation/results.ts"
 import { validateTranslation } from "../documents/validation.ts"
 import { unchangedUnitRanges, unitContentKey } from "../documents/edits.ts"
 import type { SourceEdit } from "../documents/edits.ts"
 import type { PreparedInput, TranslationInput } from "../model/translation.ts"
 import type { TextUnit } from "../model/document.ts"
 import type { CancellationReason } from "../model/diagnostics.ts"
-import type { TranslationItem } from "../model/translation.ts"
+import { translationText } from "../model/translation.ts"
+import type { TranslationItem, TranslationValue } from "../model/translation.ts"
 import type { PersistentTranslations } from "../model/translation.ts"
 import { CacheCapacityFailure } from "../model/diagnostics.ts"
 
@@ -19,11 +20,11 @@ interface PendingUnit {
   readonly unit: PreparedInput["units"][number]
   readonly group: RequestGroup
   readonly interest: AbortController
-  readonly consumers: Map<symbol, { accept(text: string): void; priority(): number; readonly background: boolean; readonly resource?: string }>
-  readonly promise: Promise<string>
-  readonly resolve: (text: string) => void
+  readonly consumers: Map<symbol, { accept(text: TranslationValue): void; priority(): number; readonly background: boolean; readonly resource?: string }>
+  readonly promise: Promise<TranslationValue>
+  readonly resolve: (text: TranslationValue) => void
   readonly reject: (error: unknown) => void
-  value?: string
+  value?: TranslationValue
   cacheable: boolean
   reservation?: "memory" | "persistent"
 }
@@ -38,7 +39,7 @@ export const memoryCacheMaxEntries = 1024
 export const memoryCacheMaxCharacters = 1_000_000
 
 export class TranslationStore {
-  private readonly cache = new Map<string, string>()
+  private readonly cache = new Map<string, TranslationValue>()
   private readonly pending = new Map<string, PendingUnit>()
   private readonly groups = new Set<RequestGroup>()
   private size = 0
@@ -83,10 +84,10 @@ export class TranslationStore {
     priority?: (unit: TextUnit) => number,
     background = false,
     resource?: string
-  ): Promise<ReadonlyMap<string, string>> {
+  ): Promise<ReadonlyMap<string, TranslationValue>> {
     signal.throwIfAborted()
     if (force) this.invalidate(identity, [{ units: input.units.filter((unit) => !interests?.get(unit.id)?.aborted) }])
-    const values = new Map<string, string>()
+    const values = new Map<string, TranslationValue>()
     const waiting = new Map<PendingUnit, TextUnit[]>()
     const created: RequestGroup = { controller: new AbortController(), units: new Set() }
     let cached = 0
@@ -107,9 +108,9 @@ export class TranslationStore {
       let task = this.pending.get(key)
       if (task?.group.controller.signal.aborted || task?.cacheable === false) task = undefined
       if (!task) {
-        let resolve!: (text: string) => void
+        let resolve!: (text: TranslationValue) => void
         let reject!: (error: unknown) => void
-        const promise = new Promise<string>((accept, fail) => {
+        const promise = new Promise<TranslationValue>((accept, fail) => {
           resolve = accept
           reject = fail
         })
@@ -160,7 +161,7 @@ export class TranslationStore {
         const task = byId.get(item.id)
         if (task?.interest.signal.aborted) return
         if (!task) throw Error("translation-structure-invalid")
-        const failure = validateTranslation(task.unit, item.text)
+        const failure = validateTranslationValue(task.unit, item.text)
         if (failure) throw failure
         if (task.value !== undefined) return
         if (task.cacheable) {
@@ -352,7 +353,7 @@ export class TranslationStore {
       const before = unchanged.get(unit.start + ":" + unit.end)
       if (!before || JSON.stringify(unitContentKey(before)) !== JSON.stringify(unitContentKey(unit))) continue
       const text = this.cache.get(unitKey(identity, before))
-      // Only completed, validated results survive a source edit. Pending work
+      // Completed results retain their kind across an unchanged source range. Pending work
       // keeps its original context and remains subject to consumer cancellation.
       if (text !== undefined) this.remember(unitKey(identity, unit), text)
     }
@@ -360,7 +361,7 @@ export class TranslationStore {
 
   private remove(key: string): void {
     const previous = this.cache.get(key)
-    if (previous !== undefined) this.size -= key.length + previous.length
+    if (previous !== undefined) this.size -= key.length + translationText(previous).length
     this.cache.delete(key)
   }
 
@@ -381,15 +382,15 @@ export class TranslationStore {
     for (const [key, next] of sizes) {
       const previous = this.cache.get(key)
       if (previous === undefined) entries++
-      size += next - (previous === undefined ? 0 : key.length + previous.length)
+      size += next - (previous === undefined ? 0 : key.length + translationText(previous).length)
     }
     return entries <= memoryCacheMaxEntries && size <= memoryCacheMaxCharacters
   }
 
-  private remember(key: string, text: string, persist = true, allowEviction = true): void {
-    const stored = persist ? this.persistent?.set(key, text, allowEviction) : undefined
+  private remember(key: string, text: TranslationValue, persist = true, allowEviction = true): void {
+    const stored = persist && typeof text === "string" ? this.persistent?.set(key, text, allowEviction) : undefined
     if (!allowEviction && stored === false) throw new CacheCapacityFailure("persistent")
-    const size = key.length + text.length
+    const size = key.length + translationText(text).length
     if (!allowEviction && !this.memoryFits([{ key, size }])) {
       if (persist && stored !== true) throw new CacheCapacityFailure("memory")
       return

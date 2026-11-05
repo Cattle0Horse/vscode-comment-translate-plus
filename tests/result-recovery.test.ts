@@ -1,3 +1,4 @@
+import { validatedText } from "./support/assertions.ts"
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import { ModelRetry } from "../src/model/diagnostics.ts"
@@ -49,7 +50,7 @@ test("unsolicited context envelopes retry without stripping evidence and only va
         (batch, signal, complete) => requestTranslation(fixture.service, fixture.settings, batch, signal, fixture.gate, complete, { details: true, emit: (event) => events.push(event) }),
         new AbortController().signal,
         false,
-        (item) => published.push(item.text)
+        (item) => published.push(validatedText(item.text))
       )
     assert.deepEqual([...(await run()).values()], translations)
     assert.deepEqual(published, translations)
