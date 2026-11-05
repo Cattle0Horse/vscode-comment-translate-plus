@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/hero.svg" width="100%" alt="注释翻译+ 阅读效果示意：英文注释下方显示中文译文，代码保留原样">
+  <img src="assets/hero.png" width="100%" alt="注释翻译+ 阅读效果示意：英文注释下方显示中文译文，代码保留原样">
 </p>
 
 <p align="center">
@@ -39,7 +39,7 @@
 ## 阅读方式
 
 <p align="center">
-  <img src="assets/reading-modes.svg" width="100%" alt="三种阅读方式示意：在原文下方对照阅读、悬停查看局部译文，以及在侧边阅读随源文更新的 Markdown 译文预览。">
+  <img src="assets/reading-modes.png" width="100%" alt="三种阅读方式示意：在原文下方对照阅读、悬停查看局部译文，以及在侧边阅读随源文更新的 Markdown 译文预览。">
 </p>
 
 ## 开始使用
