@@ -10,12 +10,12 @@ import { children, isLocalizableMarkdownEscape, markdownTree, inlineCodeProcesso
 
 const markerFeedback = "Keep every <CTP...> marker unchanged and exactly once in its own item."
 
-/** Literal escapes may disappear; every other Markdown syntax node must retain its role. */
+/** Literal escapes and model-owned inline code may disappear; other syntax must retain its role. */
 function escapeStructure(node: MarkdownNode): unknown {
   return [
     node.name,
     children(node)
-      .filter((child) => child.name !== "Escape")
+      .filter((child) => child.name !== "Escape" && child.name !== "InlineCode")
       .map(escapeStructure)
   ]
 }

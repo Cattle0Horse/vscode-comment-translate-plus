@@ -116,6 +116,7 @@ const translatedText = (text) =>
     .replace("Keep both lines together.", "保留两行在一起。")
     .replace("Keep its context.", "保留其上下文。")
     .replace("Read the original document.", "阅读原始文档。")
+    .replace("Choose `compact` for the visitor map.", "为游客地图选择 \\compact`。")
     .replace("Widget project.lock", "控件与项目锁")
     .replace("Keep ", "保留 ")
     .replace(" and ", " 和 ")

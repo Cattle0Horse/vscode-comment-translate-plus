@@ -84,7 +84,7 @@ export function markdownTree(source: string, inlineHtml = false): ReturnType<typ
 
 /** Short escapes for punctuation whose local omission does not inherently own a Markdown container. */
 export function isLocalizableMarkdownEscape(value: string): boolean {
-  return /^\\[&.#_+(){}.-]$/u.test(value)
+  return /^\\[&.#_+(){}.`-]$/u.test(value)
 }
 
 export function children(node: MarkdownNode): MarkdownNode[] {

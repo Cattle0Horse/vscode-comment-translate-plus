@@ -140,7 +140,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
 
   const jsonConfig = vscode.workspace.getConfiguration("json")
   const previousSchemas = jsonConfig.inspect<unknown[]>("schemas")?.globalValue
-  const escapedDescription = 'Read the original document. (map) {"Open": true}. Sub-panels.'
+  const escapedDescription = 'Read the original document. (map) {"Open": true}. Sub-panels. Choose `compact` for the visitor map.'
   const escapedPunctuation = "\\*_{}[]()<>#+-.!" + String.fromCharCode(96)
   const escapeProbe = await open("settings-escape-probe.json", "json", '{"note": true, "punctuation": true}')
   try {
@@ -167,7 +167,10 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
       nativeHover = values((await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", escapeProbe.document.uri, new vscode.Position(0, 3))) ?? [])
       return nativeHover.includes("Read the original document")
     }, "native JSON schema description hover")
-    assert(nativeHover.includes("\\.") && nativeHover.includes("\\(") && nativeHover.includes("\\{"), "JSON schema hover did not exercise generated Markdown escapes.")
+    assert(
+      nativeHover.includes("\\.") && nativeHover.includes("\\(") && nativeHover.includes("\\{") && nativeHover.includes("\\`compact\\`"),
+      "JSON schema hover did not exercise generated Markdown escapes."
+    )
     const punctuationPosition = escapeProbe.document.positionAt(escapeProbe.document.getText().indexOf("punctuation") + 2)
     const punctuationHover = values((await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", escapeProbe.document.uri, punctuationPosition)) ?? [])
     for (const character of escapedPunctuation) assert(punctuationHover.includes("\\" + character), "Native JSON hover did not escape punctuation: " + character)
@@ -177,7 +180,10 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     const before = (await requests()).length
     const translatedHover = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", escapeProbe.document.uri, new vscode.Position(0, 3))
     const content = values(translatedHover)
-    assert(content.includes(nativeHover) && content.includes("阅读原始文档。"), "Settings hover lost the original description or its translation.")
+    assert(
+      content.includes(nativeHover) && content.includes("阅读原始文档。") && content.includes("为游客地图选择 \\compact`。"),
+      "Settings hover lost the original description or its translation."
+    )
     const sent = (await requests()).slice(before)
     assert(
       sent.length === 1 && sent[0].itemFingerprints?.includes(await requestFingerprint(escapedDescription)) && !sent[0].retryFeedbackIncluded,
@@ -186,7 +192,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     await vscode.commands.executeCommand("vscode.executeHoverProvider", escapeProbe.document.uri, new vscode.Position(0, 3))
     assert((await requests()).length === before + 1, "Translated settings hover did not reuse its validated cache.")
     assert(escapeProbe.document.getText() === '{"note": true, "punctuation": true}' && !escapeProbe.document.isDirty, "Settings hover changed the source document.")
-    checks.push("native JSON schema hover escapes 17 punctuation characters while ordinary prose reaches HTTP decoded, completes once and reuses the cache")
+    checks.push("native JSON schema hover escapes 17 punctuation characters while prose and backticks reach HTTP decoded, mixed backticks complete once and reuse the cache")
     console.log(checks.at(-1))
   } finally {
     await jsonConfig.update("schemas", previousSchemas, vscode.ConfigurationTarget.Global)

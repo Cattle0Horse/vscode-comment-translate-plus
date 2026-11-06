@@ -12,7 +12,9 @@ test("prose punctuation is decoded before translation while an unchanged reply r
   for (const [source, expected] of [
     ["Read the museum guide\\.", "Read the museum guide."],
     ["Choose sub\\-panels \\(map or hours\\)\\.", "Choose sub-panels (map or hours)."],
-    ['Panel options: \\{"Map": true, "Hours": false\\}\\.', 'Panel options: {"Map": true, "Hours": false}.']
+    ['Panel options: \\{"Map": true, "Hours": false\\}\\.', 'Panel options: {"Map": true, "Hours": false}.'],
+    ["Set the view to \\`compact\\`\\.", "Set the view to `compact`."],
+    ["The literal \\` introduces a label\\.", "The literal ` introduces a label."]
   ])
     for (const format of ["markdown", "text"] as const) {
       const unit = { id: "description", start: 0, end: source.length, text: source, format }
@@ -26,12 +28,69 @@ test("prose punctuation is decoded before translation while an unchanged reply r
 })
 
 test("decoding prose escapes cannot create links, list markers or a thematic break", () => {
-  for (const source of ["Read [map]\\(guide\\).", "\\- Read the map.", "1\\. Read the map.", "1\\) Read the map.", "\\-\\-\\-"]) {
+  for (const source of [
+    "Read [map]\\(guide\\).",
+    "\\- Read the map.",
+    "1\\. Read the map.",
+    "1\\) Read the map.",
+    "\\-\\-\\-",
+    "Read \\`[map](https://example.com)\\`.",
+    "Read \\`<b>map</b>\\`.",
+    "\\`\\`\\`text"
+  ]) {
     const unit = { id: "structure", start: 0, end: source.length, text: source, format: "markdown" as const }
     const prepared = prepareTranslation(unit, 32)
     assert.equal(prepared.text, source)
     assert.equal(prepared.restore(prepared.text), source)
   }
+})
+
+test("escaped prose backticks follow optional inline code without accepting damaged document structure", () => {
+  const source = "Choose \\`compact\\` for the visitor map\\."
+  for (const format of ["markdown", "text"] as const) {
+    const unit = { id: "backticks", start: 0, end: source.length, text: source, format }
+    const prepared = prepareTranslation(unit, 32)
+    for (const output of ["为游客地图选择 `compact`。", "为游客地图选择 compact。", "为游客地图选择 `\\`compact\\`。", "为游客地图选择 \\compact`。"])
+      assert.equal(validateTranslation(unit, prepared.restore(output)), undefined)
+    for (const output of ["## 为游客地图选择 compact。", "为游客地图选择 compact。\n\n新增段落。", "为游客地图选择 <b>compact</b>。"]) assert.ok(validateTranslation(unit, output))
+  }
+})
+
+test("escaped settings backticks complete through HTTP and cache mixed backtick representations", async (t) => {
+  for (const source of ["Choose \\`compact\\` for the visitor map\\.", "Choose `compact` for the visitor map."])
+    for (const output of ["为游客地图选择 `\\`compact\\`。", "为游客地图选择 \\compact`。"])
+      await t.test("source=" + source + " output=" + output, async (t) => {
+        const fixture = await chatFixture(t, () => output)
+        const parsed = parseMarkdown(source)
+        const input = inputOf(parsed)
+        const store = new TranslationStore()
+        t.after(() => store.clear())
+        const translate = () =>
+          store.translate(
+            "settings-backticks",
+            input,
+            (request, signal) => requestTranslation(fixture.service, fixture.settings, request, signal, fixture.gate),
+            new AbortController().signal
+          )
+        assert.equal(translatedMarkdown(parsed, await translate()), output)
+        assert.equal(translatedMarkdown(parsed, await translate()), output)
+        assert.equal(parsed.source, source)
+        assert.equal(fixture.seen.length, 1)
+        assert.deepEqual(fixture.seen[0].items, ["Choose `compact` for the visitor map."])
+      })
+})
+
+test("settings prose sends decoded backticks in both the initial HTTP request and recovery", async (t) => {
+  const source = "Choose \\`compact\\` for the visitor map\\."
+  const expected = "Choose `compact` for the visitor map."
+  const output = "为游客地图选择 `compact`。"
+  const fixture = await chatFixture(t, (_body, _items, call) => (call === 1 ? output + "\n\n额外说明。" : output))
+  const result = await requestTranslation(fixture.service, fixture.settings, inputOf(parseMarkdown(source)), new AbortController().signal, fixture.gate)
+  assert.deepEqual(
+    fixture.seen.map((request) => request.items),
+    [[expected], [expected]]
+  )
+  assert.equal(result[0].text, output)
 })
 
 test("Markdown code, link destinations, literal backslashes and source-language escapes keep their owned spelling", () => {
