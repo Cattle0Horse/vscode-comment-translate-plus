@@ -7,6 +7,8 @@ import { parseYaml } from "../documents/yaml.ts"
 import type { ParsedDocument, TextUnit } from "../model/document.ts"
 import { prepareSelection } from "../documents/selection.ts"
 import { CodeTokenizer } from "../documents/tokenization.ts"
+import { sourceTokens } from "../documents/tokenization.ts"
+import { identifierUnit } from "../documents/identifiers.ts"
 import { ParseFailure } from "../model/diagnostics.ts"
 import { maskGitConflictMarkers } from "../documents/git-conflicts.ts"
 
@@ -174,6 +176,21 @@ export class DocumentReader implements vscode.Disposable {
     const start = document.offsetAt(range.start)
     const end = document.offsetAt(range.end)
     return prepareSelection(document.getText(), start, end, isMarkdownDocument(document) ? "markdown" : "text", document.languageId)
+  }
+
+  async identifier(document: vscode.TextDocument, offset: number): Promise<TextUnit | undefined> {
+    if (!this.supports(document) || isMarkdownDocument(document) || isYamlDocument(document)) return
+    const version = document.version
+    await this.parse(document, true)
+    const tokenizer = this.tokenized.get(document.uri.toString())?.get("root:" + this.grammar.languageId(document.languageId))
+    if (!tokenizer) return
+    const source = document.getText()
+    const checkCurrent = () => {
+      if (document.isClosed || document.version !== version) throw Error("document-stale")
+    }
+    const lines = await tokenizer.tokenize(source, document.languageId, checkCurrent)
+    checkCurrent()
+    return identifierUnit(source, offset, document.languageId, sourceTokens(source, lines))
   }
 
   invalidate(uri: vscode.Uri, options?: { readonly retainTokenization: boolean }): Promise<ParsedDocument | undefined> | undefined {

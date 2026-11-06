@@ -11,6 +11,10 @@ interface PendingHover {
   target?: string
 }
 
+function hoverMarkdown(item: vscode.MarkdownString | vscode.MarkedString): string {
+  return typeof item === "string" ? item : "language" in item ? new vscode.MarkdownString().appendCodeblock(item.value, item.language).value : item.value
+}
+
 export class TranslationHover implements vscode.Disposable, vscode.HoverProvider {
   private readonly guards = new Set<string>()
   private readonly pending = new Map<string, Set<PendingHover>>()
@@ -59,6 +63,7 @@ export class TranslationHover implements vscode.Disposable, vscode.HoverProvider
       } else {
         unit = await this.documents.target(document, offset)
         if (unit?.kind && !config.get<boolean>("hover." + (unit.kind === "comment" ? "comments" : "strings"), unit.kind === "comment")) unit = undefined
+        if (!unit && config.get<boolean>("hover.identifiers", false)) unit = await this.documents.identifier(document, offset)
       }
       controller.signal.throwIfAborted()
       if (token.isCancellationRequested || document.isClosed || document.version !== version) return
@@ -68,8 +73,33 @@ export class TranslationHover implements vscode.Disposable, vscode.HoverProvider
       request.target = version + ":" + document.offsetAt(target.start) + ":" + document.offsetAt(target.end)
       // Native hover restarts as the mouse crosses characters; only a different text target cancels its translation.
       for (const other of active) if (other !== request && other.target !== undefined && other.target !== request.target) other.controller.abort("hover-target-changed")
+      let others: vscode.Hover[] | undefined
+      if (unit?.kind === "identifier" || config.get<boolean>("hover.documentation", true)) {
+        this.guards.add(key)
+        try {
+          others = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", document.uri, position)
+        } finally {
+          this.guards.delete(key)
+        }
+      }
+      if (unit?.kind === "identifier") {
+        const reference = [...(unit.reference ?? [])]
+        let remaining = 4096
+        for (const hover of others ?? []) {
+          for (const item of hover.contents) {
+            const markdown = hoverMarkdown(item)
+            if (!markdown || markdown.includes("[注释翻译+]")) continue
+            if (markdown.length > remaining) continue
+            reference.push({ kind: "Documentation", text: markdown })
+            remaining -= markdown.length
+          }
+        }
+        unit = { ...unit, reference }
+      }
+      controller.signal.throwIfAborted()
+      if (token.isCancellationRequested || document.isClosed || document.version !== version) return
       if (unit) {
-        const identity = await replacementIdentity(document.uri, this.translations)
+        const identity = unit.kind === "identifier" ? undefined : await replacementIdentity(document.uri, this.translations)
         controller.signal.throwIfAborted()
         if (document.isClosed || document.version !== version) return
         let translated: TranslationValue | undefined
@@ -85,12 +115,13 @@ export class TranslationHover implements vscode.Disposable, vscode.HoverProvider
           const content = new vscode.MarkdownString()
           content.appendCodeblock(
             typeof translated === "string" ? translationDisplayText(translated, unit.format, unit) : translated.text,
-            typeof translated === "string" ? (unit.language ?? document.languageId) : "text"
+            typeof translated === "string" && unit.kind !== "identifier" ? (unit.language ?? document.languageId) : "text"
           )
           contents.push(content)
           range = new vscode.Range(document.positionAt(unit.start), document.positionAt(unit.end))
           header = new vscode.MarkdownString("[注释翻译+]", true)
-          if (typeof translated === "string" && (document.isUntitled || vscode.workspace.fs.isWritableFileSystem(document.uri.scheme) === true)) {
+          if (unit.kind === "identifier") header.appendText(" " + unit.text)
+          if (identity && typeof translated === "string" && (document.isUntitled || vscode.workspace.fs.isWritableFileSystem(document.uri.scheme) === true)) {
             const replacement: SourceReplacement = { uri, version, start: unit.start, end: unit.end, source: unit.text, text: translated, identity }
             // VS Code decodes command queries again before parsing JSON; protect literal percent escapes in all snapshot fields.
             const args = encodeURIComponent(JSON.stringify([replacement]).replaceAll("%", "\\u0025"))
@@ -102,18 +133,11 @@ export class TranslationHover implements vscode.Disposable, vscode.HoverProvider
         }
       }
       if (config.get<boolean>("hover.documentation", true)) {
-        this.guards.add(key)
-        let others: vscode.Hover[] | undefined
-        try {
-          others = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", document.uri, position)
-        } finally {
-          this.guards.delete(key)
-        }
         for (const hover of others ?? []) {
           const group: vscode.MarkdownString[] = []
           let changed = false
           for (const item of hover.contents) {
-            const markdown = typeof item === "string" ? item : "language" in item ? new vscode.MarkdownString().appendCodeblock(item.value, item.language).value : item.value
+            const markdown = hoverMarkdown(item)
             if (!markdown || markdown.includes("[注释翻译+]")) continue
             const translated = await this.translateMarkdown(document, markdown, controller.signal)
             changed ||= translated !== markdown

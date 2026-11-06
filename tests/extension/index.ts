@@ -6,6 +6,7 @@ import type { HostCaseResult } from "./cases.ts"
 import { runGitGraph } from "./gitGraph.ts"
 import { runStaged } from "./staged.ts"
 import { runMerge } from "./merge.ts"
+import { runIdentifiers } from "./identifiers.ts"
 import { runFeatures } from "./features.ts"
 import { runEditReuse } from "./edits.ts"
 import { runCommentParagraphs } from "./comments.ts"
@@ -50,7 +51,7 @@ export async function run(): Promise<void> {
   const uri = vscode.Uri.joinPath(workspace, "browse-probe.md")
   await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(source))
   const document = await vscode.workspace.openTextDocument(uri)
-  const editor = await vscode.window.showTextDocument(document, { viewColumn: vscode.ViewColumn.One, preserveFocus: false, preview: false })
+  let editor = await vscode.window.showTextDocument(document, { viewColumn: vscode.ViewColumn.One, preserveFocus: false, preview: false })
   const extension = vscode.extensions.getExtension<Application>("cattle-horse.vscode-comment-translate-plus")
   assert(extension, "Extension not found.")
   await waitFor(() => extension.isActive, "Markdown activation")
@@ -75,6 +76,8 @@ export async function run(): Promise<void> {
   }
   try {
     for (const [key, value] of Object.entries(settings)) await config.update(key, value, vscode.ConfigurationTarget.Global)
+    checks.push(...(await runIdentifiers(workspace, controller, test.origin)))
+    editor = await vscode.window.showTextDocument(document, { viewColumn: vscode.ViewColumn.One, preserveFocus: false, preview: false })
     checks.push(...(await runBackgroundRules(workspace, controller, test.origin)))
     await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
     await waitFor(() => controller.browse.inspect(uri)?.status === "ready" && controller.browse.inspect(uri)?.units.length === 2, "initial HTTP translation")

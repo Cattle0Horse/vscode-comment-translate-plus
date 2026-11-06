@@ -68,6 +68,7 @@ function promptValues(request: TranslationRequest, separator: string): Readonly<
     separator,
     itemCount: String(items.length),
     isBatch: items.length > 1 ? "true" : "",
+    isIdentifier: items.length > 0 && items.every((item) => item.kind === "identifier") ? "true" : "",
     contentType: [...new Set(items.map((item) => item.kind ?? item.format))].join(", ")
   }
 }

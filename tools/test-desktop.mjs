@@ -95,6 +95,10 @@ function dropLastProtection(text) {
 
 const translatedText = (text) =>
   text
+    .replace(/^get User Profile$/u, "获取用户资料")
+    .replace(/^get user profile$/u, "获取用户资料")
+    .replace(/^get User Record$/u, "获取用户记录")
+    .replace(/^HTTP Response$/u, "HTTP 响应")
     .replace("Read /gallery/final-candidate.md before entering.", "进入前阅读画廊指南。")
     .replace("Gallery choice <pick from the list>.", "画廊选项<列表中的一个>。")
     .replace(/^Codex:$/u, "Codex：")

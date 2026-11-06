@@ -1,4 +1,5 @@
 import { translationBody } from "./body.ts"
+import { identifierWords } from "./identifiers.ts"
 import { restoreProjection } from "./projection.ts"
 import type { ProtectedFragment, TextUnit } from "../model/document.ts"
 import type { PreserveTerms } from "../model/translation.ts"
@@ -113,6 +114,18 @@ export function prepareTranslation(
   if (unit.projection) {
     const prepared = prepareTranslation(unit.projection.unit, minimumMarkerCharacters, context)
     return { ...prepared, restore: (text, normalized) => restoreProjection(unit, prepared.restore(text, normalized)) }
+  }
+  if (unit.kind === "identifier") {
+    const words = identifierWords(unit.text)
+    const prepared = prepareTranslation({ ...unit, text: words, kind: undefined }, minimumMarkerCharacters, context)
+    return {
+      ...prepared,
+      source: unit.text,
+      restore: (text, normalized) => {
+        const restored = prepared.restore(text, normalized)
+        return restored === words ? unit.text : restored
+      }
+    }
   }
   const { original, source, start, end, ranges: protectedRanges, echoedPrefix } = translationBody(unit)
   const escapes =

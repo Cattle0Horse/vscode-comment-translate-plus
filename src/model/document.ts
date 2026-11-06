@@ -8,7 +8,7 @@ export interface TextUnit {
   readonly yamlKey?: boolean
   readonly display?: { readonly start: number; readonly end: number }
   readonly protected?: readonly { readonly start: number; readonly end: number }[]
-  readonly kind?: "comment" | "string"
+  readonly kind?: "comment" | "string" | "identifier"
   /** TextMate-owned line-comment delimiter; continuation layout stays local. */
   readonly commentPrefix?: string
   readonly reference?: readonly ReferenceBlock[]
