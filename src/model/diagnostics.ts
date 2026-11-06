@@ -10,6 +10,7 @@ const cancellationDescriptions = {
   "user-cancelled": "用户取消",
   "document-changed": "源文已变化",
   "document-closed": "源文件已关闭",
+  "editor-unsupported": "当前编辑器不支持翻译",
   "browse-stopped": "注释浏览已关闭",
   "configuration-changed": "翻译配置已变化",
   retranslation: "重新翻译替代旧请求",

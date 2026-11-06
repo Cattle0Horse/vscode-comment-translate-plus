@@ -42,7 +42,8 @@ export class MarkdownPreview implements vscode.FileSystemProvider, vscode.Dispos
   }
 
   async open(document = vscode.window.activeTextEditor?.document): Promise<void> {
-    if (!document || this.documents.isOwnOutput(document) || !isMarkdownDocument(document) || document.uri.scheme === scheme) {
+    if (document && this.documents.isExcluded(document)) return
+    if (!document || !isMarkdownDocument(document) || document.uri.scheme === scheme) {
       void vscode.window.showWarningMessage("翻译预览支持 Markdown 和指令文件。")
       return
     }
@@ -73,6 +74,10 @@ export class MarkdownPreview implements vscode.FileSystemProvider, vscode.Dispos
     try {
       const document = await vscode.workspace.openTextDocument(view.source)
       controller.signal.throwIfAborted()
+      if (this.documents.isExcluded(document)) {
+        this.cancel(document.uri, "editor-unsupported", "当前编辑器不支持翻译。")
+        return
+      }
       const version = document.version
       const parsed = await this.documents.parse(document)
       controller.signal.throwIfAborted()

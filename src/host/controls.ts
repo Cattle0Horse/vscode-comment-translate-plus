@@ -46,7 +46,9 @@ export class Controls implements vscode.Disposable {
     command("retranslateBlock", () => this.browse.retranslateBlock())
     command("retranslatePreview", (value) => this.preview.retranslate(value))
     command("retry", () => {
-      const uri = vscode.window.activeTextEditor?.document.uri
+      const document = vscode.window.activeTextEditor?.document
+      if (document && this.documents.isExcluded(document)) return
+      const uri = document?.uri
       if (uri) {
         this.browse.restart(uri)
         this.preview.update(uri)
@@ -93,6 +95,7 @@ export class Controls implements vscode.Disposable {
     const progress = this.translations.progress(document?.uri)
     const supported = !!document && this.documents.supports(document)
     void vscode.commands.executeCommand("setContext", "commentTranslatePlus.supported", supported)
+    void vscode.commands.executeCommand("setContext", "commentTranslatePlus.excluded", !!document && this.documents.isExcluded(document))
     void vscode.commands.executeCommand("setContext", "commentTranslatePlus.markdown", supported && isMarkdownDocument(document!))
     const browsing = snapshot?.scope === "document"
     void vscode.commands.executeCommand("setContext", "commentTranslatePlus.browse", browsing)
@@ -159,21 +162,25 @@ export class Controls implements vscode.Disposable {
   }
 
   private async actions(): Promise<void> {
-    const snapshot = vscode.window.activeTextEditor ? this.browse.inspect(vscode.window.activeTextEditor.document.uri) : undefined
-    const items = [
-      { label: "切换当前文档注释浏览模式", command: "toggleDocumentBrowseMode" },
-      { label: "翻译全文", command: "translateAll" },
-      { label: "重新翻译当前块", command: "retranslateBlock" }
-    ]
+    const document = vscode.window.activeTextEditor?.document
+    const excluded = !!document && this.documents.isExcluded(document)
+    const snapshot = document && !excluded ? this.browse.inspect(document.uri) : undefined
+    const items = excluded
+      ? []
+      : [
+          { label: "切换当前文档注释浏览模式", command: "toggleDocumentBrowseMode" },
+          { label: "翻译全文", command: "translateAll" },
+          { label: "重新翻译当前块", command: "retranslateBlock" }
+        ]
     if (snapshot || this.background.isRunning || this.translations.isWorking)
       items.push({
         label: !this.background.isRunning && snapshot?.status === "cancelled" ? "继续翻译" : "取消进行中的翻译",
         command: "cancel"
       })
     if (snapshot) items.push({ label: "重新翻译当前文件", command: "retranslate" }, { label: "重试失败批次", command: "retry" })
+    items.push({ label: "后台翻译所有文件", command: "translateWorkspace" })
+    if (!excluded) items.push({ label: "翻译并替换", command: "translateAndReplace" })
     items.push(
-      { label: "后台翻译所有文件", command: "translateWorkspace" },
-      { label: "翻译并替换", command: "translateAndReplace" },
       { label: "添加保留词", command: "addPreserveTerm" },
       { label: "源语言与目标语言", command: "setLanguages" },
       { label: "选择翻译配置", command: "selectProfile" },
@@ -183,7 +190,7 @@ export class Controls implements vscode.Disposable {
       { label: "添加当前文件到自动翻译排除规则", command: "addCurrentFileToAutoExclude" },
       { label: "添加当前文件到自动翻译包含规则", command: "addCurrentFileToAutoInclude" }
     )
-    if (vscode.window.activeTextEditor && isMarkdownDocument(vscode.window.activeTextEditor.document)) items.push({ label: "打开 Markdown 翻译预览", command: "preview" })
+    if (document && !excluded && isMarkdownDocument(document)) items.push({ label: "打开 Markdown 翻译预览", command: "preview" })
     items.push(
       { label: "查看缓存使用情况", command: "showCacheUsage" },
       { label: "清空持久化缓存", command: "clearPersistentCache" },

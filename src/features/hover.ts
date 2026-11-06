@@ -26,7 +26,7 @@ export class TranslationHover implements vscode.Disposable, vscode.HoverProvider
   }
 
   async provideHover(document: vscode.TextDocument, position: vscode.Position, token: vscode.CancellationToken): Promise<vscode.Hover | undefined> {
-    if (this.documents.isOwnOutput(document)) return
+    if (this.documents.isExcluded(document)) return
     // Hover can be retriggered by editor layout changes while typing.
     // Do not bypass the shared edit debounce for browse/preview documents.
     if (this.editing(document.uri)) return

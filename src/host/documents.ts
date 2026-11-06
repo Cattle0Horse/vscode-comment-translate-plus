@@ -28,7 +28,27 @@ export class DocumentReader implements vscode.Disposable {
   }
 
   supports(document: vscode.TextDocument): boolean {
-    return !this.isOwnOutput(document) && (isMarkdownDocument(document) || isYamlDocument(document) || this.grammar.supports(document.languageId))
+    return !this.isExcluded(document) && (isMarkdownDocument(document) || isYamlDocument(document) || this.grammar.supports(document.languageId))
+  }
+
+  isExcluded(document: vscode.TextDocument): boolean {
+    if (this.isOwnOutput(document)) return true
+    const uri = document.uri.toString()
+    // Merge panes are embedded editors. Their tab is not a stable text/diff
+    // input; do not depend on the proposed TabInputTextMerge API or URI schemes.
+    return vscode.window.visibleTextEditors.some((editor) => {
+      if (editor.document !== document) return false
+      const groups = vscode.window.tabGroups.all
+      if (editor.viewColumn !== undefined) {
+        const tab = groups.find((group) => group.viewColumn === editor.viewColumn)?.activeTab
+        return !!tab && !(tab.input instanceof vscode.TabInputText) && !(tab.input instanceof vscode.TabInputTextDiff)
+      }
+      const diff = groups.some((group) => {
+        const input = group.activeTab?.input
+        return input instanceof vscode.TabInputTextDiff && (input.original.toString() === uri || input.modified.toString() === uri)
+      })
+      return !diff && groups.some(({ activeTab }) => activeTab && !(activeTab.input instanceof vscode.TabInputText) && !(activeTab.input instanceof vscode.TabInputTextDiff))
+    })
   }
 
   isOwnOutput(document: vscode.TextDocument): boolean {
@@ -96,7 +116,7 @@ export class DocumentReader implements vscode.Disposable {
   }
 
   async parse(document: vscode.TextDocument, allCode = false, options?: { readonly cache: boolean; readonly signal: AbortSignal }): Promise<ParsedDocument> {
-    if (this.isOwnOutput(document)) return { source: document.getText(), groups: [], errors: [] }
+    if (this.isExcluded(document)) return { source: document.getText(), groups: [], errors: [] }
     let parsed: ParsedDocument
     if (options?.cache === false) {
       const version = document.version

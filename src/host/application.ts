@@ -10,6 +10,7 @@ import type { ParsedDocument } from "../model/document.ts"
 import type { SourceEdit } from "../documents/edits.ts"
 import { requestPolicyConfigurationKeys } from "../translation/settings.ts"
 import { TranslationFailure } from "../model/diagnostics.ts"
+import type { CancellationReason } from "../model/diagnostics.ts"
 import { addPreserveTerm } from "./addPreserveTerm.ts"
 import { BackgroundWorkspace } from "../features/background.ts"
 
@@ -56,6 +57,7 @@ export class Application implements vscode.Disposable {
     this.preview = new MarkdownPreview(this.documents, this.translations, (document) => this.retranslate(document))
     this.controls = new Controls(this.documents, this.translations, this.browse, this.background, this.hover, this.preview, this.replacement, () => this.retranslate())
     const refresh = () => {
+      for (const document of vscode.workspace.textDocuments) if (this.documents.isExcluded(document)) this.exclude(document, "editor-unsupported")
       this.translations.refreshPriorities()
       this.browse.refreshVisible()
       this.browse.render()
@@ -146,7 +148,7 @@ export class Application implements vscode.Disposable {
   }
 
   async retranslate(document = vscode.window.activeTextEditor?.document): Promise<void> {
-    if (!document) return
+    if (!document || this.documents.isExcluded(document)) return
     const pending = this.timers.get(document.uri.toString())
     if (pending) pending.retain = false
     const parsed = await this.documents.parse(document)
@@ -158,6 +160,13 @@ export class Application implements vscode.Disposable {
     await vscode.commands.executeCommand("editor.action.hideHover")
   }
 
+  private exclude(document: vscode.TextDocument, reason: CancellationReason): void {
+    this.background.cancelDocument(document.uri, reason)
+    this.browse.stop(document.uri, false, reason)
+    this.preview.cancel(document.uri, reason, "当前文档不参与翻译。")
+    this.documents.invalidate(document.uri)
+  }
+
   private async reconfigure(event: vscode.ConfigurationChangeEvent): Promise<void> {
     if (this.disposed) return
     if (["persistentCache", "persistentCacheMaxEntries", "persistentCacheMaxSizeMB"].some((key) => event.affectsConfiguration("commentTranslatePlus." + key)))
@@ -167,13 +176,9 @@ export class Application implements vscode.Disposable {
     if (event.affectsConfiguration("commentTranslatePlus.logFile")) {
       for (const document of vscode.workspace.textDocuments) {
         if (!this.documents.isOwnOutput(document)) continue
-        this.background.cancelDocument(document.uri, "configuration-changed")
-        this.browse.stop(document.uri, false, "configuration-changed")
+        this.exclude(document, "configuration-changed")
         this.browse.forget(document.uri)
-        this.hover.cancel(document.uri, "configuration-changed")
-        this.replacement.cancel(document.uri, "configuration-changed")
         this.preview.close(document.uri)
-        this.documents.invalidate(document.uri)
       }
     }
     if (event.affectsConfiguration("commentTranslatePlus.browse")) this.documents.clear()
@@ -220,6 +225,7 @@ export class Application implements vscode.Disposable {
     this.documents.dispose()
     await this.translations.dispose()
     void vscode.commands.executeCommand("setContext", "commentTranslatePlus.supported", false)
+    void vscode.commands.executeCommand("setContext", "commentTranslatePlus.excluded", false)
     void vscode.commands.executeCommand("setContext", "commentTranslatePlus.browse", false)
   }
 }

@@ -62,7 +62,7 @@ export class BrowseWorkspace implements vscode.Disposable {
 
   async retranslateBlock(): Promise<boolean> {
     const editor = vscode.window.activeTextEditor
-    if (!editor) return false
+    if (!editor || this.documents.isExcluded(editor.document)) return false
     if (editor.selections.length !== 1) {
       void vscode.window.showWarningMessage("重新翻译当前块仅支持一个选区或光标，请先取消多光标。")
       return false
@@ -94,6 +94,7 @@ export class BrowseWorkspace implements vscode.Disposable {
 
   async start(document = vscode.window.activeTextEditor?.document, manual = true, scope: BrowseSnapshot["scope"] = "document"): Promise<void> {
     if (!document || this.disposed) return
+    if (this.documents.isExcluded(document)) return
     if (!this.documents.supports(document)) {
       await vscode.window.showWarningMessage("当前文件没有可用的 Markdown 或 TextMate 语法。")
       return
@@ -109,7 +110,7 @@ export class BrowseWorkspace implements vscode.Disposable {
     this.starting.set(id, start)
     try {
       await this.translations.settings(document.uri)
-      if (this.disposed || document.isClosed || this.starting.get(id) !== start) return
+      if (this.disposed || this.documents.isExcluded(document) || document.isClosed || this.starting.get(id) !== start) return
       const session = new BrowseSession(
         (batch, signal, force, completed, interests) => this.translations.translate(document, batch, signal, force, completed, undefined, interests),
         () => this.render(),
@@ -175,9 +176,9 @@ export class BrowseWorkspace implements vscode.Disposable {
     for (const editor of vscode.window.visibleTextEditors)
       if (
         this.documents.supports(editor.document) &&
-        !this.overrides.has(editor.document.uri.toString()) &&
+        this.overrides.get(editor.document.uri.toString()) !== false &&
         !this.sessions.has(editor.document.uri.toString()) &&
-        automatic(editor.document)
+        (this.overrides.get(editor.document.uri.toString()) === true || automatic(editor.document))
       )
         void this.start(editor.document, false)
   }

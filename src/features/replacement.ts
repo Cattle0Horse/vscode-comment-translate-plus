@@ -36,7 +36,7 @@ export class SourceReplacementAction implements vscode.Disposable {
 
   async translateAndReplace(): Promise<boolean> {
     const editor = vscode.window.activeTextEditor
-    if (!editor || this.documents.isOwnOutput(editor.document)) return false
+    if (!editor || this.documents.isExcluded(editor.document)) return false
     const document = editor.document
     if (!document.isUntitled && vscode.workspace.fs.isWritableFileSystem(document.uri.scheme) !== true) {
       void vscode.window.showWarningMessage("当前文件只读，无法替换。")
@@ -115,6 +115,7 @@ export class SourceReplacementAction implements vscode.Disposable {
       void vscode.window.showWarningMessage("目标文件已关闭或不再可见，请打开该文件后重新翻译或悬停。")
       return false
     }
+    if (this.documents.isExcluded(document)) return false
     if (document.version !== version) {
       void vscode.window.showWarningMessage("获取译文后文档已被编辑，请重新翻译或悬停后替换。")
       return false
@@ -145,7 +146,7 @@ export class SourceReplacementAction implements vscode.Disposable {
         const original = document.getText()
         assertYamlStructure(original, original.slice(0, start) + text + original.slice(end))
       }
-      if (document.isClosed || document.version !== version || document.getText(range) !== source) return false
+      if (this.documents.isExcluded(document) || document.isClosed || document.version !== version || document.getText(range) !== source) return false
       if (text === source) return true
       const applied = await editor.edit((edit) => edit.replace(range, text), { undoStopBefore: true, undoStopAfter: true })
       if (!applied) void vscode.window.showWarningMessage("编辑器未接受替换，原文已保留。")

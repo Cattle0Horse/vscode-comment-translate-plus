@@ -89,12 +89,14 @@
         "command": "commentTranslatePlus.toggleDocumentBrowseMode",
         "title": "切换当前文档注释浏览模式",
         "category": "Comment Translate Plus",
+        "enablement": "commentTranslatePlus.supported",
         "icon": "$(eye-closed)"
       },
       {
         "command": "commentTranslatePlus.toggleDocumentBrowseMode.active",
         "title": "切换当前文档注释浏览模式",
         "category": "Comment Translate Plus",
+        "enablement": "commentTranslatePlus.supported",
         "icon": "$(eye)"
       },
       {
@@ -119,18 +121,21 @@
         "command": "commentTranslatePlus.retranslate",
         "title": "重新翻译当前文件",
         "category": "Comment Translate Plus",
+        "enablement": "commentTranslatePlus.supported",
         "icon": "$(refresh)"
       },
       {
         "command": "commentTranslatePlus.retranslateBlock",
         "title": "重新翻译当前块",
         "category": "Comment Translate Plus",
+        "enablement": "commentTranslatePlus.supported",
         "icon": "$(refresh)"
       },
       {
         "command": "commentTranslatePlus.retry",
         "title": "重试当前文件失败批次",
         "category": "Comment Translate Plus",
+        "enablement": "commentTranslatePlus.supported",
         "icon": "$(debug-restart)"
       },
       {
@@ -195,12 +200,14 @@
         "command": "commentTranslatePlus.preview",
         "title": "打开 Markdown 翻译预览",
         "category": "Comment Translate Plus",
+        "enablement": "commentTranslatePlus.markdown",
         "icon": "$(open-preview)"
       },
       {
         "command": "commentTranslatePlus.translateAndReplace",
         "title": "翻译并替换",
-        "category": "Comment Translate Plus"
+        "category": "Comment Translate Plus",
+        "enablement": "!commentTranslatePlus.excluded"
       },
       {
         "command": "commentTranslatePlus.retranslatePreview",
