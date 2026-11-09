@@ -41,7 +41,7 @@ async function waitFor(check: () => boolean, label: string): Promise<void> {
 
 export async function runHostCases(workspace: vscode.Uri, controller: Application, requestCount: () => Promise<number>): Promise<HostCaseResult[]> {
   const config = vscode.workspace.getConfiguration("commentTranslatePlus")
-  await config.update("maxItemsPerRequest", 20, vscode.ConfigurationTarget.Global)
+  await config.update("request.maxItems", 20, vscode.ConfigurationTarget.Global)
   const cases = JSON.parse(new TextDecoder().decode(await vscode.workspace.fs.readFile(vscode.Uri.joinPath(workspace, "host-cases.json")))) as HostCase[]
   const evidence: HostCaseResult[] = []
   for (const item of cases) {
@@ -53,7 +53,7 @@ export async function runHostCases(workspace: vscode.Uri, controller: Applicatio
     const editor = await vscode.window.showTextDocument(document, { viewColumn: vscode.ViewColumn.One, preserveFocus: false, preview: false })
     await waitFor(() => vscode.window.activeTextEditor?.document === document, item.id + " focus")
     const before = await requestCount()
-    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
     const targets = (await controller.documents.parse(document)).groups.flatMap((group) => group.units)
     const visitAll = async (): Promise<void> => {
       for (const unit of targets) {
@@ -131,15 +131,15 @@ export async function runHostCases(workspace: vscode.Uri, controller: Applicatio
     if (item.eol === "crlf") assert(document.eol === vscode.EndOfLine.CRLF && original.includes("\r\n"), item.id + ": lost CRLF coverage")
     const translatedRequests = await requestCount()
     if (item.units === 0) assert(translatedRequests === before, item.id + ": nontranslatable input reached the service")
-    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
-    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
+    await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
     await visitAll()
     await waitFor(() => {
       const current = controller.browse.inspect(uri)
       return current?.pending === 0 && current.status === snapshot.status && (item.units === 0 || current.units.length > 0)
     }, item.id + " cache restore")
     assert((await requestCount()) === translatedRequests, item.id + ": toggling requested cached content again")
-    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
     await vscode.commands.executeCommand("workbench.action.closeActiveEditor")
     evidence.push({ id: item.id, file: item.file, units: snapshot.units.length, errors: snapshot.errors, requests: translatedRequests - before, sourceUnchanged: true, cacheReused: true })
   }

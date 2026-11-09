@@ -30,7 +30,7 @@ export class TranslationRuntime implements vscode.Disposable {
   private readonly service = new TranslationService()
   private readonly output = vscode.window.createOutputChannel("注释翻译+")
   private readonly fileLog = new FileLog(() => {
-    const message = "无法写入日志文件，已停止向该文件写入；输出面板仍可使用。请检查路径及权限，修改 logFile 后重试。"
+    const message = "无法写入日志文件，已停止向该文件写入；输出面板仍可使用。请检查路径及权限，修改 logging.file 后重试。"
     this.output.appendLine("[" + new Date().toISOString() + "] [ERROR] " + message)
     if (!this.disposed) void vscode.window.showWarningMessage(message)
   })
@@ -70,9 +70,9 @@ export class TranslationRuntime implements vscode.Disposable {
   configureCache(): Promise<void> {
     if (this.disposed) return Promise.resolve()
     const config = vscode.workspace.getConfiguration("commentTranslatePlus")
-    const enabled = config.get<unknown>("persistentCache", false)
-    const maxEntries = config.get<unknown>("persistentCacheMaxEntries", 100000)
-    const maxSize = config.get<unknown>("persistentCacheMaxSizeMB", 20)
+    const enabled = config.get<unknown>("cache.disk.enabled", false)
+    const maxEntries = config.get<unknown>("cache.disk.maxEntries", 100000)
+    const maxSize = config.get<unknown>("cache.disk.maxSizeMB", 20)
     if (
       typeof enabled !== "boolean" ||
       typeof maxEntries !== "number" ||
@@ -106,7 +106,7 @@ export class TranslationRuntime implements vscode.Disposable {
     const uri = vscode.window.activeTextEditor?.document.uri
     const config = vscode.workspace.getConfiguration("commentTranslatePlus", uri)
     const target = vscode.workspace.workspaceFolders?.length ? vscode.ConfigurationTarget.Workspace : vscode.ConfigurationTarget.Global
-    await config.update("persistentCache", !config.get<boolean>("persistentCache", false), target)
+    await config.update("cache.disk.enabled", !config.get<boolean>("cache.disk.enabled", false), target)
     await this.configureCache()
   }
 
@@ -186,15 +186,15 @@ export class TranslationRuntime implements vscode.Disposable {
     if (this.disposed) throw Error("extension-disposed")
     if (!usePreserveTerms) return getTranslationSettings(uri, emptyPreserveTerms)
     while (!this.disposed) {
-      const before = JSON.stringify(vscode.workspace.getConfiguration("commentTranslatePlus", uri).inspect("preserveTerms"))
+      const before = JSON.stringify(vscode.workspace.getConfiguration("commentTranslatePlus", uri).inspect("terms.sources"))
       let terms: PreserveTerms
       try {
         terms = await this.terms.get(uri)
       } catch (error) {
-        if (!this.disposed && before !== JSON.stringify(vscode.workspace.getConfiguration("commentTranslatePlus", uri).inspect("preserveTerms"))) continue
+        if (!this.disposed && before !== JSON.stringify(vscode.workspace.getConfiguration("commentTranslatePlus", uri).inspect("terms.sources"))) continue
         throw error
       }
-      if (before !== JSON.stringify(vscode.workspace.getConfiguration("commentTranslatePlus", uri).inspect("preserveTerms"))) continue
+      if (before !== JSON.stringify(vscode.workspace.getConfiguration("commentTranslatePlus", uri).inspect("terms.sources"))) continue
       if (this.disposed) break
       return getTranslationSettings(uri, terms)
     }
@@ -374,13 +374,13 @@ export class TranslationRuntime implements vscode.Disposable {
     if (this.disposed) return
     const config = vscode.workspace.getConfiguration("commentTranslatePlus")
     try {
-      this.log.configure(config.get<unknown>("logLevel", "info"), config.get<unknown>("logDetails", false))
+      this.log.configure(config.get<unknown>("logging.level", "info"), config.get<unknown>("logging.details", false))
     } catch {
       this.logDiagnostic("error", "logLevel 必须是 info、warning 或 error，logDetails 必须为布尔值。")
     }
-    const value = config.get<unknown>("logFile", "")
+    const value = config.get<unknown>("logging.file", "")
     if (typeof value !== "string" || value.includes("\0")) {
-      this.logDiagnostic("error", "logFile 必须是有效的本地文件路径字符串，留空关闭文件日志。")
+      this.logDiagnostic("error", "logging.file 必须是有效的本地文件路径字符串，留空关闭文件日志。")
       return
     }
     try {
@@ -393,7 +393,7 @@ export class TranslationRuntime implements vscode.Disposable {
       }
       this.fileLog.configure(path)
     } catch {
-      this.logDiagnostic("error", "logFile 路径无效，请使用本地绝对路径、~/、工作区相对路径或 file URI。继续使用上次有效路径。")
+      this.logDiagnostic("error", "logging.file 路径无效，请使用本地绝对路径、~/、工作区相对路径或 file URI。继续使用上次有效路径。")
     }
   }
 

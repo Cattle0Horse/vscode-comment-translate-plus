@@ -11,11 +11,11 @@ function assert(value: unknown, message: string): asserts value {
 export async function runFileLogging(workspace: vscode.Uri, owner: Application, origin: string): Promise<string[]> {
   const config = vscode.workspace.getConfiguration("commentTranslatePlus")
   const settings = {
-    profiles: [{ id: "file-log", name: "File logging", provider: "openai", apiUrl: origin + "/v1/chat/completions", model: "local-test", apiKey: "mock-test" }],
-    activeProfile: "file-log",
-    logLevel: "error",
-    logDetails: false,
-    logFile: "diagnostics/agent.jsonl"
+    "service.profiles": [{ id: "file-log", name: "File logging", provider: "openai", apiUrl: origin + "/v1/chat/completions", model: "local-test", apiKey: "mock-test" }],
+    "service.activeProfile": "file-log",
+    "logging.level": "error",
+    "logging.details": false,
+    "logging.file": "diagnostics/agent.jsonl"
   }
   const previous = Object.fromEntries(Object.keys(settings).map((key) => [key, config.inspect(key)?.globalValue]))
 
@@ -39,7 +39,7 @@ export async function runFileLogging(workspace: vscode.Uri, owner: Application, 
     }
   }
 
-  const first = vscode.Uri.joinPath(workspace, settings.logFile)
+  const first = vscode.Uri.joinPath(workspace, settings["logging.file"])
   const second = vscode.Uri.joinPath(workspace, "diagnostics/second.md")
 
   async function untilRecord(path: string, kind: string): Promise<Record<string, any>[]> {
@@ -80,7 +80,7 @@ export async function runFileLogging(workspace: vscode.Uri, owner: Application, 
       "Agent log lost response or source identity."
     )
     assert(!(await readFile(first.fsPath, "utf8")).includes("mock-test"), "Agent log leaked the profile credential.")
-    await update("logFile", second.fsPath)
+    await update("logging.file", second.fsPath)
     await owner.translations.translate(document, input, new AbortController().signal, true)
     const switched = await untilRecord(second.fsPath, "finish")
     assert(
@@ -92,12 +92,12 @@ export async function runFileLogging(workspace: vscode.Uri, owner: Application, 
     const hovers = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", second, new vscode.Position(0, 1))
     assert(!hovers.length, "Agent log created a translation hover.")
     const fileUri = vscode.Uri.joinPath(workspace, "diagnostics/URI 日志 #1%.jsonl")
-    await update("logFile", fileUri.toString())
+    await update("logging.file", fileUri.toString())
     owner.translations.diagnose(Error("service-timeout"))
     const fileUriRecords = await untilRecord(fileUri.fsPath, "diagnostic")
     assert(fileUriRecords.some((record) => record.code === "service-timeout") && owner.translations.isLogFile(fileUri), "File URI logging resolved to a different destination.")
     const saved = await readFile(fileUri.fsPath, "utf8")
-    await update("logFile", "")
+    await update("logging.file", "")
     owner.translations.diagnose(Error("service-timeout"))
     assert((await readFile(fileUri.fsPath, "utf8")) === saved, "Disabling file logging appended new evidence.")
     return [
@@ -107,7 +107,7 @@ export async function runFileLogging(workspace: vscode.Uri, owner: Application, 
       "disabling logFile stops future file output"
     ]
   } finally {
-    await update("logFile", previous.logFile)
-    for (const [key, value] of Object.entries(previous)) if (key !== "logFile") await update(key, value)
+    await update("logging.file", previous["logging.file"])
+    for (const [key, value] of Object.entries(previous)) if (key !== "logging.file") await update(key, value)
   }
 }

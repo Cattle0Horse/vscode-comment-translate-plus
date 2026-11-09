@@ -40,8 +40,8 @@ export async function runIdentifiers(workspace: vscode.Uri, owner: Application, 
       "hover.documentation": false,
       "hover.comments": false,
       "hover.strings": false,
-      includeContext: true,
-      maxContextCharacters: 2000,
+      "request.includeContext": true,
+      "request.maxContextCharacters": 2000,
       "auto.enabled": false
     }))
       await config.update(key, value, vscode.ConfigurationTarget.Global)
@@ -64,7 +64,7 @@ export async function runIdentifiers(workspace: vscode.Uri, owner: Application, 
     )
     const translated = values(await hover())
     assert.ok(translated.includes("获取用户资料") && translated.includes("Read the original document."), "Name translation lost its meaning or native documentation.")
-    assert.ok(!translated.includes("command:commentTranslatePlus.replaceHover"), "Name translation exposed source replacement.")
+    assert.ok(!translated.includes("command:commentTranslatePlus.replacement.applyHover"), "Name translation exposed source replacement.")
     const sent = (await requests()).slice(before)
     assert.equal(sent.length, 2)
     const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("get User Profile"))

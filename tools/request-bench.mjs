@@ -25,7 +25,7 @@ const settings = {
   languageNames: defaultLanguageNames,
   preserveTerms: emptyPreserveTerms,
   skipSameLanguage: false,
-  minimumMarkerCharacters: manifest.contributes.configuration.properties["commentTranslatePlus.minimumMarkerCharacters"].default,
+  minimumMarkerCharacters: manifest.contributes.configuration.properties["commentTranslatePlus.translation.minimumMarkerCharacters"].default,
   maxItemsPerRequest: 20,
   maxRequestCharacters: 12000,
   maxContextCharacters: 2000,

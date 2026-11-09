@@ -16,7 +16,7 @@ import { localServiceFromEnvironment } from "./local-service.mjs"
 import manifest from "../package.json" with { type: "json" }
 
 const languageCodes = new Map(
-  Object.entries(manifest.contributes.configuration.properties["commentTranslatePlus.profiles"].items.properties.languageNames.default).map(([code, name]) => [name, code])
+  Object.entries(manifest.contributes.configuration.properties["commentTranslatePlus.service.profiles"].items.properties.languageNames.default).map(([code, name]) => [name, code])
 )
 
 const flags = new Set(process.argv.slice(2))
@@ -397,12 +397,12 @@ await writeFile(
       local?.settings ??
       (ui || interactive
         ? {
-            profiles: [{ id: "test", name: "模拟服务", provider: "openai", apiUrl: origin + "/v1/chat/completions", model: "mock-ui" }],
-            activeProfile: "test",
-            sourceLanguage: "en",
-            targetLanguage: "zh-CN",
-            logDetails: true,
-            maxRequestsPerSecond: 100
+            "service.profiles": [{ id: "test", name: "模拟服务", provider: "openai", apiUrl: origin + "/v1/chat/completions", model: "mock-ui" }],
+            "service.activeProfile": "test",
+            "language.source": "en",
+            "language.target": "zh-CN",
+            "logging.details": true,
+            "request.maxPerSecond": 100
           }
         : undefined)
   })
@@ -535,7 +535,7 @@ try {
           bundleHash,
           diagnostic: report?.status === "failed" ? report.diagnostic : "host-run-failed",
           checks: [],
-          ...(local ? { service: { apiUrl: local.settings.profiles[0].apiUrl, model: local.settings.profiles[0].model } } : {}),
+          ...(local ? { service: { apiUrl: local.settings["service.profiles"][0].apiUrl, model: local.settings["service.profiles"][0].model } } : {}),
           liveTranslationVerified: false,
           visualLayoutVerified: false,
           testedExtensionRoot: extensionRoot

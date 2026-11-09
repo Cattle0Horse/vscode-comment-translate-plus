@@ -39,7 +39,7 @@ export async function runCommentParagraphs(workspace: vscode.Uri, owner: Applica
     await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(source))
     const document = await vscode.workspace.openTextDocument(uri)
     const editor = await vscode.window.showTextDocument(document, { preview: false })
-    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
     await waitFor(() => owner.browse.inspect(uri)?.status === "ready" && owner.browse.inspect(uri)?.units.length === 3, "conflict browse")
     const units = owner.browse.inspect(uri)!.units
     assert(
@@ -113,7 +113,7 @@ export async function runCommentParagraphs(workspace: vscode.Uri, owner: Applica
       await waitFor(() => document.getText() === source && owner.browse.inspect(uri)?.units.length === 2, language + " edit undo")
       assert((await records()).length === beforeHover, "Undo before debounce requested a comment paragraph again: " + language)
       editor.selection = new vscode.Selection(1, prefix.length + 4, 1, prefix.length + 4)
-      assert(await vscode.commands.executeCommand<boolean>("commentTranslatePlus.translateAndReplace"), "Continuation-line comment replacement failed: " + language)
+      assert(await vscode.commands.executeCommand<boolean>("commentTranslatePlus.replacement.translate"), "Continuation-line comment replacement failed: " + language)
       assert(
         document.getText() === source.slice(0, units[0].start) + first.translation + source.slice(units[0].end),
         "Comment replacement changed code or a neighbouring paragraph: " + language
@@ -169,7 +169,7 @@ export async function runCommentParagraphs(workspace: vscode.Uri, owner: Applica
     assert(lenses?.some((lens) => lens.range.start.line === 3) && !lenses.some((lens) => lens.range.start.line === 4), "Block translation row was placed after its closing delimiter.")
     assert(document.getText() === source && !document.isDirty, "Block comment browsing modified source.")
     editor.selection = new vscode.Selection(2, 5, 2, 5)
-    assert(await vscode.commands.executeCommand<boolean>("commentTranslatePlus.translateAndReplace"), "Block comment continuation replacement failed.")
+    assert(await vscode.commands.executeCommand<boolean>("commentTranslatePlus.replacement.translate"), "Block comment continuation replacement failed.")
     assert(document.getText() === source.slice(0, unit.start) + first.translation + source.slice(unit.end), "Block comment replacement changed its closing delimiter or surrounding code.")
     await vscode.commands.executeCommand("undo")
     await waitFor(() => document.getText() === source, "block comment replacement undoes exactly")

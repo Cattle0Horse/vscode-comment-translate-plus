@@ -2,7 +2,7 @@ import type { ProviderSettings, TranslationRequest } from "./protocol.ts"
 import { ModelRetry } from "../../model/diagnostics.ts"
 import manifest from "../../../package.json" with { type: "json" }
 
-const defaults = manifest.contributes.configuration.properties["commentTranslatePlus.profiles"].items.properties
+const defaults = manifest.contributes.configuration.properties["commentTranslatePlus.service.profiles"].items.properties
 
 export const defaultLanguageNames: Readonly<Record<string, string>> = defaults.languageNames.default
 

@@ -1,5 +1,5 @@
 import * as vscode from "vscode"
-import { automatic, displayMode } from "../../host/configuration.ts"
+import { automatic, displayMode, browseTranslationScope } from "../../host/configuration.ts"
 import type { DocumentReader } from "../../host/documents.ts"
 import type { TranslationRuntime } from "../../host/translations.ts"
 import type { CancellationReason } from "../../model/diagnostics.ts"
@@ -46,14 +46,6 @@ export class BrowseWorkspace implements vscode.Disposable {
 
   cancel(uri: vscode.Uri): void {
     this.sessions.get(uri.toString())?.session.cancel()
-  }
-
-  async translateAll(): Promise<void> {
-    const document = vscode.window.activeTextEditor?.document
-    if (!document) return
-    const version = document.version
-    await this.start(document)
-    if (!this.disposed && !document.isClosed && document.version === version) this.sessions.get(document.uri.toString())?.session.translateAll()
   }
 
   restart(uri: vscode.Uri, force = false): void {
@@ -115,7 +107,8 @@ export class BrowseWorkspace implements vscode.Disposable {
         (batch, signal, force, completed, interests) => this.translations.translate(document, batch, signal, force, completed, undefined, interests),
         () => this.render(),
         (error) => this.translations.diagnose(error, document.uri),
-        scope
+        scope,
+        browseTranslationScope(document.uri)
       )
       const documentSession = { document, session }
       this.sessions.set(id, documentSession)

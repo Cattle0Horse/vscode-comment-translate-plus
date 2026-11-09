@@ -9,34 +9,39 @@ import type { TranslationInput } from "../src/model/translation.ts"
 import { renderPrompt } from "../src/translation/providers/prompts.ts"
 import { embeddedMarkdown, requestTranslation, source, sessionResponse, sessionFor, waitFor, settled, modelInput, chatFixture, listBatch } from "./support/fixtures.ts"
 
-test("whole-document translation fills offscreen units and reuses completed and inflight work", async () => {
+test("document browse mode fills offscreen units in viewport order without repeating completed or inflight work", async () => {
   const parsed = parseMarkdown("First paragraph.\n\nSecond paragraph.\n\nThird paragraph.")
   const units = parsed.groups.flatMap((group) => group.units)
   const requests: { input: TranslationInput; signal: AbortSignal; finish: () => void }[] = []
   const session = new BrowseSession(
     (input, signal) => new Promise((resolve) => requests.push({ input, signal, finish: () => resolve(new Map(input.units.map((unit) => [unit.id, "译文：" + unit.text]))) })),
-    () => {}
+    () => {},
+    undefined,
+    "document",
+    "document"
   )
   try {
     session.update(parsed, 1)
-    session.setVisibleRanges([units[0]])
+    session.setVisibleRanges([units[1]])
+    session.setVisibleRanges([units[2]])
+    assert.deepEqual(
+      requests[0].input.units.map((unit) => unit.id),
+      [units[1].id, units[0].id, units[2].id]
+    )
+    assert.equal(requests.length, 1)
     requests[0].finish()
     await settled(session)
     session.setVisibleRanges([units[1]])
-    session.translateAll()
-    session.translateAll()
     assert.deepEqual(
-      requests.flatMap(({ input }) => input.units.map((unit) => unit.id)),
+      session.inspect().units.map((unit) => unit.id),
       units.map((unit) => unit.id)
     )
     assert.ok(requests.every(({ signal }) => !signal.aborted))
     session.setVisibleRanges([])
-    requests.slice(1).forEach(({ finish }) => finish())
-    await settled(session)
     assert.equal(session.inspect().units.length, 3)
     assert.equal(session.inspect().loading.length, 0)
-    session.translateAll()
-    assert.equal(requests.length, 3)
+    session.restart()
+    assert.equal(requests.length, 1)
   } finally {
     session.dispose()
   }
@@ -83,7 +88,7 @@ test("cancellation retains completed units, rejects late results and resumes onl
   }
 })
 
-test("whole-document translation respects cancellation and rejects results arriving after editing", async () => {
+test("document browse mode respects cancellation, isolates old results and persists after editing", async () => {
   const parsed = parseMarkdown("First paragraph.\n\nSecond paragraph.")
   const requests: { signal: AbortSignal; finish: () => void }[] = []
   const session = new BrowseSession(
@@ -98,16 +103,19 @@ test("whole-document translation respects cancellation and rejects results arriv
           }
         })
       ),
-    () => {}
+    () => {},
+    undefined,
+    "document",
+    "document"
   )
   try {
     session.update(parsed, 1)
-    session.translateAll()
+    session.setVisibleRanges([])
     session.cancel()
     assert.ok(requests[0].signal.aborted)
     session.setVisibleRanges([{ start: 0, end: parsed.source.length }])
     assert.equal(requests.length, 1)
-    session.translateAll()
+    session.restart()
     session.invalidate(2, [{ rangeOffset: 0, rangeLength: 1, text: "X" }])
     assert.ok(requests[1].signal.aborted)
     requests.forEach(({ finish }) => finish())
@@ -116,13 +124,16 @@ test("whole-document translation respects cancellation and rejects results arriv
     session.setVisibleRanges([])
     session.update(parsed, 2)
     session.setVisibleRanges([])
-    assert.equal(requests.length, 2, "Editing retained a whole-document request for the old version.")
+    assert.equal(requests.length, 3, "Editing lost the configured document browse mode.")
+    requests[2].finish()
+    await settled(session)
+    assert.equal(session.inspect().units.length, 2)
   } finally {
     session.dispose()
   }
 })
 
-test("whole-document command during edit debounce waits for current parsing and prioritizes the viewport", async () => {
+test("enabling document browse during edit debounce waits for current parsing and prioritizes the viewport", async () => {
   const parsed = parseMarkdown("First paragraph.\n\nSecond paragraph.\n\nThird paragraph.")
   const units = parsed.groups.flatMap((group) => group.units)
   const requested: string[] = []
@@ -133,12 +144,13 @@ test("whole-document command during edit debounce waits for current parsing and 
     },
     () => {},
     undefined,
-    "blocks"
+    "blocks",
+    "document"
   )
   try {
     session.invalidate(2, [])
     session.setVisibleRanges([units[1]])
-    session.translateAll()
+    session.enableBrowse()
     assert.equal(requested.length, 0)
     session.update(parsed, 2)
     session.setVisibleRanges([units[1]])
@@ -146,6 +158,35 @@ test("whole-document command during edit debounce waits for current parsing and 
     assert.deepEqual(requested, [units[1].id, units[0].id, units[2].id])
     assert.equal(session.inspect().scope, "document")
     assert.equal(session.inspect().units.length, 3)
+  } finally {
+    session.dispose()
+  }
+})
+
+test("document browse mode keeps explicit block translation local until browse is enabled", async () => {
+  const parsed = parseMarkdown("First paragraph.\n\nSecond paragraph.\n\nThird paragraph.")
+  const units = parsed.groups.flatMap((group) => group.units)
+  const requested: string[] = []
+  const session = new BrowseSession(
+    async (input) => {
+      requested.push(...input.units.map((unit) => unit.id))
+      return new Map(input.units.map((unit) => [unit.id, unit.text]))
+    },
+    () => {},
+    undefined,
+    "blocks",
+    "document"
+  )
+  try {
+    session.update(parsed, 1)
+    session.setVisibleRanges([units[0]])
+    assert.equal(session.retranslate(units[1]), true)
+    await settled(session)
+    session.setVisibleRanges([{ start: 0, end: parsed.source.length }])
+    assert.deepEqual(requested, [units[1].id])
+    session.enableBrowse()
+    await settled(session)
+    assert.deepEqual(requested, [units[1].id, units[0].id, units[2].id])
   } finally {
     session.dispose()
   }

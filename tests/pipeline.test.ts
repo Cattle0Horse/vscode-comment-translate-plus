@@ -210,7 +210,7 @@ test("default request scopes keep paragraph, table and fenced-string references 
   const manifest = JSON.parse(await readFile("package.json", "utf8"))
   const settings = {
     ...fixture.settings,
-    batchBySemanticScope: manifest.contributes.configuration.properties["commentTranslatePlus.batchBySemanticScope"].default
+    batchBySemanticScope: manifest.contributes.configuration.properties["commentTranslatePlus.request.batchBySemanticScope"].default
   }
   const input = inputOf(parsed)
   const result = await requestTranslation(fixture.service, settings, input, new AbortController().signal, fixture.gate)

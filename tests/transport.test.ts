@@ -74,8 +74,8 @@ function workload(t: TestContext, policy: ServiceSettings, maximum = 8, rate = 1
 
 test("partial grouped scheduling overrides take effect while omitted fields keep defaults; malformed groups and values fail before dispatch", async (t) => {
   const overrides: Record<string, unknown> = {
-    "requestScheduling.slowStart": { initialConcurrency: 2 },
-    "requestScheduling.retry": { initialDelayMs: 250, jitterRatio: 0 }
+    "request.slowStart": { initialConcurrency: 2 },
+    "request.retry": { initialDelayMs: 250, jitterRatio: 0 }
   }
   const policy = readRequestPolicy((key, fallback) => overrides[key] ?? fallback)
   const configured = settings(policy)
@@ -84,9 +84,9 @@ test("partial grouped scheduling overrides take effect while omitted fields keep
   assert.equal(w.started.length, 2)
   assert.equal(retryDelay(configured, 1), 250)
   for (const invalid of [null, [], false, { initialDelayMs: -1 }, { jitterRatio: 2 }]) {
-    assert.throws(() => readRequestPolicy((key, fallback) => (key === "requestScheduling.retry" ? invalid : fallback)))
+    assert.throws(() => readRequestPolicy((key, fallback) => (key === "request.retry" ? invalid : fallback)))
   }
-  assert.throws(() => readRequestPolicy((key, fallback) => (key === "requestScheduling.slowStart" ? { enabled: "yes" } : fallback)))
+  assert.throws(() => readRequestPolicy((key, fallback) => (key === "request.slowStart" ? { enabled: "yes" } : fallback)))
 })
 
 test("Retry-After accepts seconds and HTTP dates, rejects invalid delays, and jitter stays within the configured backoff cap", () => {

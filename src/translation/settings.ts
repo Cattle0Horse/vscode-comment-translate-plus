@@ -5,31 +5,38 @@ import manifest from "../../package.json" with { type: "json" }
 
 const configuration = manifest.contributes.configuration.properties
 
+function policySetting<K extends keyof typeof configuration>(key: K) {
+  return { ...configuration[key], configurationKey: key.slice("commentTranslatePlus.".length) }
+}
+
 export const requestPolicySchema = {
   ...transportPolicySchema,
-  minimumMarkerCharacters: configuration["commentTranslatePlus.minimumMarkerCharacters"],
-  maxItemsPerRequest: configuration["commentTranslatePlus.maxItemsPerRequest"],
-  maxRequestCharacters: configuration["commentTranslatePlus.maxRequestCharacters"],
-  maxContextCharacters: configuration["commentTranslatePlus.maxContextCharacters"],
-  includeContext: configuration["commentTranslatePlus.includeContext"],
-  adaptiveBatching: configuration["commentTranslatePlus.adaptiveBatching"],
-  batchBySemanticScope: configuration["commentTranslatePlus.batchBySemanticScope"],
-  initialItemsPerRequest: configuration["commentTranslatePlus.initialItemsPerRequest"],
-  initialRequestCharacters: configuration["commentTranslatePlus.initialRequestCharacters"],
-  batchGrowthSuccesses: configuration["commentTranslatePlus.batchGrowthSuccesses"],
-  batchGrowthItems: configuration["commentTranslatePlus.batchGrowthItems"],
-  batchGrowthFactor: configuration["commentTranslatePlus.batchGrowthFactor"],
-  batchShrinkFactor: configuration["commentTranslatePlus.batchShrinkFactor"],
-  maxTranslationAttempts: configuration["commentTranslatePlus.maxTranslationAttempts"]
+  minimumMarkerCharacters: policySetting("commentTranslatePlus.translation.minimumMarkerCharacters"),
+  maxItemsPerRequest: policySetting("commentTranslatePlus.request.maxItems"),
+  maxRequestCharacters: policySetting("commentTranslatePlus.request.maxCharacters"),
+  maxContextCharacters: policySetting("commentTranslatePlus.request.maxContextCharacters"),
+  includeContext: policySetting("commentTranslatePlus.request.includeContext"),
+  adaptiveBatching: policySetting("commentTranslatePlus.request.adaptiveBatching"),
+  batchBySemanticScope: policySetting("commentTranslatePlus.request.batchBySemanticScope"),
+  initialItemsPerRequest: policySetting("commentTranslatePlus.request.initialItems"),
+  initialRequestCharacters: policySetting("commentTranslatePlus.request.initialCharacters"),
+  batchGrowthSuccesses: policySetting("commentTranslatePlus.request.batchGrowthSuccesses"),
+  batchGrowthItems: policySetting("commentTranslatePlus.request.batchGrowthItems"),
+  batchGrowthFactor: policySetting("commentTranslatePlus.request.batchGrowthFactor"),
+  batchShrinkFactor: policySetting("commentTranslatePlus.request.batchShrinkFactor"),
+  maxTranslationAttempts: policySetting("commentTranslatePlus.request.maxAttempts")
 }
 
 type RequestPolicy = { readonly [K in keyof typeof requestPolicySchema]: (typeof requestPolicySchema)[K]["default"] }
 
-export const requestPolicyConfigurationKeys = [...transportConfigurationKeys, ...Object.keys(requestPolicySchema).filter((key) => !(key in transportPolicySchema))]
+export const requestPolicyConfigurationKeys = [
+  ...transportConfigurationKeys,
+  ...Object.values(requestPolicySchema).flatMap((schema) => ("configurationKey" in schema ? [schema.configurationKey] : []))
+]
 
 function schedulingValue(group: unknown, field: string, fallback: number | boolean): unknown {
   if (group === undefined) return fallback
-  if (!group || typeof group !== "object" || Array.isArray(group)) throw Error("requestScheduling 及其分组必须是对象。")
+  if (!group || typeof group !== "object" || Array.isArray(group)) throw Error("request 调度分组必须是对象。")
   const value = (group as Record<string, unknown>)[field]
   return value === undefined ? fallback : value
 }
@@ -41,12 +48,12 @@ function validPolicyValue(schema: (typeof requestPolicySchema)[keyof RequestPoli
 
 /** Native settings and direct service callers use the same manifest constraints. */
 export function readRequestPolicy(read: (key: string, fallback: unknown) => unknown): RequestPolicy {
-  const scheduling = Object.fromEntries(transportConfigurationKeys.map((key) => [key.slice("requestScheduling.".length), read(key, {})]))
+  const scheduling = Object.fromEntries(transportConfigurationKeys.map((key) => [key.slice("request.".length), read(key, {})]))
   return Object.fromEntries(
     Object.entries(requestPolicySchema).map(([key, schema]) => {
-      const value = "path" in schema ? schedulingValue(scheduling[schema.path[0]], schema.path[1], schema.default) : read(key, schema.default)
+      const value = "path" in schema ? schedulingValue(scheduling[schema.path[0]], schema.path[1], schema.default) : read(schema.configurationKey, schema.default)
       if (!validPolicyValue(schema, value)) {
-        const name = "path" in schema ? "requestScheduling." + schema.path.join(".") : key
+        const name = "path" in schema ? "request." + schema.path.join(".") : schema.configurationKey
         if (schema.type === "boolean") throw Error(name + " 必须是布尔值。")
         if (schema.type === "integer") throw Error(name + " 必须是设置范围内的整数。")
         throw Error(name + " 必须是设置范围内的数值。")

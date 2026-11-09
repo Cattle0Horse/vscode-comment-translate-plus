@@ -5,6 +5,7 @@ import { getProvider } from "../translation/providers/index.ts"
 import { defaultLanguageNames } from "../translation/providers/prompts.ts"
 import type { ServiceSettings } from "../translation/settings.ts"
 import type { PreserveTerms } from "../model/translation.ts"
+import type { BrowseTranslationScope } from "../features/browse/session.ts"
 
 export interface TranslationProfile {
   readonly id: string
@@ -27,8 +28,8 @@ export interface TranslationSettings extends ServiceSettings {
 }
 
 export function profiles(uri?: vscode.Uri): TranslationProfile[] {
-  const values = vscode.workspace.getConfiguration("commentTranslatePlus", uri).get<unknown>("profiles", [])
-  if (!Array.isArray(values)) throw Error("profiles 必须是翻译配置数组。")
+  const values = vscode.workspace.getConfiguration("commentTranslatePlus", uri).get<unknown>("service.profiles", [])
+  if (!Array.isArray(values)) throw Error("service.profiles 必须是翻译配置数组。")
   const ids = new Set<string>()
   return values.map((value: unknown) => {
     if (!value || typeof value !== "object") throw Error("翻译配置必须是对象。")
@@ -70,9 +71,9 @@ export function profiles(uri?: vscode.Uri): TranslationProfile[] {
 export function getTranslationSettings(uri: vscode.Uri | undefined, preserveTerms: PreserveTerms): TranslationSettings {
   const config = vscode.workspace.getConfiguration("commentTranslatePlus", uri)
   const list = profiles(uri)
-  const active = config.get<string>("activeProfile", "") || list[0]?.id
+  const active = config.get<string>("service.activeProfile", "") || list[0]?.id
   const profile = list.find((item) => item.id === active)
-  if (!profile) throw Error("请配置 commentTranslatePlus.profiles，并选择有效的 activeProfile。")
+  if (!profile) throw Error("请配置 commentTranslatePlus.service.profiles，并选择有效的 activeProfile。")
 
   function text(key: string, fallback: string): string {
     const value = config.get<unknown>(key, fallback)
@@ -86,18 +87,18 @@ export function getTranslationSettings(uri: vscode.Uri | undefined, preserveTerm
     return value
   }
 
-  const skipSameLanguage = config.get<unknown>("skipSameLanguage", true)
+  const skipSameLanguage = config.get<unknown>("language.skipSameLanguage", true)
   if (typeof skipSameLanguage !== "boolean") throw Error("skipSameLanguage 必须是布尔值。")
   const settings = {
     ...profile,
     profileId: profile.id,
-    sourceLanguage: text("sourceLanguage", "auto") || "auto",
-    targetLanguage: text("targetLanguage", "") || vscode.env.language,
+    sourceLanguage: text("language.source", "auto") || "auto",
+    targetLanguage: text("language.target", "") || vscode.env.language,
     preserveTerms,
     skipSameLanguage,
     ...readRequestPolicy((key, fallback) => config.get<unknown>(key, fallback)),
-    rate: integer("maxRequestsPerSecond", 2, 1, 100),
-    maxConcurrentRequests: integer("maxConcurrentRequests", 2, 1, 20)
+    rate: integer("request.maxPerSecond", 2, 1, 100),
+    maxConcurrentRequests: integer("request.maxConcurrent", 2, 1, 20)
   }
   try {
     validateService(settings)
@@ -119,7 +120,11 @@ export function isYamlDocument(document: vscode.TextDocument): boolean {
 }
 
 export function displayMode(uri?: vscode.Uri): "contrast" | "inplace" {
-  return vscode.workspace.getConfiguration("commentTranslatePlus", uri).get<string>("displayMode", "contrast") === "inplace" ? "inplace" : "contrast"
+  return vscode.workspace.getConfiguration("commentTranslatePlus", uri).get<string>("browse.displayMode", "contrast") === "inplace" ? "inplace" : "contrast"
+}
+
+export function browseTranslationScope(uri: vscode.Uri): BrowseTranslationScope {
+  return vscode.workspace.getConfiguration("commentTranslatePlus", uri).get<string>("browse.translationScope", "viewport") === "document" ? "document" : "viewport"
 }
 
 export function automatic(document: vscode.TextDocument): boolean {

@@ -11,6 +11,8 @@ export interface VisibleRange {
   readonly end: number
 }
 
+export type BrowseTranslationScope = "viewport" | "document"
+
 export interface TranslatedUnit extends TextUnit {
   readonly translation: TranslationValue
 }
@@ -51,20 +53,18 @@ export class BrowseSession {
   private ranges: readonly VisibleRange[] = []
   private version = 0
   private editing = false
-  private wholeDocument = false
 
   constructor(
     private readonly translate: Translate,
     private readonly changed: () => void,
     private readonly failed?: (error: unknown) => void,
-    private scope: BrowseSnapshot["scope"] = "document"
+    private scope: BrowseSnapshot["scope"] = "document",
+    private readonly translationScope: BrowseTranslationScope = "viewport"
   ) {}
 
   update(document: ParsedDocument, version: number): void {
-    const wholeDocument = this.version === version && this.wholeDocument
     const retained = this.editing && this.version === version ? new Map([...this.translations.values()].map((unit) => [unit.start + ":" + unit.end, unit])) : undefined
     this.reset(version)
-    this.wholeDocument = wholeDocument
     this.units = document.groups.flatMap((group) => group.units)
     for (const unit of this.units) {
       const before = retained?.get(unit.start + ":" + unit.end)
@@ -103,7 +103,6 @@ export class BrowseSession {
     this.stopRequests("document-changed")
     this.version = version
     this.editing = false
-    this.wholeDocument = false
     this.translations.clear()
     this.failures.clear()
     this.selected.clear()
@@ -121,7 +120,7 @@ export class BrowseSession {
       if (this.scope === "blocks" && !this.selected.has(unit.id)) continue
       if (this.translations.has(unit.id) || this.failures.has(unit.id) || pending.has(unit.id)) continue
       if (ranges.some((range) => unit.start <= range.end && unit.end >= range.start)) visible.push(unit)
-      else if (this.wholeDocument) offscreen.push(unit)
+      else if (this.scope === "document" && this.translationScope === "document") offscreen.push(unit)
     }
     this.request(visible.concat(offscreen), force)
   }
@@ -192,11 +191,6 @@ export class BrowseSession {
     this.scope = "document"
     this.selected.clear()
     this.restart()
-  }
-
-  translateAll(): void {
-    this.wholeDocument = true
-    this.enableBrowse()
   }
 
   restart(force = false): void {

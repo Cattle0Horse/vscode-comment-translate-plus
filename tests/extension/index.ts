@@ -67,19 +67,19 @@ export async function run(): Promise<void> {
 
   const config = vscode.workspace.getConfiguration("commentTranslatePlus")
   const settings = {
-    profiles: [{ id: "test", name: "HTTP test", provider: "openai", apiUrl: test.origin + "/v1/chat/completions", model: "local-test", apiKey: "mock-test" }],
-    activeProfile: "test",
-    targetLanguage: "zh-CN",
-    maxRequestsPerSecond: 100,
-    maxConcurrentRequests: 2,
-    maxItemsPerRequest: 20
+    "service.profiles": [{ id: "test", name: "HTTP test", provider: "openai", apiUrl: test.origin + "/v1/chat/completions", model: "local-test", apiKey: "mock-test" }],
+    "service.activeProfile": "test",
+    "language.target": "zh-CN",
+    "request.maxPerSecond": 100,
+    "request.maxConcurrent": 2,
+    "request.maxItems": 20
   }
   try {
     for (const [key, value] of Object.entries(settings)) await config.update(key, value, vscode.ConfigurationTarget.Global)
     checks.push(...(await runIdentifiers(workspace, controller, test.origin)))
     editor = await vscode.window.showTextDocument(document, { viewColumn: vscode.ViewColumn.One, preserveFocus: false, preview: false })
     checks.push(...(await runBackgroundRules(workspace, controller, test.origin)))
-    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
     await waitFor(() => controller.browse.inspect(uri)?.status === "ready" && controller.browse.inspect(uri)?.units.length === 2, "initial HTTP translation")
     assert(document.getText() === source && !document.isDirty, "Browse changed source.")
     assert(validatedText(controller.browse.inspect(uri)!.units[0].translation).includes("阅读原始文档"), "Wrong ID mapping.")
@@ -98,25 +98,25 @@ export async function run(): Promise<void> {
     )
     assert(beforeHover === (await requests()).length, "Browse hover unexpectedly issued another request.")
     checks.push("native CodeLens rows and source hover expose the matching translations")
-    await vscode.commands.executeCommand("commentTranslatePlus.showErrors")
+    await vscode.commands.executeCommand("commentTranslatePlus.logging.show")
     await vscode.commands.executeCommand("workbench.action.closePanel")
     checks.push("profile credentials from native settings authenticate HTTP requests")
 
     const beforeToggle = (await requests()).length
     for (let cycle = 0; cycle < 3; cycle++) {
-      await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+      await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
       assert(!controller.browse.inspect(uri), "Stopped browse remained visible.")
-      await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+      await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
       await waitFor(() => controller.browse.inspect(uri)?.status === "ready" && controller.browse.inspect(uri)?.units.length === 2, "cached browse restart")
     }
     assert((await requests()).length === beforeToggle, "Browse toggles discarded validated cache and repeated HTTP requests.")
     checks.push("repeated stop and start restore validated translations without HTTP requests")
 
-    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
     assert(await editor.edit((builder) => builder.replace(document.lineAt(0).range, "1. Edited while browse is off.")), "Disabled edit failed.")
     await new Promise((resolve) => setTimeout(resolve, 300))
     assert(!controller.browse.inspect(uri) && (await requests()).length === beforeToggle, "Disabled edits restarted translation.")
-    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
     await waitFor(() => controller.browse.inspect(uri)?.status === "ready" && controller.browse.inspect(uri)?.units.length === 2, "changed disabled content")
     assert(
       (await requests()).length === beforeToggle + 1 && controller.browse.inspect(uri)!.units[0].text.includes("Edited while browse is off"),
@@ -149,13 +149,13 @@ export async function run(): Promise<void> {
     checks.push("desktop editor invalidates edits and preserves native undo")
 
     const before = (await requests()).length
-    await vscode.commands.executeCommand("commentTranslatePlus.retranslate")
+    await vscode.commands.executeCommand("commentTranslatePlus.document.retranslate")
     await waitFor(async () => (await requests()).length > before && controller.browse.inspect(uri)?.status === "ready", "forced retranslation")
     checks.push("forced retranslation bypasses cache")
 
     await control({ broken: true })
     const beforeFailure = (await requests()).length
-    await vscode.commands.executeCommand("commentTranslatePlus.retranslate")
+    await vscode.commands.executeCommand("commentTranslatePlus.document.retranslate")
     await waitFor(() => controller.browse.inspect(uri)?.status === "error", "invalid response rejection")
     assert(controller.browse.inspect(uri)!.units.length === 0, "Invalid result was displayed.")
     const failedRequests = (await requests()).slice(beforeFailure)
@@ -165,12 +165,12 @@ export async function run(): Promise<void> {
     )
     checks.push("automatic retries send validation feedback only after a failed attempt")
     await control({ broken: false })
-    await vscode.commands.executeCommand("commentTranslatePlus.retry")
+    await vscode.commands.executeCommand("commentTranslatePlus.document.retry")
     await waitFor(() => controller.browse.inspect(uri)?.units.length === 2, "retry recovery")
     checks.push("invalid batches remain untranslated and retry recovers")
 
     await control({ damageCode: true })
-    await vscode.commands.executeCommand("commentTranslatePlus.retranslate")
+    await vscode.commands.executeCommand("commentTranslatePlus.document.retranslate")
     await waitFor(() => controller.browse.inspect(uri)?.status === "error" && controller.browse.inspect(uri)?.units.length === 1, "partial validated results")
     assert(
       validatedText(controller.browse.inspect(uri)!.units[0].translation).includes("阅读原始文档") && document.getText() === source,
@@ -178,22 +178,22 @@ export async function run(): Promise<void> {
     )
     await control({ damageCode: false })
     const beforePartialRetry = (await requests()).length
-    await vscode.commands.executeCommand("commentTranslatePlus.retry")
+    await vscode.commands.executeCommand("commentTranslatePlus.document.retry")
     await waitFor(() => controller.browse.inspect(uri)?.status === "ready" && controller.browse.inspect(uri)?.units.length === 2, "partial retry recovery")
     const repairs = (await requests()).slice(beforePartialRetry)
     assert(repairs.length === 1 && repairs[0].count === 1, "Retry retranslated a verified neighbour.")
     checks.push("partial failures preserve visible verified units and retry only unresolved content")
 
-    await config.update("targetLanguage", "ja", vscode.ConfigurationTarget.Global)
+    await config.update("language.target", "ja", vscode.ConfigurationTarget.Global)
     await waitFor(async () => (await requests()).at(-1)?.target === "ja" && controller.browse.inspect(uri)?.status === "ready", "language restart")
     checks.push("language changes isolate old translation context")
 
-    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
     const beforeDisabledConfiguration = (await requests()).length
-    await config.update("targetLanguage", "fr", vscode.ConfigurationTarget.Global)
+    await config.update("language.target", "fr", vscode.ConfigurationTarget.Global)
     await new Promise((resolve) => setTimeout(resolve, 300))
     assert(!controller.browse.inspect(uri) && (await requests()).length === beforeDisabledConfiguration, "Configuration changes reopened disabled browse.")
-    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
     await waitFor(
       async () => controller.browse.inspect(uri)?.status === "ready" && controller.browse.inspect(uri)?.units.length === 2 && (await requests()).at(-1)?.target === "fr",
       "disabled configuration isolation"
@@ -204,30 +204,30 @@ export async function run(): Promise<void> {
     const beforeItemLimit = (await requests()).length
     const itemLimitChanged = new Promise<void>((resolve) => {
       const subscription = vscode.workspace.onDidChangeConfiguration((event) => {
-        if (!event.affectsConfiguration("commentTranslatePlus.maxItemsPerRequest")) return
+        if (!event.affectsConfiguration("commentTranslatePlus.request.maxItems")) return
         subscription.dispose()
         resolve()
       })
     })
-    await config.update("maxItemsPerRequest", 1, vscode.ConfigurationTarget.Global)
+    await config.update("request.maxItems", 1, vscode.ConfigurationTarget.Global)
     await itemLimitChanged
     await waitFor(() => controller.browse.inspect(uri)?.status === "ready" && controller.browse.inspect(uri)?.units.length === 2, "item limit cache restore")
     assert((await requests()).length === beforeItemLimit, "Changing HTTP grouping discarded unit cache.")
-    await vscode.commands.executeCommand("commentTranslatePlus.retranslate")
+    await vscode.commands.executeCommand("commentTranslatePlus.document.retranslate")
     await waitFor(
       async () => controller.browse.inspect(uri)?.status === "ready" && (await requests()).length === beforeItemLimit + 2 && (await requests()).slice(-2).every((item) => item.count === 1),
       "new request item limit"
     )
     checks.push("request item limit changes actual HTTP grouping on forced translation while regrouping preserves unit cache")
 
-    await config.update("maxRequestsPerSecond", 1, vscode.ConfigurationTarget.Global)
+    await config.update("request.maxPerSecond", 1, vscode.ConfigurationTarget.Global)
     await waitFor(() => controller.browse.inspect(uri)?.status === "ready" && controller.browse.inspect(uri)?.units.length === 2, "rate setting restart")
     const limitedBefore = (await requests()).length
     const limitedStart = performance.now()
-    await vscode.commands.executeCommand("commentTranslatePlus.retranslate")
+    await vscode.commands.executeCommand("commentTranslatePlus.document.retranslate")
     await waitFor(async () => (await requests()).length >= limitedBefore + 2 && controller.browse.inspect(uri)?.status === "ready", "rate-limited requests")
     assert(performance.now() - limitedStart >= 1000, "Rate setting did not throttle actual requests.")
-    await config.update("maxRequestsPerSecond", 100, vscode.ConfigurationTarget.Global)
+    await config.update("request.maxPerSecond", 100, vscode.ConfigurationTarget.Global)
     await waitFor(() => controller.browse.inspect(uri)?.status === "ready" && controller.browse.inspect(uri)?.units.length === 2, "restored test rate")
     checks.push("rate setting throttles actual desktop requests rather than only changing metadata")
 
@@ -236,9 +236,9 @@ export async function run(): Promise<void> {
     const other = await vscode.workspace.openTextDocument(otherUri)
     await vscode.window.showTextDocument(other, { viewColumn: vscode.ViewColumn.Two, preserveFocus: false, preview: false })
     await waitFor(() => vscode.window.activeTextEditor?.document.uri.toString() === otherUri.toString(), "second document focus")
-    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
     await waitFor(() => controller.browse.inspect(otherUri)?.units.length === 2, "second document translation")
-    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
     assert(!controller.browse.inspect(otherUri) && controller.browse.inspect(uri), "Browse controls crossed documents.")
     await vscode.window.showTextDocument(document, { viewColumn: vscode.ViewColumn.One, preserveFocus: false, preview: false })
     await vscode.commands.executeCommand("workbench.action.closeEditorsInOtherGroups")
@@ -257,7 +257,7 @@ export async function run(): Promise<void> {
     const beforeScroll = (await requests()).length
     await control({ hold: true })
     try {
-      await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+      await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
       await waitFor(async () => (await requests()).length === beforeScroll + 1, "first viewport request started")
       scrollEditor.revealRange(lastRange, vscode.TextEditorRevealType.AtTop)
       await waitFor(async () => (await requests()).length === beforeScroll + 2, "last viewport request started")
@@ -271,19 +271,19 @@ export async function run(): Promise<void> {
     await waitFor(() => controller.browse.inspect(scrollUri)?.status === "ready" && controller.browse.inspect(scrollUri)?.units.length === 2, "offscreen translation completes")
     const scrollRequests = (await requests()).slice(beforeScroll)
     assert(scrollRequests.length === 2 && scrollRequests.every((request) => !request.cancelled), "Scrolling cancelled or repeated a submitted HTTP request.")
-    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
-    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
+    await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
     await waitFor(() => controller.browse.inspect(scrollUri)?.units.length === 1, "visible cached first paragraph")
     scrollEditor.revealRange(lastRange, vscode.TextEditorRevealType.AtTop)
     await waitFor(() => controller.browse.inspect(scrollUri)?.units.length === 2, "cached offscreen paragraph")
     assert((await requests()).length === beforeScroll + 2, "An offscreen result was not cached.")
     assert(scrollDocument.getText() === scrollSource && !scrollDocument.isDirty, "Scrolling translation changed source.")
-    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
     await vscode.commands.executeCommand("workbench.action.closeActiveEditor")
     await vscode.window.showTextDocument(document, { viewColumn: vscode.ViewColumn.One, preserveFocus: false, preview: false })
     checks.push("viewport scrolling keeps submitted HTTP requests alive and caches offscreen results without duplicate requests")
 
-    await config.update("targetLanguage", "zh-CN", vscode.ConfigurationTarget.Global)
+    await config.update("language.target", "zh-CN", vscode.ConfigurationTarget.Global)
     await waitFor(
       () => controller.browse.inspect(uri)?.status === "ready" && validatedText(controller.browse.inspect(uri)?.units[0]?.translation).includes("阅读原始文档") === true,
       "visible translation before cancellation"
@@ -291,12 +291,12 @@ export async function run(): Promise<void> {
     await control({ slow: true })
     const beforeCancel = (await requests()).length
     vscode.window.activeTextEditor!.selection = new vscode.Selection(1, 5, 1, 5)
-    await vscode.commands.executeCommand("commentTranslatePlus.retranslateBlock")
+    await vscode.commands.executeCommand("commentTranslatePlus.browse.retranslateBlock")
     await waitFor(async () => (await requests()).length > beforeCancel, "delayed request started")
     assert((controller.browse.inspect(uri)?.loading.length ?? 0) > 0, "An in-flight request exposed no loading units.")
     const completedBeforeCancel = controller.browse.inspect(uri)!.units
     assert(completedBeforeCancel.length === 1, "Block retranslation did not retain its completed neighbour.")
-    await vscode.commands.executeCommand("commentTranslatePlus.cancel")
+    await vscode.commands.executeCommand("commentTranslatePlus.translation.cancel")
     await new Promise((resolve) => setTimeout(resolve, 250))
     assert(
       controller.browse.inspect(uri)?.status === "cancelled" &&
@@ -314,7 +314,7 @@ export async function run(): Promise<void> {
       cancelledHovers.some((hover) => hover.contents.some((content) => typeof content !== "string" && content.value.includes(validatedText(completedBeforeCancel[0].translation)))),
       "Cancellation removed the completed source hover."
     )
-    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
     assert(!controller.browse.inspect(uri), "Stop did not release the file.")
     await config.update("hover.enabled", false, vscode.ConfigurationTarget.Global)
     const stoppedHovers = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", uri, new vscode.Position(0, 5))
@@ -335,7 +335,7 @@ export async function run(): Promise<void> {
     skill = await vscode.languages.setTextDocumentLanguage(skill, "skill")
     await vscode.window.showTextDocument(skill, { viewColumn: vscode.ViewColumn.One, preserveFocus: false, preview: false })
     await waitFor(() => vscode.window.activeTextEditor?.document.uri.toString() === skillUri.toString(), "skill focus")
-    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
     await waitFor(() => controller.browse.inspect(skillUri)?.units.length === 6, "frontmatter translation")
     assert(
       controller.browse.inspect(skillUri)!.units.some((unit) => unit.text.trim() === "Read the complete field."),
@@ -352,23 +352,23 @@ export async function run(): Promise<void> {
         JSON.stringify(fieldHovers.map((hover) => hover.contents.map((content) => (typeof content === "string" ? content : content.value))))
     )
     checks.push("multiline YAML hover keeps the targeted sentence independent from its neighbour")
-    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
     checks.push("skill files preserve complete YAML fields in the same production chain")
     checks.push(...(await runEditReuse(workspace, controller, test.origin)))
     checks.push(...(await runGitGraph(workspace, controller)))
     checks.push(...(await runStaged(workspace, controller)))
     checks.push(...(await runMerge(workspace, controller, test.origin)))
     checks.push(...(await runCommentParagraphs(workspace, controller, test.origin)))
-    const previousTerms = config.inspect<readonly string[]>("preserveTerms")?.globalValue
-    const previousSkip = config.inspect<boolean>("skipSameLanguage")?.globalValue
+    const previousTerms = config.inspect<readonly string[]>("terms.sources")?.globalValue
+    const previousSkip = config.inspect<boolean>("language.skipSameLanguage")?.globalValue
     try {
       // Corpus checks exercise HTTP alignment; preservation and language skipping have dedicated cases.
-      await config.update("preserveTerms", [], vscode.ConfigurationTarget.Global)
-      await config.update("skipSameLanguage", false, vscode.ConfigurationTarget.Global)
+      await config.update("terms.sources", [], vscode.ConfigurationTarget.Global)
+      await config.update("language.skipSameLanguage", false, vscode.ConfigurationTarget.Global)
       cases = await runHostCases(workspace, controller, async () => (await requests()).length)
     } finally {
-      await config.update("preserveTerms", previousTerms, vscode.ConfigurationTarget.Global)
-      await config.update("skipSameLanguage", previousSkip, vscode.ConfigurationTarget.Global)
+      await config.update("terms.sources", previousTerms, vscode.ConfigurationTarget.Global)
+      await config.update("language.skipSameLanguage", previousSkip, vscode.ConfigurationTarget.Global)
     }
     checks.push(...cases.map((item) => `${item.id}: host corpus preserves structure, source and cached browse`))
     checks.push(...(await runFeatures(workspace, controller, test.origin)))
@@ -376,7 +376,7 @@ export async function run(): Promise<void> {
     checks.push(...(await runPersistentCache(workspace, controller)))
     checks.push(...(await runFileLogging(workspace, controller, test.origin)))
   } finally {
-    await config.update("profiles", [], vscode.ConfigurationTarget.Global)
+    await config.update("service.profiles", [], vscode.ConfigurationTarget.Global)
   }
   const report = {
     host: "vscode-test-electron",

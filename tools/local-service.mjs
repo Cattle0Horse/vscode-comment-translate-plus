@@ -42,14 +42,14 @@ export async function localServiceProfile({ profileId, apiUrl, model, apiKey = "
   }
   return {
     settings: {
-      profiles: [{ id: profileId, name: label || url.host, provider: "openai", apiUrl: url.href, model }],
-      activeProfile: profileId,
-      sourceLanguage: "auto",
-      targetLanguage: "zh-CN",
-      maxItemsPerRequest: 20,
-      maxRequestCharacters: 12000,
-      maxRequestsPerSecond: 2,
-      maxConcurrentRequests: 1
+      "service.profiles": [{ id: profileId, name: label || url.host, provider: "openai", apiUrl: url.href, model }],
+      "service.activeProfile": profileId,
+      "language.source": "auto",
+      "language.target": "zh-CN",
+      "request.maxItems": 20,
+      "request.maxCharacters": 12000,
+      "request.maxPerSecond": 2,
+      "request.maxConcurrent": 1
     },
     apiKey
   }

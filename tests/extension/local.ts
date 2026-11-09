@@ -7,10 +7,10 @@ interface LocalTestConfiguration {
   readonly mode: string
   readonly bundleHash: string
   readonly ui?: boolean
-  readonly serviceSettings: { readonly profiles: { id: string; provider: string; apiUrl: string; model: string; apiKey?: string }[]; readonly targetLanguage: string } & Record<
-    string,
-    unknown
-  >
+  readonly serviceSettings: {
+    readonly "service.profiles": { id: string; provider: string; apiUrl: string; model: string; apiKey?: string }[]
+    readonly "language.target": string
+  } & Record<string, unknown>
 }
 
 const sample = "1. Read the original document.\n2. Keep `sourceId` unchanged."
@@ -76,11 +76,11 @@ async function inject(): Promise<void> {
   if (!response.ok) throw Error("Local credential injection failed.")
   const { apiKey } = (await response.json()) as { apiKey: string }
   await config.update(
-    "profiles",
-    test.serviceSettings.profiles.map((profile) => ({ ...profile, apiKey })),
+    "service.profiles",
+    test.serviceSettings["service.profiles"].map((profile) => ({ ...profile, apiKey })),
     vscode.ConfigurationTarget.Global
   )
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   if (test.ui) {
     const extension = vscode.extensions.getExtension("cattle-horse.vscode-comment-translate-plus")
     if (!extension) throw Error("UI setup could not find the product extension.")
@@ -123,8 +123,8 @@ export async function run(): Promise<void> {
     if (!snapshot.units.every((unit) => /\p{Script=Han}/u.test(validatedText(unit.translation)) && unit.translation !== unit.text))
       throw Error("Local service did not produce Chinese translations.")
     const config = vscode.workspace.getConfiguration("commentTranslatePlus")
-    const profile = config.get<{ model: string; apiUrl: string }[]>("profiles", [])[0]
-    if (profile?.model !== test.serviceSettings.profiles[0].model || profile.apiUrl !== test.serviceSettings.profiles[0].apiUrl)
+    const profile = config.get<{ model: string; apiUrl: string }[]>("service.profiles", [])[0]
+    if (profile?.model !== test.serviceSettings["service.profiles"][0].model || profile.apiUrl !== test.serviceSettings["service.profiles"][0].apiUrl)
       throw Error("Injected service configuration differs from the requested profile.")
     const bundleHash = await fingerprint(extension.extensionUri)
     if (bundleHash !== test.bundleHash) throw Error("Local test loaded the wrong product bundle.")
@@ -154,7 +154,7 @@ export async function run(): Promise<void> {
     await fetch(test.origin + "/report", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "failed", diagnostic }) })
     throw error
   } finally {
-    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
-    await vscode.workspace.getConfiguration("commentTranslatePlus").update("profiles", [], vscode.ConfigurationTarget.Global)
+    await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
+    await vscode.workspace.getConfiguration("commentTranslatePlus").update("service.profiles", [], vscode.ConfigurationTarget.Global)
   }
 }

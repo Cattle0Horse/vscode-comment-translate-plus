@@ -57,7 +57,7 @@ const placeholder = "{summarize_" + "catalog_".repeat(10) + "entries()}"
 const repairSource = "Read " + placeholder + "."
 const repair = prepareTranslation({ ...unit(repairSource), language: "python", kind: "string", protected: [{ start: 5, end: 5 + placeholder.length }] }, 32)
 const truncated = "阅读 " + placeholder.slice(0, -2) + "}。"
-const defaults = manifest.contributes.configuration.properties["commentTranslatePlus.profiles"].items.properties
+const defaults = manifest.contributes.configuration.properties["commentTranslatePlus.service.profiles"].items.properties
 const settings = {
   provider: "openai",
   apiUrl: "http://benchmark.invalid",

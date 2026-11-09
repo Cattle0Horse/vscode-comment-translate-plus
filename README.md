@@ -57,7 +57,7 @@
 
 打开代码、Markdown 或 YAML 文件，按 `Ctrl+Shift+P`（macOS 为 `Cmd+Shift+P`），执行：
 
-**Comment Translate Plus: 切换当前文档注释浏览模式**
+**Comment Translate Plus: 开启或关闭当前文档翻译浏览**
 
 ### 可选：名称悬停翻译
 
@@ -77,7 +77,7 @@
 
 ```json
 {
-  "commentTranslatePlus.profiles": [
+  "commentTranslatePlus.service.profiles": [
     {
       "id": "my-model",
       "name": "我的翻译模型",
@@ -89,8 +89,8 @@
     { "id": "google", "provider": "google" },
     { "id": "bing", "provider": "bing" }
   ],
-  "commentTranslatePlus.activeProfile": "my-model",
-  "commentTranslatePlus.targetLanguage": "zh-CN"
+  "commentTranslatePlus.service.activeProfile": "my-model",
+  "commentTranslatePlus.language.target": "zh-CN"
 }
 ```
 

@@ -3,8 +3,8 @@ import { appendPreserveTerm, termSource } from "../documents/termFiles.ts"
 
 /** Write to the configured target independently of the translation source list. */
 export async function writePreserveTerm(resource: vscode.Uri | undefined, term: string, home?: string): Promise<boolean> {
-  const path = vscode.workspace.getConfiguration("commentTranslatePlus", resource).get<unknown>("preserveTermsWriteFile")
-  if (typeof path !== "string" || !path.trim()) throw Error("请先配置 preserveTermsWriteFile 保留词写入文件。")
+  const path = vscode.workspace.getConfiguration("commentTranslatePlus", resource).get<unknown>("terms.writeFile")
+  if (typeof path !== "string" || !path.trim()) throw Error("请先配置 terms.writeFile 保留词写入文件。")
   const folder = resource ? vscode.workspace.getWorkspaceFolder(resource)?.uri.toString() : undefined
   const uri = vscode.Uri.parse(termSource(path, folder, home))
   if (!/\.jsonc?$/iu.test(uri.path) || /^(?:https?|untitled):/u.test(uri.toString())) throw Error("请选择可写的 JSON/JSONC 文件。")
@@ -55,7 +55,7 @@ export async function addPreserveTerm(home?: string): Promise<void> {
   if (term === undefined) return
   try {
     const config = vscode.workspace.getConfiguration("commentTranslatePlus", resource)
-    if (config.get<unknown>("preserveTermsWriteFile", "") === "") {
+    if (config.get<unknown>("terms.writeFile", "") === "") {
       const file = await vscode.window.showSaveDialog({
         title: "首次选择保留词写入文件（将记住此路径）",
         saveLabel: "设为写入词表",
@@ -68,7 +68,7 @@ export async function addPreserveTerm(home?: string): Promise<void> {
           : vscode.workspace.workspaceFolders?.length
             ? vscode.ConfigurationTarget.Workspace
             : vscode.ConfigurationTarget.Global
-      await config.update("preserveTermsWriteFile", file.toString(), target)
+      await config.update("terms.writeFile", file.toString(), target)
     }
     const added = await writePreserveTerm(resource, term, home)
     void vscode.window.showInformationMessage((added ? "已添加保留词：" : "保留词已存在：") + JSON.stringify(term))

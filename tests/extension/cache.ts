@@ -90,26 +90,26 @@ export async function runPersistentCache(workspace: vscode.Uri, owner: Applicati
   }
 
   const config = vscode.workspace.getConfiguration("commentTranslatePlus")
-  const original = config.inspect<boolean>("persistentCache")?.globalValue
+  const original = config.inspect<boolean>("cache.disk.enabled")?.globalValue
   const uri = vscode.Uri.joinPath(workspace, "persistent-settings.md")
   await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode("Read the original document. Persistence settings probe."))
   const document = await vscode.workspace.openTextDocument(uri)
   const units = { units: parseMarkdown(document.getText()).groups.flatMap((group) => group.units) }
   try {
-    await config.update("persistentCache", true, vscode.ConfigurationTarget.Global)
+    await config.update("cache.disk.enabled", true, vscode.ConfigurationTarget.Global)
     await owner.translations.configureCache()
     const result = await owner.translations.translate(document, units, signal())
-    assert(await vscode.commands.executeCommand<boolean>("commentTranslatePlus.clearPersistentCache"), "The registered clear command failed while enabled.")
+    assert(await vscode.commands.executeCommand<boolean>("commentTranslatePlus.cache.clearDisk"), "The registered clear command failed while enabled.")
     const afterClear = await owner.translations.translate(document, units, signal())
     assert(JSON.stringify([...result]) === JSON.stringify([...afterClear]), "Clearing disk persistence discarded current memory results.")
-    await config.update("persistentCache", false, vscode.ConfigurationTarget.Global)
+    await config.update("cache.disk.enabled", false, vscode.ConfigurationTarget.Global)
     await owner.translations.configureCache()
-    assert(await vscode.commands.executeCommand<boolean>("commentTranslatePlus.clearPersistentCache"), "The registered clear command failed while disabled.")
+    assert(await vscode.commands.executeCommand<boolean>("commentTranslatePlus.cache.clearDisk"), "The registered clear command failed while disabled.")
     const recovered = await owner.translations.translate(document, units, signal())
     assert(JSON.stringify([...result]) === JSON.stringify([...recovered]), "Disabling disk persistence discarded current memory results.")
     assert(document.getText().startsWith("Read the original document.") && !document.isDirty, "Cache configuration edited the source.")
   } finally {
-    await config.update("persistentCache", original, vscode.ConfigurationTarget.Global)
+    await config.update("cache.disk.enabled", original, vscode.ConfigurationTarget.Global)
     await owner.translations.configureCache()
   }
   return [

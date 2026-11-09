@@ -43,8 +43,8 @@ export class TermFiles implements vscode.Disposable {
   ) {
     this.configureRefresh()
     this.configuration = vscode.workspace.onDidChangeConfiguration((event) => {
-      if (event.affectsConfiguration("commentTranslatePlus.preserveTermsRefreshSeconds")) this.configureRefresh()
-      if (event.affectsConfiguration("commentTranslatePlus.preserveTerms")) {
+      if (event.affectsConfiguration("commentTranslatePlus.terms.refreshSeconds")) this.configureRefresh()
+      if (event.affectsConfiguration("commentTranslatePlus.terms.sources")) {
         for (const entry of this.entries.values()) this.release(entry)
         this.entries.clear()
       }
@@ -54,9 +54,9 @@ export class TermFiles implements vscode.Disposable {
   private configureRefresh(): void {
     clearInterval(this.timer)
     this.timer = undefined
-    const seconds = vscode.workspace.getConfiguration("commentTranslatePlus").get<unknown>("preserveTermsRefreshSeconds", 900)
+    const seconds = vscode.workspace.getConfiguration("commentTranslatePlus").get<unknown>("terms.refreshSeconds", 900)
     if (typeof seconds !== "number" || !Number.isInteger(seconds) || seconds < 0 || seconds > 86400) {
-      void vscode.window.showWarningMessage("preserveTermsRefreshSeconds 必须是 0–86400 的整数；当前已停用定时刷新，可手动刷新保留词。")
+      void vscode.window.showWarningMessage("terms.refreshSeconds 必须是 0–86400 的整数；当前已停用定时刷新，可手动刷新保留词。")
       return
     }
     if (seconds)
@@ -67,13 +67,13 @@ export class TermFiles implements vscode.Disposable {
 
   async get(uri?: vscode.Uri): Promise<PreserveTerms> {
     const config = vscode.workspace.getConfiguration("commentTranslatePlus", uri)
-    const values = config.get<unknown>("preserveTerms")
-    if (!Array.isArray(values) || values.some((value) => typeof value !== "string" || !value.trim())) throw Error("preserveTerms 必须是 JSON/JSONC 文件路径或 HTTPS 地址的数组。")
-    if (values.length > 32) throw Error("preserveTerms 最多支持 32 个文件来源。")
+    const values = config.get<unknown>("terms.sources")
+    if (!Array.isArray(values) || values.some((value) => typeof value !== "string" || !value.trim())) throw Error("terms.sources 必须是 JSON/JSONC 文件路径或 HTTPS 地址的数组。")
+    if (values.length > 32) throw Error("terms.sources 最多支持 32 个文件来源。")
     const folder = uri ? vscode.workspace.getWorkspaceFolder(uri)?.uri.toString() : undefined
     const sources = [...new Set(values.map((value: string) => termSource(value, folder, this.home)))].sort()
     // An unset setting uses the extension's bundled list; [] explicitly disables preservation.
-    const configured = config.inspect<readonly string[]>("preserveTerms")
+    const configured = config.inspect<readonly string[]>("terms.sources")
     if (configured && configured.globalValue === undefined && configured.workspaceValue === undefined && configured.workspaceFolderValue === undefined)
       sources.push(vscode.Uri.joinPath(this.context.extensionUri, "resources/preserve-terms.json").toString())
     const key = JSON.stringify(sources)

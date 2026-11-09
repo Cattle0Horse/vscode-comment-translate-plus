@@ -8,16 +8,16 @@ function assert(value: unknown, message: string): asserts value {
 export async function runBackgroundRules(workspace: vscode.Uri, owner: Application, origin: string): Promise<string[]> {
   const config = vscode.workspace.getConfiguration("commentTranslatePlus", workspace)
   const settings = {
-    profiles: [{ id: "background-rules", provider: "openai", apiUrl: origin + "/public/v1/chat/completions", model: "background-rules", apiKey: "" }],
-    activeProfile: "background-rules",
-    targetLanguage: "zh-CN",
+    "service.profiles": [{ id: "background-rules", provider: "openai", apiUrl: origin + "/public/v1/chat/completions", model: "background-rules", apiKey: "" }],
+    "service.activeProfile": "background-rules",
+    "language.target": "zh-CN",
     "auto.enabled": false,
     "auto.include": ["background-scope/**/*.md", "background-scope/readme.md", "background-scope/nested/**"],
     "auto.exclude": ["**/blocked.md"],
-    persistentCache: false,
-    preserveTerms: [],
-    skipSameLanguage: false,
-    maxRequestsPerSecond: 100
+    "cache.disk.enabled": false,
+    "terms.sources": [],
+    "language.skipSameLanguage": false,
+    "request.maxPerSecond": 100
   }
   const target = (key: string) => (key === "auto.include" || key === "auto.exclude" ? vscode.ConfigurationTarget.WorkspaceFolder : vscode.ConfigurationTarget.Global)
   const previous = Object.fromEntries(
@@ -50,7 +50,7 @@ export async function runBackgroundRules(workspace: vscode.Uri, owner: Applicati
     for (const [key, value] of Object.entries(settings)) await config.update(key, value, target(key))
     await control({ hold: true })
     const heldBefore = (await requests()).length
-    const pending = vscode.commands.executeCommand("commentTranslatePlus.translateWorkspace")
+    const pending = vscode.commands.executeCommand("commentTranslatePlus.workspace.translate")
     try {
       const deadline = Date.now() + 10000
       while ((await requests()).length === heldBefore) {
@@ -59,14 +59,14 @@ export async function runBackgroundRules(workspace: vscode.Uri, owner: Applicati
       }
       const visited = sources.slice(0, 2).filter(([file]) => opened.has(vscode.Uri.joinPath(workspace, file).toString()))
       assert(visited.length === 1, "Background pre-parsed later files before the first translation completed.")
-      await vscode.commands.executeCommand("commentTranslatePlus.cancel")
+      await vscode.commands.executeCommand("commentTranslatePlus.translation.cancel")
     } finally {
       await control({ hold: false })
       await pending
     }
     assert(!owner.background.isRunning, "The shared cancel command left background work running.")
     const before = (await requests()).length
-    await vscode.commands.executeCommand("commentTranslatePlus.translateWorkspace")
+    await vscode.commands.executeCommand("commentTranslatePlus.workspace.translate")
     const sent = (await requests()).slice(before)
     assert(
       sent.reduce((count, item) => count + item.count, 0) === 2,
@@ -83,7 +83,7 @@ export async function runBackgroundRules(workspace: vscode.Uri, owner: Applicati
     await config.update("auto.include", [], vscode.ConfigurationTarget.WorkspaceFolder)
     opened.clear()
     const after = (await requests()).length
-    await vscode.commands.executeCommand("commentTranslatePlus.translateWorkspace")
+    await vscode.commands.executeCommand("commentTranslatePlus.workspace.translate")
     assert((await requests()).length === after && opened.size === 0, "Empty includes still opened or translated workspace files.")
   } finally {
     await control({ hold: false })

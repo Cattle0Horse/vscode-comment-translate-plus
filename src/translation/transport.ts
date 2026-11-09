@@ -3,9 +3,9 @@ import manifest from "../../package.json" with { type: "json" }
 
 const configuration = manifest.contributes.configuration.properties
 const scheduling = {
-  slowStart: configuration["commentTranslatePlus.requestScheduling.slowStart"],
-  retry: configuration["commentTranslatePlus.requestScheduling.retry"],
-  recovery: configuration["commentTranslatePlus.requestScheduling.recovery"]
+  slowStart: configuration["commentTranslatePlus.request.slowStart"],
+  retry: configuration["commentTranslatePlus.request.retry"],
+  recovery: configuration["commentTranslatePlus.request.recovery"]
 }
 
 export const transportPolicySchema = {
@@ -30,7 +30,7 @@ export const transportPolicySchema = {
   networkFailureThreshold: { ...scheduling.recovery.properties.networkFailureThreshold, path: ["recovery", "networkFailureThreshold"] as const }
 }
 
-export const transportConfigurationKeys = [...new Set(Object.values(transportPolicySchema).map((schema) => "requestScheduling." + schema.path[0]))]
+export const transportConfigurationKeys = [...new Set(Object.values(transportPolicySchema).map((schema) => "request." + schema.path[0]))]
 
 export function requestScope(settings: ServiceSettings): string {
   return JSON.stringify([settings.provider, settings.apiUrl, settings.apiKey])

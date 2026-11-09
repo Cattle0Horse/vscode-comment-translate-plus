@@ -7,7 +7,7 @@ const { validateTranslation } = await import("../artifacts/core/documents/valida
 const { prepareTranslation, emptyPreserveTerms } = await import("../artifacts/core/documents/terms.mjs")
 const source = Array.from({ length: 200 }, (_, index) => `**Read field ${index}.** Keep \`sourceId\` and [guide](https://example.com/${index}).`).join("\n\n")
 const units = parseMarkdown(source).groups.flatMap((group) => group.units)
-const minimumMarkerCharacters = manifest.contributes.configuration.properties["commentTranslatePlus.minimumMarkerCharacters"].default
+const minimumMarkerCharacters = manifest.contributes.configuration.properties["commentTranslatePlus.translation.minimumMarkerCharacters"].default
 
 export default {
   id: "product.protected-content",

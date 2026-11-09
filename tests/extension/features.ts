@@ -88,7 +88,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   }
 
   async function start(document: vscode.TextDocument, count: number): Promise<void> {
-    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
     const editor = vscode.window.visibleTextEditors.find((editor) => editor.document === document)
     assert(editor, "Source editor is not visible for browsing.")
     for (const unit of (await owner.documents.parse(document)).groups.flatMap((group) => group.units)) {
@@ -104,7 +104,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   }
 
   await config.update(
-    "profiles",
+    "service.profiles",
     [
       { id: "test", name: "OpenAI A", provider: "openai", apiUrl: origin + "/v1/chat/completions", model: "model-a", apiKey: "mock-test" },
       {
@@ -133,10 +133,10 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     ],
     vscode.ConfigurationTarget.Global
   )
-  await config.update("activeProfile", "test", vscode.ConfigurationTarget.Global)
+  await config.update("service.activeProfile", "test", vscode.ConfigurationTarget.Global)
   await config.update("hover.documentation", false, vscode.ConfigurationTarget.Global)
   await config.update("hover.strings", true, vscode.ConfigurationTarget.Global)
-  await config.update("maxRequestsPerSecond", 100, vscode.ConfigurationTarget.Global)
+  await config.update("request.maxPerSecond", 100, vscode.ConfigurationTarget.Global)
 
   const jsonConfig = vscode.workspace.getConfiguration("json")
   const previousSchemas = jsonConfig.inspect<unknown[]>("schemas")?.globalValue
@@ -205,22 +205,64 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   const whole = await open("whole-document.md", "markdown", wholeSource)
   const wholeUnits = (await owner.documents.parse(whole.document)).groups.flatMap((group) => group.units)
   assert(!whole.editor.visibleRanges.some((range) => range.contains(whole.document.positionAt(wholeUnits.at(-1)!.start))), "Whole-document fixture must extend beyond the viewport.")
-  await vscode.commands.executeCommand("commentTranslatePlus.translateAll")
+  assert(config.get("browse.translationScope") === "viewport", "Browse must follow the viewport by default.")
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
+  await waitFor(() => owner.browse.inspect(whole.document.uri)?.status === "ready", "viewport browse ready")
+  const initialUnits = owner.browse.inspect(whole.document.uri)!.units
+  assert(initialUnits.length > 0 && initialUnits.length < wholeUnits.length, "Viewport mode translated the entire document.")
+  assert(
+    initialUnits.every((unit) => whole.editor.visibleRanges.some((range) => range.contains(whole.document.positionAt(unit.start)))),
+    "Viewport mode submitted content outside the visible range."
+  )
+  const lastWhole = whole.document.positionAt(wholeUnits.at(-1)!.start)
+  whole.editor.revealRange(new vscode.Range(lastWhole, lastWhole), vscode.TextEditorRevealType.AtTop)
+  await waitFor(
+    () => owner.browse.inspect(whole.document.uri)?.status === "ready" && !!owner.browse.inspect(whole.document.uri)?.units.some((unit) => unit.id === wholeUnits.at(-1)!.id),
+    "viewport mode follows scrolling"
+  )
+  assert(owner.browse.inspect(whole.document.uri)!.units.length < wholeUnits.length, "Following the viewport translated unvisited paragraphs.")
+  checks.push("default viewport browse translates visible content, follows scrolling and leaves unvisited paragraphs untouched")
+  console.log(checks.at(-1))
+
+  const wholeConfig = vscode.workspace.getConfiguration("commentTranslatePlus", whole.document.uri)
+  const previousFolderMode = wholeConfig.inspect<string>("browse.translationScope")?.workspaceFolderValue
+  await wholeConfig.update("browse.translationScope", "document", vscode.ConfigurationTarget.WorkspaceFolder)
   await waitFor(
     () => owner.browse.inspect(whole.document.uri)?.status === "ready" && owner.browse.inspect(whole.document.uri)?.units.length === wholeUnits.length,
     "whole-document translation without scrolling"
   )
   assert(whole.document.getText() === wholeSource && !whole.document.isDirty, "Whole-document translation changed source.")
+  const editedText = wholeSource.slice(0, wholeUnits[0].end) + " Updated." + wholeSource.slice(wholeUnits[0].end)
+  const edit = new vscode.WorkspaceEdit()
+  edit.insert(whole.document.uri, whole.document.positionAt(wholeUnits[0].end), " Updated.")
+  assert(await vscode.workspace.applyEdit(edit), "Could not edit the offscreen paragraph.")
+  await waitFor(
+    () =>
+      owner.browse.inspect(whole.document.uri)?.version === whole.document.version &&
+      owner.browse.inspect(whole.document.uri)?.status === "ready" &&
+      owner.browse.inspect(whole.document.uri)?.units.length === wholeUnits.length,
+    "document browse mode persists after editing offscreen content"
+  )
+  assert(whole.document.getText() === editedText, "Browse added source edits after the explicit edit.")
   const afterWhole = (await requests()).length
-  await vscode.commands.executeCommand("commentTranslatePlus.translateAll")
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   await waitFor(() => owner.browse.inspect(whole.document.uri)?.status === "ready", "cached whole-document translation")
   assert((await requests()).length === afterWhole, "Repeated whole-document translation bypassed validated cache.")
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
-  checks.push("whole-document command starts browse and completes offscreen units without scrolling, changing source or repeating validated requests")
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
+  await wholeConfig.update("browse.translationScope", previousFolderMode, vscode.ConfigurationTarget.WorkspaceFolder)
+  checks.push("resource configuration switches active browse to document mode, persists through offscreen edits and reuses validated cache after reopening")
+  console.log(checks.at(-1))
 
-  const prioritySettings = { maxConcurrentRequests: config.get<number>("maxConcurrentRequests"), maxItemsPerRequest: config.get<number>("maxItemsPerRequest") }
-  await config.update("maxConcurrentRequests", 1, vscode.ConfigurationTarget.Global)
-  await config.update("maxItemsPerRequest", 1, vscode.ConfigurationTarget.Global)
+  const prioritySettings = {
+    "request.maxConcurrent": config.get<number>("request.maxConcurrent"),
+    "request.maxItems": config.get<number>("request.maxItems"),
+    "browse.translationScope": config.inspect<string>("browse.translationScope")?.globalValue
+  }
+  await config.update("request.maxConcurrent", 1, vscode.ConfigurationTarget.Global)
+  await config.update("request.maxItems", 1, vscode.ConfigurationTarget.Global)
+  await updateObserved("browse.translationScope", "document")
+  assert(!owner.browse.has(whole.document.uri), "Changing browse mode reopened a manually stopped document.")
   const priorityA = ["Read the original document. Amber.", "Read the original document. Birch.", "Read the original document. Cedar."]
   const priorityB = ["Read the original document. Delta.", "Read the original document. Elm.", "Read the original document. Fern."]
   const background = await open("priority-background.md", "markdown", priorityA.join("\n".repeat(100)))
@@ -228,10 +270,10 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   await fetch(origin + "/control", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ hold: true }) })
   let foreground: Awaited<ReturnType<typeof open>> | undefined
   try {
-    await vscode.commands.executeCommand("commentTranslatePlus.translateAll")
+    await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
     await waitFor(async () => (await requests()).length === beforePriority + 1, "background first HTTP held")
     foreground = await open("priority-foreground.md", "markdown", priorityB.join("\n".repeat(100)))
-    await vscode.commands.executeCommand("commentTranslatePlus.translateAll")
+    await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
     const last = new vscode.Range(200, 0, 200, 0)
     foreground.editor.revealRange(last, vscode.TextEditorRevealType.AtTop)
     await waitFor(() => foreground!.editor.visibleRanges.some((range) => range.contains(last)), "foreground last viewport")
@@ -259,6 +301,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   for (const target of [background, foreground!]) owner.browse.stop(target.document.uri, true)
   for (const [key, value] of Object.entries(prioritySettings)) await config.update(key, value, vscode.ConfigurationTarget.Global)
   checks.push("tab switching keeps background translation alive while actual HTTP follows the latest viewport, current tab and other tabs without editing source")
+  console.log(checks.at(-1))
 
   const code =
     '// Read the original document.\nconst url = "https://example.com";\nconst value = "Read the original document.";\nconst template = `Read the original document. ${sourceId}\\n`;\n/**\n * Keep `sourceId` unchanged.\n */\nconst untouched = 1;'
@@ -288,7 +331,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   const beforeBlock = (await requests()).length
   const preservedComment = owner.browse.inspect(typescript.document.uri)!.units[1]
   typescript.editor.selection = new vscode.Selection(0, 4, 0, 4)
-  assert(await vscode.commands.executeCommand<boolean>("commentTranslatePlus.retranslateBlock"), "Cursor block retranslation was not accepted.")
+  assert(await vscode.commands.executeCommand<boolean>("commentTranslatePlus.browse.retranslateBlock"), "Cursor block retranslation was not accepted.")
   assert(
     owner.browse.inspect(typescript.document.uri)!.units.some((unit) => unit === preservedComment),
     "Block retranslation discarded its neighbour."
@@ -302,13 +345,13 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   assert(typescript.document.getText() === code && !typescript.document.isDirty, "Block retranslation modified source.")
   checks.push("browse cursor retranslation forces only the selected comment and preserves its neighbour and source")
   const beforeLogLevel = (await requests()).length
-  for (const level of ["warning", "error", "info"]) await config.update("logLevel", level, vscode.ConfigurationTarget.Global)
-  for (const details of [true, false]) await config.update("logDetails", details, vscode.ConfigurationTarget.Global)
+  for (const level of ["warning", "error", "info"]) await config.update("logging.level", level, vscode.ConfigurationTarget.Global)
+  for (const details of [true, false]) await config.update("logging.details", details, vscode.ConfigurationTarget.Global)
   assert((await requests()).length === beforeLogLevel, "Changing log verbosity started translation or invalidated cache.")
   checks.push("native info/warning/error log configuration changes verbosity without restarting translation or clearing cache")
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   const beforeDisabledBlock = (await requests()).length
-  assert(await vscode.commands.executeCommand<boolean>("commentTranslatePlus.retranslateBlock"), "Block translation required document browse mode.")
+  assert(await vscode.commands.executeCommand<boolean>("commentTranslatePlus.browse.retranslateBlock"), "Block translation required document browse mode.")
   await waitFor(() => owner.browse.inspect(typescript.document.uri)?.status === "ready", "manual block translation")
   const manual = owner.browse.inspect(typescript.document.uri)!
   assert(manual.scope === "blocks" && manual.units.length === 1, "Manual block translation enabled document browse or translated a neighbour.")
@@ -322,13 +365,13 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   owner.browse.refreshVisible()
   assert((await requests()).length === beforeDisabledBlock + 1, "Viewport refresh expanded manual block translation.")
   typescript.editor.selection = new vscode.Selection(5, 5, 5, 5)
-  assert(await vscode.commands.executeCommand<boolean>("commentTranslatePlus.retranslateBlock"), "A second manual block was rejected.")
+  assert(await vscode.commands.executeCommand<boolean>("commentTranslatePlus.browse.retranslateBlock"), "A second manual block was rejected.")
   await waitFor(() => owner.browse.inspect(typescript.document.uri)?.status === "ready", "second manual block translation")
   assert(owner.browse.inspect(typescript.document.uri)!.units[0] === manual.units[0], "A second manual block discarded the first translation.")
   assert(owner.browse.inspect(typescript.document.uri)!.units.length === 2, "Manual blocks did not accumulate.")
-  await vscode.commands.executeCommand("commentTranslatePlus.cancel")
+  await vscode.commands.executeCommand("commentTranslatePlus.translation.cancel")
   const beforeResumedBlock = (await requests()).length
-  assert(await vscode.commands.executeCommand<boolean>("commentTranslatePlus.retranslateBlock"), "Explicit block translation did not resume after cancellation.")
+  assert(await vscode.commands.executeCommand<boolean>("commentTranslatePlus.browse.retranslateBlock"), "Explicit block translation did not resume after cancellation.")
   await waitFor(() => owner.browse.inspect(typescript.document.uri)?.status === "ready", "manual block after cancellation")
   assert(
     owner.browse.inspect(typescript.document.uri)!.units.length === 2 && owner.browse.inspect(typescript.document.uri)!.units[0] === manual.units[0],
@@ -336,10 +379,10 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   )
   const resumedRequests = (await requests()).slice(beforeResumedBlock)
   assert(resumedRequests.length === 1 && resumedRequests[0].count === 1, "Resuming a manual block requested unrelated blocks.")
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   await waitFor(() => owner.browse.inspect(typescript.document.uri)?.units.length === 2, "expand manual blocks to document browse")
   assert(owner.browse.inspect(typescript.document.uri)!.scope === "document", "Enabling browse mode only cleared manual translations.")
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   assert(!owner.browse.inspect(typescript.document.uri), "Closing browse left manual translations behind.")
   assert(typescript.document.getText() === code && !typescript.document.isDirty, "Manual block translation modified source.")
   checks.push("manual blocks translate and display without document browse, accumulate independently and resume only the explicit target after cancellation")
@@ -369,7 +412,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   const beforeJavaScript = (await requests()).length
   await start(javascript.document, 2)
   assert((await requests()).length === beforeJavaScript + 1, "Different source-language references reused an incompatible unit cache.")
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   checks.push("JavaScript grammar preserves comments while differing language references isolate its unit cache from TypeScript")
 
   await vscode.window.showTextDocument(typescript.document, { viewColumn: vscode.ViewColumn.One, preserveFocus: false, preview: false })
@@ -402,7 +445,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   )
   assert((await requests()).length === beforeKindToggle, "Toggling code browse kinds discarded compatible cached results.")
   assert(typescript.document.getText() === code && !typescript.document.isDirty, "String browse modified source or undo state.")
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   await config.update("browse.strings", false, vscode.ConfigurationTarget.Global)
   await config.update("hover.strings", true, vscode.ConfigurationTarget.Global)
   checks.push("comment and string browse switches are independent of hover, preserve literal syntax and reuse cache when restored")
@@ -426,7 +469,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     "Rust block comment delimiters were not restored."
   )
   assert(rust.document.getText() === rustSource && !rust.document.isDirty, "Merging source context modified the Rust source.")
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   await config.update("browse.strings", false, vscode.ConfigurationTarget.Global)
   checks.push("Rust browse merges overlapping comment/string references into the original source once without source edits")
 
@@ -439,7 +482,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     assert(htmlRequests.length === 1 && htmlRequests[0].inputFingerprint === (await requestFingerprint("Read the original document.")), "HTML comment delimiters reached HTTP.")
     assert(owner.browse.inspect(html.document.uri)!.units[0].translation === "<!-- 阅读原始文档。 -->", "HTML comment delimiters were not restored.")
     assert(html.document.getText() === htmlSource && !html.document.isDirty, "HTML comment browse modified source.")
-    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   }
   checks.push("HTML files and Markdown HTML fences send comment prose alone and restore delimiters without source edits")
 
@@ -449,7 +492,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     const [row] = displayTranslations(source, owner.browse.inspect(target.document.uri)!.units)
     assert(readingText(row.translation, row.source) === "阅读原始文档。", "Comment reading text retained syntax or removed prose.")
     assert(target.document.getText() === source && !target.document.isDirty, "Comment presentation changed source.")
-    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   }
   checks.push("real C comment shells and star continuations use source-owned reading text without changing source")
 
@@ -462,7 +505,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   assert((await requests()).length === beforeCandidate + 3, "Candidate selection changed the attempt budget.")
   const candidateHover = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", candidateTarget.document.uri, new vscode.Position(0, 5))
   assert(
-    values(candidateHover).includes(candidateValue.text) && !values(candidateHover).includes("command:commentTranslatePlus.replaceHover"),
+    values(candidateHover).includes(candidateValue.text) && !values(candidateHover).includes("command:commentTranslatePlus.replacement.applyHover"),
     "Candidate hover lost its text or exposed source replacement."
   )
   const candidatePreview = await vscode.workspace.openTextDocument(markdownPreviewUri(candidateTarget.document.uri))
@@ -470,13 +513,13 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   assert(!candidatePreview.getText().includes("翻译失败："), "Candidate preview replaced the result with an error banner.")
   await vscode.window.showTextDocument(candidateTarget.document, { viewColumn: vscode.ViewColumn.One, preview: false })
   candidateTarget.editor.selection = new vscode.Selection(0, 5, 0, 5)
-  assert(!(await vscode.commands.executeCommand<boolean>("commentTranslatePlus.translateAndReplace")), "Display candidate was applied to source.")
+  assert(!(await vscode.commands.executeCommand<boolean>("commentTranslatePlus.replacement.translate")), "Display candidate was applied to source.")
   assert(candidateTarget.document.getText() === candidateSource && !candidateTarget.document.isDirty, "Candidate display modified source.")
   assert((await requests()).length === beforeCandidate + 3, "Candidate hover, preview or replacement re-requested a completed memory result.")
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   await start(candidateTarget.document, 1)
   assert((await requests()).length === beforeCandidate + 3, "Reopening candidate reading repeated the wait.")
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   checks.push("retry exhaustion displays one memory-cached candidate in reading, hover and native preview while source replacement stays unavailable")
 
   const htmlParagraphSource = "<!--\nRead the original\ndocument.\nKeep two lines together.\n\nKeep `sourceId` unchanged.\n-->\n"
@@ -491,7 +534,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     "HTML paragraphs failed translation validation."
   )
   assert(htmlParagraph.document.getText() === htmlParagraphSource && !htmlParagraph.document.isDirty, "HTML paragraph browse modified source.")
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   checks.push("HTML comments merge sentence and continuation lines inside paragraphs while blank lines retain separate units")
 
   await config.update("browse.strings", true, vscode.ConfigurationTarget.Global)
@@ -506,7 +549,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     )
     assert(JSON.parse(rows[0].translation).数量 === 7 && JSON.parse(rows[1].translation).open === false, "JSON display changed native values.")
     assert(target.document.getText() === jsonSource && !target.document.isDirty, "JSON display modified source.")
-    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   }
   await config.update("browse.strings", false, vscode.ConfigurationTarget.Global)
   checks.push("JSON and JSONL display reassemble translated strings with source colons, punctuation and native values per physical line")
@@ -520,11 +563,11 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     (await vscode.commands.executeCommand<vscode.CodeLens[]>("vscode.executeCodeLensProvider", punctuation.document.uri))?.length === 0,
     "Punctuation-only translation reserved an immersive row."
   )
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   const beforePunctuationCache = (await requests()).length
   await start(punctuation.document, 1)
   assert((await requests()).length === beforePunctuationCache, "Completed punctuation-only result was requested again.")
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   checks.push("punctuation-only translation completes and caches as unchanged without an immersive translation row")
 
   const angleSource = "**Gallery choice <pick from the list>.**\n"
@@ -535,7 +578,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   assert(angleUnits[0].translation === "**画廊选项<列表中的一个>。**", "Angle-bracket prose was treated as immutable HTML.")
   assert((await requests()).length === beforeAngle + 1, "Valid angle-bracket prose required a recovery request.")
   assert(angle.document.getText() === angleSource && !angle.document.isDirty, "Angle-bracket translation modified source.")
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   checks.push("angle-bracket prose inside Markdown emphasis translates in one HTTP request while source syntax stays intact")
 
   const quotedTableSource = "> | Label | Value |\r\n> | --- | --- |\r\n> | Read the original document. | Keep `sourceId` unchanged. |\r\n"
@@ -552,7 +595,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     "CRLF table cells did not pass the formal translation chain."
   )
   assert(quotedTable.document.getText() === quotedTableSource && !quotedTable.document.isDirty, "CRLF table browse modified source syntax or line endings.")
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   checks.push("CRLF quoted tables translate independent cells with one complete raw reference and unchanged source offsets")
 
   const delayed = await open("delayed-hover.ts", "typescript", 'const delayed = "Keep another string.";')
@@ -562,12 +605,12 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   try {
     const pending = vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", delayed.document.uri, new vscode.Position(0, 23))
     await waitFor(async () => (await requests()).length > beforeDelayed, "independent hover request")
-    await config.update("activeProfile", "other", vscode.ConfigurationTarget.Global)
+    await config.update("service.activeProfile", "other", vscode.ConfigurationTarget.Global)
     await control(false)
     assert(!values(await pending).includes("[注释翻译+]"), "A late independent hover survived a profile change.")
   } finally {
     await control(false)
-    await config.update("activeProfile", "test", vscode.ConfigurationTarget.Global)
+    await config.update("service.activeProfile", "test", vscode.ConfigurationTarget.Global)
   }
   checks.push("profile changes cancel independent hover requests before late responses can appear")
 
@@ -581,7 +624,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     const second = vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", cancellation.document.uri, new vscode.Position(2, 6))
     await waitFor(async () => (await requests())[cancellationStart]?.cancelled === true && (await requests()).length === cancellationStart + 2, "different hover target cancels old HTTP")
     assert(!values(await first).includes("[注释翻译+]"), "A different source target retained the old hover result.")
-    await vscode.commands.executeCommand("commentTranslatePlus.cancel")
+    await vscode.commands.executeCommand("commentTranslatePlus.translation.cancel")
     await waitFor(async () => (await requests())[cancellationStart + 1]?.cancelled === true, "explicit hover cancellation aborts HTTP")
     assert(!values(await second).includes("[注释翻译+]"), "Explicit cancellation still returned translated hover content.")
     const edited = vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", cancellation.document.uri, new vscode.Position(0, 6))
@@ -600,7 +643,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   await start(python.document, 1)
   assert(owner.browse.inspect(python.document.uri)!.units[0].text.startsWith("#"), "Python grammar did not isolate its comment.")
   assert(python.document.getText() === pythonSource && !python.document.isDirty, "Python browse modified code.")
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   checks.push("installed Python grammar supports comment browse and leaves executable code unchanged")
 
   const jsonContent =
@@ -629,8 +672,8 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     assert(sent.length === 1 && sent[0].itemFingerprints?.includes(await requestFingerprint(prepared.text)), "JSON sent a different string representation or consumed retries.")
     assert(target.document.getText() === source && !target.document.isDirty, "JSON translation edited its source.")
     if (markers) {
-      const previous = config.get<number>("minimumMarkerCharacters")
-      await updateObserved("minimumMarkerCharacters", 256)
+      const previous = config.get<number>("translation.minimumMarkerCharacters")
+      await updateObserved("translation.minimumMarkerCharacters", 256)
       try {
         const beforeThreshold = (await requests()).length
         await owner.translations.translate(target.document, { units: [unit] }, new AbortController().signal)
@@ -640,7 +683,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
           "Native threshold settings did not change the request or reused a result from another threshold."
         )
       } finally {
-        await updateObserved("minimumMarkerCharacters", previous)
+        await updateObserved("translation.minimumMarkerCharacters", previous)
       }
     }
   }
@@ -681,7 +724,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     const second = completed[1]
     const position = target.document.positionAt(second.start + 2)
     target.editor.selection = new vscode.Selection(position, position)
-    assert(await vscode.commands.executeCommand<boolean>("commentTranslatePlus.translateAndReplace"), "Decoded paragraph cursor replacement failed.")
+    assert(await vscode.commands.executeCommand<boolean>("commentTranslatePlus.replacement.translate"), "Decoded paragraph cursor replacement failed.")
     assert(
       target.document.getText() === source.slice(0, second.start) + second.translation + source.slice(second.end),
       "Decoded paragraph replacement changed a neighbour or its escaped separator."
@@ -689,7 +732,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     assert(target.document.getText().includes("\\n\\n") && target.document.lineCount === 2, "Replacement changed escaped content breaks into physical source lines.")
     await vscode.commands.executeCommand("undo")
     await waitFor(() => target.document.getText() === source, "Decoded paragraph replacement did not undo exactly.")
-    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
     checks.push("decoded Python paragraphs retain independent units, one source-line display block, decoded details and escape-preserving cursor replacement")
   }
   for (const newline of ["\n", "\r\n"]) {
@@ -722,7 +765,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     const sent = (await requests()).slice(before).flatMap((request) => request.itemFingerprints ?? [])
     assert(sent.length > 0 && sent.every((fingerprint) => fingerprint === sent[0]) && sent[0] === (await requestFingerprint(prepared.text)), "Python HTTP received a partial literal.")
     assert(target.document.getText() === source && !target.document.isDirty, "Python browse modified source.")
-    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   }
   for (const [expression, count] of [
     ['("Read text." "Keep text.")', 1],
@@ -775,11 +818,11 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     assert((await requests()).length <= before + 1, "A valid reordered interpolation required recovery requests.")
     assert(target.document.getText() === source && !target.document.isDirty, "Python browse changed the source.")
     target.editor.selection = new vscode.Selection(target.document.positionAt(unit.start + 1), target.document.positionAt(unit.start + 1))
-    await vscode.commands.executeCommand("commentTranslatePlus.translateAndReplace")
+    await vscode.commands.executeCommand("commentTranslatePlus.replacement.translate")
     assert(target.document.getText() === source.slice(0, unit.start) + result + source.slice(unit.end), "Python replacement damaged reordered interpolation syntax.")
     await vscode.commands.executeCommand("undo")
     await waitFor(() => target.document.getText() === source, "Python replacement undo failed to restore the original literals.")
-    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   }
   checks.push(
     "real Python grammar accepts reordered interpolations over mock HTTP and preserves browse source, replacement syntax and undo across adjacent, plain, raw and triple-quoted literals"
@@ -861,7 +904,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
         "Multiline f-string HTTP received source quote boundaries or incomplete prose."
       )
       assert(target.document.getText() === source && !target.document.isDirty, "Multiline f-string browsing changed source.")
-      await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+      await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
       for (const prefix of ["fr", "rf", "F"]) {
         const variant = source.replace("return f" + quote, "return " + prefix + quote)
         const parsed = (await owner.documents.parseSource(variant, "python")).groups.flatMap((group) => group.units)
@@ -903,10 +946,10 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
       assert(/\n阅读原始文档。\n/u.test(values(hover)) && !values(hover).includes("            阅读原始文档。"), "Docstring hover retained source continuation indentation.")
       assert((await requests()).length === afterBrowse, "Docstring hover did not reuse the restored browse result.")
       assert(target.document.getText() === source && !target.document.isDirty, "Docstring browse or hover modified source.")
-      await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+      await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
       const position = target.document.positionAt(offset)
       target.editor.selection = new vscode.Selection(position, position)
-      assert(await vscode.commands.executeCommand<boolean>("commentTranslatePlus.translateAndReplace"), "Docstring cursor replacement failed.")
+      assert(await vscode.commands.executeCommand<boolean>("commentTranslatePlus.replacement.translate"), "Docstring cursor replacement failed.")
       assert(
         target.document.getText() ===
           source.slice(0, source.lastIndexOf("Read the original document.")) +
@@ -999,10 +1042,10 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     await vscode.commands.executeCommand("vscode.executeHoverProvider", target.document.uri, target.document.positionAt(offset))
     assert((await requests()).length === after, "A continuation-line hover did not reuse its complete paragraph.")
     assert(target.document.getText() === source && !target.document.isDirty, "Paragraph/list browsing modified Python source.")
-    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
     const position = target.document.positionAt(offset)
     target.editor.selection = new vscode.Selection(position, position)
-    assert(await vscode.commands.executeCommand<boolean>("commentTranslatePlus.translateAndReplace"), "Continuation-line paragraph replacement failed.")
+    assert(await vscode.commands.executeCommand<boolean>("commentTranslatePlus.replacement.translate"), "Continuation-line paragraph replacement failed.")
     assert(
       target.document.getText() === source.replace("    Read the original" + newline + "    document.", "    阅读原始文档。"),
       "Paragraph replacement changed a label, list, example or neighbouring paragraph."
@@ -1040,18 +1083,18 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   )
   checks.push("short code, links and images reach HTTP in native syntax without CTP markers")
   const beforeSwitch = (await requests()).length
-  await config.update("activeProfile", "other", vscode.ConfigurationTarget.Global)
+  await config.update("service.activeProfile", "other", vscode.ConfigurationTarget.Global)
   await waitFor(async () => owner.browse.inspect(profile.document.uri)?.status === "ready" && (await requests()).at(-1)?.model === "model-b", "model switch")
   assert((await requests()).length === beforeSwitch + 1, "Model switch reused an incompatible response.")
-  await config.update("activeProfile", "test", vscode.ConfigurationTarget.Global)
+  await config.update("service.activeProfile", "test", vscode.ConfigurationTarget.Global)
   await waitFor(() => owner.browse.inspect(profile.document.uri)?.status === "ready" && owner.browse.inspect(profile.document.uri)?.units.length === 2, "profile cache restore")
   assert((await requests()).length === beforeSwitch + 1, "Switching back discarded valid profile cache.")
-  await config.update("activeProfile", "public", vscode.ConfigurationTarget.Global)
+  await config.update("service.activeProfile", "public", vscode.ConfigurationTarget.Global)
   await waitFor(async () => owner.browse.inspect(profile.document.uri)?.status === "ready" && (await requests()).at(-1)?.model === "public-model", "empty key profile")
   assert((await requests()).at(-1)?.authenticated === false, "Empty settings key sent Authorization.")
   checks.push("profile and prompt changes isolate results; switching back reuses cache and empty settings keys omit authentication")
   for (const provider of ["google", "bing"]) {
-    await config.update("activeProfile", provider, vscode.ConfigurationTarget.Global)
+    await config.update("service.activeProfile", provider, vscode.ConfigurationTarget.Global)
     await waitFor(
       async () =>
         owner.browse.inspect(profile.document.uri)?.status === "ready" &&
@@ -1068,19 +1111,19 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   }
   checks.push("Google and Bing use their own HTTP protocols and preserve code/link placeholders in the desktop host")
   const beforeMode = (await requests()).length
-  await config.update("displayMode", "inplace", vscode.ConfigurationTarget.Global)
+  await config.update("browse.displayMode", "inplace", vscode.ConfigurationTarget.Global)
   const lenses = await vscode.commands.executeCommand<vscode.CodeLens[]>("vscode.executeCodeLensProvider", profile.document.uri)
   assert(
     !lenses.some((lens) => lens.command?.title === " ") && profile.document.getText() === markdownSource && !profile.document.isDirty,
     "Inplace mode left contrast rows or modified source."
   )
-  await config.update("displayMode", "contrast", vscode.ConfigurationTarget.Global)
+  await config.update("browse.displayMode", "contrast", vscode.ConfigurationTarget.Global)
   assert((await requests()).length === beforeMode, "Display mode changes restarted network translation.")
   checks.push("contrast/inplace switching preserves source and cache without making HTTP requests")
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
-  await config.update("activeProfile", "test", vscode.ConfigurationTarget.Global)
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
+  await config.update("service.activeProfile", "test", vscode.ConfigurationTarget.Global)
   const beforePreview = (await requests()).length
-  await vscode.commands.executeCommand("commentTranslatePlus.preview")
+  await vscode.commands.executeCommand("commentTranslatePlus.preview.open")
   let preview: vscode.TextDocument | undefined
   await waitFor(() => {
     preview = vscode.workspace.textDocuments.find((document) => document.uri.scheme === "comment-translate-plus-preview" && document.uri.path === profile.document.uri.path)
@@ -1104,7 +1147,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   const beforePreviewRefresh = (await requests()).length
   await control(true)
   try {
-    await vscode.commands.executeCommand("commentTranslatePlus.retranslatePreview", preview!.uri)
+    await vscode.commands.executeCommand("commentTranslatePlus.preview.retranslate", preview!.uri)
     await waitFor(async () => (await requests()).length > beforePreviewRefresh && preview!.getText().includes(previewLoadingMarker), "forced preview request and loading state")
     const refreshedRequests = (await requests()).slice(beforePreviewRefresh)
     assert(refreshedRequests.length === 1 && refreshedRequests[0].count === 2, "Preview refresh translated the focused neighbor or duplicated its request.")
@@ -1114,10 +1157,10 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   }
   await waitFor(() => preview!.getText().includes("阅读原始文档") && !preview!.getText().includes(previewLoadingMarker), "forced preview completion")
   const afterPreviewRefresh = (await requests()).length
-  await vscode.commands.executeCommand("commentTranslatePlus.retranslatePreview", previewNeighbor.document.uri)
+  await vscode.commands.executeCommand("commentTranslatePlus.preview.retranslate", previewNeighbor.document.uri)
   assert((await requests()).length === afterPreviewRefresh, "A non-preview URI triggered preview retranslation.")
   assert(profile.document.getText() === markdownSource && !profile.document.isDirty && !preview!.isDirty, "Preview refresh wrote source or translation files.")
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   checks.push("preview retranslation bypasses cached source results, shows loading, preserves readonly files and never refreshes another focused document")
   const previewSourceEditor = await vscode.window.showTextDocument(profile.document, { viewColumn: vscode.ViewColumn.One, preserveFocus: false, preview: false })
   assert(await previewSourceEditor.edit((builder) => builder.replace(new vscode.Range(0, 3, 0, 30), "Keep the revised document.")), "Preview source edit failed.")
@@ -1147,14 +1190,14 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   try {
     partialPreview = await vscode.workspace.openTextDocument(markdownPreviewUri(partial.document.uri))
     await waitFor(() => partialPreview.getText().includes(validatedText(firstTranslation)) && partialPreview.getText().includes(previewLoadingMarker), "partially translated preview")
-    await vscode.commands.executeCommand("commentTranslatePlus.cancel")
+    await vscode.commands.executeCommand("commentTranslatePlus.translation.cancel")
     await waitFor(
       () => partialPreview.getText().includes(validatedText(firstTranslation)) && !partialPreview.getText().includes(previewLoadingMarker),
       "cancel preserves preview translation"
     )
     assert(partialPreview.getText().includes("Keep the unfinished lantern paragraph."), "Cancelled preview lost pending source text.")
     const cancelledText = partialPreview.getText()
-    await vscode.commands.executeCommand("commentTranslatePlus.cancel")
+    await vscode.commands.executeCommand("commentTranslatePlus.translation.cancel")
     assert(partialPreview.getText() === cancelledText, "Repeated cancellation changed the completed preview.")
   } finally {
     await control(false)
@@ -1169,12 +1212,12 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   const termsFile = vscode.Uri.joinPath(workspace, "custom-terms.json")
   const unconfiguredFile = vscode.Uri.joinPath(workspace, "unconfigured-terms.jsonc")
   await vscode.workspace.fs.writeFile(unconfiguredFile, new TextEncoder().encode('[\n// User rules\n{"pattern":"HTTP", "flags":"i"},\n]\n'))
-  const configuredBeforeAdd = JSON.stringify(config.inspect("preserveTerms"))
+  const configuredBeforeAdd = JSON.stringify(config.inspect("terms.sources"))
   const rulesBeforeAdd = (await owner.translations.settings(profile.document.uri)).preserveTerms.identity
   for (const extension of ["json", "jsonc"]) {
     const newPath = "./new-term-files/" + extension + "/terms." + extension
     const newFile = vscode.Uri.joinPath(workspace, newPath)
-    await config.update("preserveTermsWriteFile", newPath, vscode.ConfigurationTarget.Global)
+    await config.update("terms.writeFile", newPath, vscode.ConfigurationTarget.Global)
     let emptyRejected = false
     try {
       await writePreserveTerm(profile.document.uri, " ")
@@ -1199,7 +1242,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   }
   const directoryTarget = vscode.Uri.joinPath(workspace, "directory-target.json")
   await vscode.workspace.fs.createDirectory(directoryTarget)
-  await config.update("preserveTermsWriteFile", directoryTarget.toString(), vscode.ConfigurationTarget.Global)
+  await config.update("terms.writeFile", directoryTarget.toString(), vscode.ConfigurationTarget.Global)
   let directoryRejected = false
   try {
     await writePreserveTerm(profile.document.uri, "Must not replace a directory")
@@ -1208,7 +1251,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   }
   assert(directoryRejected && (await vscode.workspace.fs.stat(directoryTarget)).type === vscode.FileType.Directory, "An unreadable target was treated as a missing file.")
   checks.push("missing JSON/JSONC targets and parent directories are created and saved before subsequent appends; invalid input and existing directories are not overwritten")
-  await config.update("preserveTermsWriteFile", "./unconfigured-terms.jsonc", vscode.ConfigurationTarget.Global)
+  await config.update("terms.writeFile", "./unconfigured-terms.jsonc", vscode.ConfigurationTarget.Global)
   assert(await writePreserveTerm(profile.document.uri, ' Widget "quoted" '), "Adding to an unconfigured file failed.")
   const addedText = new TextDecoder().decode(await vscode.workspace.fs.readFile(unconfiguredFile))
   assert(addedText.includes("// User rules"), "Adding a literal discarded user comments.")
@@ -1220,7 +1263,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   assert(await writePreserveTerm(profile.document.uri, "SecondTerm"), "A second addition did not reuse the configured target.")
   const savedTerms = new TextDecoder().decode(await vscode.workspace.fs.readFile(unconfiguredFile))
   assert(parseTermFile(savedTerms, unconfiguredFile.toString()).includes("SecondTerm"), "The second term was not saved to the configured file.")
-  assert(JSON.stringify(config.inspect("preserveTerms")) === configuredBeforeAdd, "Adding to a file silently changed configured sources.")
+  assert(JSON.stringify(config.inspect("terms.sources")) === configuredBeforeAdd, "Adding to a file silently changed configured sources.")
   assert((await owner.translations.settings(profile.document.uri)).preserveTerms.identity === rulesBeforeAdd, "An unconfigured file affected active preservation rules.")
   const dirtyTerms = await vscode.workspace.openTextDocument(unconfiguredFile)
   const dirtyEdit = new vscode.WorkspaceEdit()
@@ -1240,7 +1283,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   const termSelectionSource = await open("selected-preserve-term.txt", "plaintext", selectionSource)
   termSelectionSource.editor.selection = new vscode.Selection(termSelectionSource.document.positionAt(7), termSelectionSource.document.positionAt(7 + selectedTerm.length))
   let additionComplete = false
-  const addition = vscode.commands.executeCommand("commentTranslatePlus.addPreserveTerm").then(() => {
+  const addition = vscode.commands.executeCommand("commentTranslatePlus.terms.add").then(() => {
     additionComplete = true
   })
   try {
@@ -1253,10 +1296,10 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   assert(selectionTerms.includes(selectedTerm), "The add command did not save the exact selected text.")
   assert(termSelectionSource.document.getText() === selectionSource && !termSelectionSource.document.isDirty, "Adding selected text modified its source document.")
   checks.push("the add preserve term command saves selected multiline text and whitespace without input confirmation or source edits")
-  await config.update("preserveTermsWriteFile", undefined, vscode.ConfigurationTarget.Global)
+  await config.update("terms.writeFile", undefined, vscode.ConfigurationTarget.Global)
   checks.push("adding literals reuses the configured JSONC target without changing translation sources or active rules, preserves comments and rejects unsaved edits")
   await vscode.workspace.fs.writeFile(termsFile, new TextEncoder().encode(JSON.stringify(["Widget", "project.lock"])))
-  await config.update("preserveTerms", ["./custom-terms.json"], vscode.ConfigurationTarget.Global)
+  await config.update("terms.sources", ["./custom-terms.json"], vscode.ConfigurationTarget.Global)
   const termsSource = "Read Feature, API and Widget project.lock. Keep `API` unchanged.\n\nwIdGeT\n\nPROJECT.LOCK\n\nAPI"
   const terms = await open("terms.md", "markdown", termsSource)
   const beforeTerms = (await requests()).length
@@ -1287,28 +1330,28 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
       .includes(await requestFingerprint(prepareTranslation(termUnit, 32).text)),
     "Custom preserved terms masked part of a mixed model request."
   )
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
-  await config.update("preserveTerms", [], vscode.ConfigurationTarget.Global)
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
+  await config.update("terms.sources", [], vscode.ConfigurationTarget.Global)
   const bypassFile = vscode.Uri.joinPath(workspace, "explicit-terms.json")
   const explicitSource = "Read the complete field."
   await vscode.workspace.fs.writeFile(bypassFile, new TextEncoder().encode(JSON.stringify([explicitSource])))
-  await config.update("preserveTerms", [bypassFile.toString()], vscode.ConfigurationTarget.Global)
+  await config.update("terms.sources", [bypassFile.toString()], vscode.ConfigurationTarget.Global)
   const explicit = await open("explicit-terms.md", "markdown", explicitSource)
   await start(explicit.document, 1)
   assert(owner.browse.inspect(explicit.document.uri)!.units[0].translation === explicitSource, "Browse did not preserve the configured full body.")
   const explicitHover = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", explicit.document.uri, new vscode.Position(0, 2))
   assert(values(explicitHover).includes("阅读完整字段。"), "Hover reused the browse preserved result instead of translating.")
   explicit.editor.selection = new vscode.Selection(0, 0, 0, 0)
-  assert(await vscode.commands.executeCommand("commentTranslatePlus.translateAndReplace"), "Cursor replacement failed for a preserved term.")
+  assert(await vscode.commands.executeCommand("commentTranslatePlus.replacement.translate"), "Cursor replacement failed for a preserved term.")
   assert(explicit.document.getText() === "阅读完整字段。", "Cursor replacement retained a preserved term.")
   const explicitSelection = await open("explicit-selection.md", "markdown", explicitSource)
   explicitSelection.editor.selection = new vscode.Selection(0, 0, 0, explicitSource.length)
   const selectionHover = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", explicitSelection.document.uri, new vscode.Position(0, 2))
   assert(values(selectionHover).includes("阅读完整字段。"), "Selection hover retained a preserved term.")
-  assert(await vscode.commands.executeCommand("commentTranslatePlus.translateAndReplace"), "Selection replacement failed for a preserved term.")
+  assert(await vscode.commands.executeCommand("commentTranslatePlus.replacement.translate"), "Selection replacement failed for a preserved term.")
   assert(explicitSelection.document.getText() === "阅读完整字段。", "Selection replacement retained a preserved term.")
   checks.push("source and selection hover/replacement translate preserved terms despite locally completed browse results")
-  await config.update("preserveTerms", [], vscode.ConfigurationTarget.Global)
+  await config.update("terms.sources", [], vscode.ConfigurationTarget.Global)
   const clearedTerms = await open("cleared-terms.md", "markdown", "JSON")
   const beforeClearedTerms = (await requests()).length
   await start(clearedTerms.document, 1)
@@ -1319,13 +1362,13 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
       .includes(await requestFingerprint("JSON")),
     "An empty preserveTerms array retained a built-in short name."
   )
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   const regexFile = vscode.Uri.joinPath(workspace, "regex-terms.jsonc")
   await vscode.workspace.fs.writeFile(
     regexFile,
     new TextEncoder().encode("[\n// Shared regex rule\n" + JSON.stringify({ pattern: "(?:Widget|project\\.lock|https?)", flags: "i" }) + ",\n]")
   )
-  await config.update("preserveTerms", [regexFile.toString()], vscode.ConfigurationTarget.Global)
+  await config.update("terms.sources", [regexFile.toString()], vscode.ConfigurationTarget.Global)
   const regexTerms = await open("regex-terms.md", "markdown", "wIDGET\n\nproject.lock\n\nHtTp\n\nRead HTTP with Widget.")
   const beforeRegexTerms = (await requests()).length
   await start(regexTerms.document, 4)
@@ -1344,7 +1387,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   assert(regexTerms.document.getText() === "wIDGET\n\nproject.lock\n\nHtTp\n\nRead HTTP with Widget." && !regexTerms.document.isDirty, "Regex matching edited source.")
   // Changes remain on the last valid snapshot until scheduled or manual refresh.
   const beforeLocalEdit = (await owner.translations.settings(regexTerms.document.uri)).preserveTerms.identity
-  await config.update("preserveTermsRefreshSeconds", 0, vscode.ConfigurationTarget.Global)
+  await config.update("terms.refreshSeconds", 0, vscode.ConfigurationTarget.Global)
   await vscode.workspace.fs.writeFile(regexFile, new TextEncoder().encode("[]"))
   assert((await owner.translations.settings(regexTerms.document.uri)).preserveTerms.identity === beforeLocalEdit, "A local edit bypassed the configured refresh policy.")
   const beforeManualRequests = (await requests()).length
@@ -1354,7 +1397,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     assert(await owner.browse.retranslateBlock(), "Could not start the pending term refresh probe.")
     await waitFor(async () => (await requests()).length > beforeManualRequests, "pending translation before term refresh")
     const beforeManualRefresh = JSON.stringify(owner.browse.inspect(regexTerms.document.uri))
-    await vscode.commands.executeCommand("commentTranslatePlus.refreshPreserveTerms")
+    await vscode.commands.executeCommand("commentTranslatePlus.terms.refresh")
     assert(JSON.stringify(owner.browse.inspect(regexTerms.document.uri)) === beforeManualRefresh, "Manual term refresh cleared browse results or cancelled pending translation.")
     assert((await requests()).length === beforeManualRequests + 1, "Manual term refresh submitted existing browse results again.")
   } finally {
@@ -1377,19 +1420,19 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   assert(afterRuleRemoval.includes(await requestFingerprint("wIDGET")), "Removing a rule reused its previous local-only cache result.")
   const validSettings = await owner.translations.settings(regexTerms.document.uri)
   await vscode.workspace.fs.writeFile(regexFile, new TextEncoder().encode('[{"pattern":"["}]'))
-  await vscode.commands.executeCommand("commentTranslatePlus.refreshPreserveTerms")
+  await vscode.commands.executeCommand("commentTranslatePlus.terms.refresh")
   assert(
     (await owner.translations.settings(regexTerms.document.uri)).preserveTerms.identity === validSettings.preserveTerms.identity,
     "An invalid saved file replaced the last valid rule set."
   )
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   await vscode.workspace.fs.writeFile(regexFile, new TextEncoder().encode('["Widget"]'))
   const setTermFile = async (termFile: string | null) => {
     const response = await fetch(origin + "/control", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ termFile }) })
     assert(response.ok, "Could not configure mock term file.")
   }
   await setTermFile('["RemoteOnly", {"pattern":"HTTP", "flags":"i"}]')
-  await config.update("preserveTerms", [regexFile.toString(), origin + "/preserve-terms.json"], vscode.ConfigurationTarget.Global)
+  await config.update("terms.sources", [regexFile.toString(), origin + "/preserve-terms.json"], vscode.ConfigurationTarget.Global)
   const remoteTerms = await open("remote-terms.md", "markdown", "Widget\n\nRemoteOnly\n\nhTtP\n\nRead Widget.")
   const beforeRemote = (await requests()).length
   await start(remoteTerms.document, 4)
@@ -1400,11 +1443,11 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   const beforeFailure = (await owner.translations.settings(remoteTerms.document.uri)).preserveTerms.identity
   await setTermFile(null)
   await vscode.workspace.fs.writeFile(regexFile, new TextEncoder().encode("[]"))
-  await vscode.commands.executeCommand("commentTranslatePlus.refreshPreserveTerms")
+  await vscode.commands.executeCommand("commentTranslatePlus.terms.refresh")
   assert((await owner.translations.settings(remoteTerms.document.uri)).preserveTerms.identity === beforeFailure, "A failed remote refresh discarded the last valid compiled snapshot.")
   // Native configuration changes release the in-memory snapshot; recovery now needs persisted, revalidated data.
-  await config.update("preserveTerms", [], vscode.ConfigurationTarget.Global)
-  await config.update("preserveTerms", [regexFile.toString(), origin + "/preserve-terms.json"], vscode.ConfigurationTarget.Global)
+  await config.update("terms.sources", [], vscode.ConfigurationTarget.Global)
+  await config.update("terms.sources", [regexFile.toString(), origin + "/preserve-terms.json"], vscode.ConfigurationTarget.Global)
   assert(
     (await owner.translations.settings(remoteTerms.document.uri)).preserveTerms.identity === beforeFailure,
     "Offline recovery after releasing memory lost the persisted complete snapshot."
@@ -1413,13 +1456,13 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   const beforeScheduledRefresh = JSON.stringify(owner.browse.inspect(remoteTerms.document.uri))
   const beforeScheduledRequests = (await requests()).length
   await setTermFile("[]")
-  await config.update("preserveTermsRefreshSeconds", 1, vscode.ConfigurationTarget.Global)
+  await config.update("terms.refreshSeconds", 1, vscode.ConfigurationTarget.Global)
   await waitFor(
     async () =>
       (await owner.translations.settings(remoteTerms.document.uri)).preserveTerms.identity !== beforeFailure && owner.browse.inspect(remoteTerms.document.uri)?.status === "ready",
     "scheduled term refresh"
   )
-  await config.update("preserveTermsRefreshSeconds", 0, vscode.ConfigurationTarget.Global)
+  await config.update("terms.refreshSeconds", 0, vscode.ConfigurationTarget.Global)
   assert((await owner.translations.settings(remoteTerms.document.uri)).preserveTerms.identity !== beforeFailure, "Changed remote content did not refresh preservation rules.")
   assert(JSON.stringify(owner.browse.inspect(remoteTerms.document.uri)) === beforeScheduledRefresh, "Scheduled term refresh cleared or changed existing browse results.")
   assert((await requests()).length === beforeScheduledRequests, "Scheduled term refresh submitted existing browse results again.")
@@ -1433,9 +1476,9 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
       .includes(await requestFingerprint("RemoteOnly")),
     "Removing remote terms retained local-only results."
   )
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   await setTermFile(null)
-  await config.update("preserveTerms", [origin + "/preserve-terms.json?first-load=failed"], vscode.ConfigurationTarget.Global)
+  await config.update("terms.sources", [origin + "/preserve-terms.json?first-load=failed"], vscode.ConfigurationTarget.Global)
   let initialFailure = false
   try {
     const parsed = await owner.documents.parse(remoteTerms.document)
@@ -1447,7 +1490,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   const unavailableTerms = await open("unavailable-explicit-terms.md", "markdown", explicitSource)
   const unavailableHover = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", unavailableTerms.document.uri, new vscode.Position(0, 2))
   assert(values(unavailableHover).includes("阅读完整字段。"), "Unavailable term files blocked hover translation.")
-  assert(await vscode.commands.executeCommand("commentTranslatePlus.translateAndReplace"), "Unavailable term files blocked replacement.")
+  assert(await vscode.commands.executeCommand("commentTranslatePlus.replacement.translate"), "Unavailable term files blocked replacement.")
   assert(unavailableTerms.document.getText() === "阅读完整字段。", "Unavailable term files prevented translated replacement.")
   checks.push("hover and replacement remain usable when first-time preserve-term loading fails")
   const failedReads = ((await (await fetch(origin + "/state")).json()) as { termFileReads: number }).termFileReads
@@ -1463,8 +1506,8 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     "A failed source was re-fetched outside the configured refresh policy."
   )
   await setTermFile("[]")
-  await config.update("preserveTerms", undefined, vscode.ConfigurationTarget.Global)
-  await config.update("preserveTermsRefreshSeconds", undefined, vscode.ConfigurationTarget.Global)
+  await config.update("terms.sources", undefined, vscode.ConfigurationTarget.Global)
+  await config.update("terms.refreshSeconds", undefined, vscode.ConfigurationTarget.Global)
   checks.push(
     "local JSON/JSONC and remote term files merge full-body rules; refresh preserves browse results and applies removed rules to new translations, with last valid snapshots retained on failure"
   )
@@ -1475,7 +1518,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   await config.update("auto.enabled", true, vscode.ConfigurationTarget.Global)
   const automatic = await open("automatic.ts", "typescript", "// Read the original document.\nconst autoCode = 1;")
   await waitFor(() => owner.browse.inspect(automatic.document.uri)?.status === "ready" && owner.browse.inspect(automatic.document.uri)?.units.length === 1, "automatic browse")
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   const beforeDisabled = (await requests()).length
   await vscode.window.showTextDocument(terms.document, { viewColumn: vscode.ViewColumn.One, preserveFocus: false, preview: false })
   await vscode.window.showTextDocument(automatic.document, { viewColumn: vscode.ViewColumn.One, preserveFocus: false, preview: false })
@@ -1512,8 +1555,8 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   await config.update("auto.exclude", [], vscode.ConfigurationTarget.Global)
   await waitFor(() => owner.browse.inspect(markdownAuto.document.uri)?.status === "ready", "clearing exclusions restarts automatic browse")
   assert(!owner.browse.has(automatic.document.uri), "Exclusion changes overrode a manual stop.")
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   await config.update("auto.exclude", ["**/*.md"], vscode.ConfigurationTarget.Global)
   await waitFor(() => owner.browse.inspect(markdownAuto.document.uri)?.status === "ready", "manual browse survives auto exclusion")
   await config.update("auto.include", [], vscode.ConfigurationTarget.Global)
@@ -1533,17 +1576,17 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   const ruleConfig = vscode.workspace.getConfiguration("commentTranslatePlus", ruleTarget.document.uri)
   try {
     assert(!automaticScope(ruleTarget.document), "Empty include did not prevent the command target from opening automatically.")
-    await vscode.commands.executeCommand("commentTranslatePlus.addCurrentFileToAutoInclude")
+    await vscode.commands.executeCommand("commentTranslatePlus.auto.includeCurrentFile")
     await waitFor(() => owner.browse.inspect(ruleTarget.document.uri)?.status === "ready", "include command starts current file")
     const neighbor = await open("rule1a.md", "markdown", "Read the original document.")
     const nestedNeighbor = await open("nested/rule[1]{a,b}.md", "markdown", "Read the original document.")
     assert(!automaticScope(neighbor.document) && !automaticScope(nestedNeighbor.document), "The current-file rule broadened to a glob match or nested same-name file.")
     await vscode.window.showTextDocument(ruleTarget.document, { preview: false })
-    await vscode.commands.executeCommand("commentTranslatePlus.addCurrentFileToAutoExclude")
+    await vscode.commands.executeCommand("commentTranslatePlus.auto.excludeCurrentFile")
     await waitFor(() => !owner.browse.has(ruleTarget.document.uri), "exclude command stops current file")
     const saved = vscode.workspace.getConfiguration("commentTranslatePlus", ruleTarget.document.uri).get<string[]>("auto.exclude")!
-    await vscode.commands.executeCommand("commentTranslatePlus.addCurrentFileToAutoExclude")
-    await vscode.commands.executeCommand("commentTranslatePlus.addCurrentFileToAutoInclude")
+    await vscode.commands.executeCommand("commentTranslatePlus.auto.excludeCurrentFile")
+    await vscode.commands.executeCommand("commentTranslatePlus.auto.includeCurrentFile")
     const updatedRules = vscode.workspace.getConfiguration("commentTranslatePlus", ruleTarget.document.uri)
     const exclusions = updatedRules.get<string[]>("auto.exclude")!
     assert(exclusions.length === saved.length + 1 && exclusions.at(-1) === saved.at(-1), "Repeated exclusion did not append the current file again.")
@@ -1611,8 +1654,8 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     await vscode.commands.executeCommand("workbench.action.closeAllEditors")
     diffProvider.dispose()
   }
-  await config.update("activeProfile", "custom", vscode.ConfigurationTarget.Global)
-  await config.update("targetLanguage", "zh-CN", vscode.ConfigurationTarget.Global)
+  await config.update("service.activeProfile", "custom", vscode.ConfigurationTarget.Global)
+  await config.update("language.target", "zh-CN", vscode.ConfigurationTarget.Global)
   const custom = await open("custom-prompts.md", "markdown", "Read the original document.")
   await start(custom.document, 1)
   assert((await requests()).at(-1)?.customPrompts && (await requests()).at(-1)?.customLanguage, "Custom prompts or language names were overwritten.")
@@ -1620,10 +1663,10 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     validatedText(owner.browse.inspect(custom.document.uri)!.units[0].translation).includes("阅读原始文档") && !custom.document.isDirty,
     "Custom template did not translate through the real configuration chain."
   )
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   checks.push("fully custom system/user templates and per-profile language names reach the HTTP adapter without hidden instructions")
 
-  await config.update("activeProfile", "test", vscode.ConfigurationTarget.Global)
+  await config.update("service.activeProfile", "test", vscode.ConfigurationTarget.Global)
   const chinese = "这是已经写好的中文说明，不需要再次请求翻译服务。"
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(chinese))
   const fingerprint = [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, "0")).join("")
@@ -1633,7 +1676,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   await start(sameLanguage.document, 1)
   assert((await chineseRequests()) === beforeSameLanguage, "Target-language browse sent an HTTP request.")
   assert(owner.browse.inspect(sameLanguage.document.uri)!.units[0].translation === chinese, "Target-language browse changed the original.")
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   const sameHover = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", sameLanguage.document.uri, new vscode.Position(0, 5))
   assert(!values(sameHover).includes("[注释翻译+]") && (await chineseRequests()) === beforeSameLanguage, "Target-language hover requested or duplicated the original.")
   const samePreview = await vscode.workspace.openTextDocument(markdownPreviewUri(sameLanguage.document.uri))
@@ -1653,20 +1696,20 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     "Target-language preview requested translation or modified source."
   )
   await vscode.window.showTextDocument(sameLanguage.document, { viewColumn: vscode.ViewColumn.One, preserveFocus: false, preview: false })
-  await config.update("skipSameLanguage", false, vscode.ConfigurationTarget.Global)
+  await config.update("language.skipSameLanguage", false, vscode.ConfigurationTarget.Global)
   await start(sameLanguage.document, 1)
   assert((await chineseRequests()) === beforeSameLanguage + 1, "Disabling detection reused a skip result instead of requesting translation.")
-  await config.update("skipSameLanguage", true, vscode.ConfigurationTarget.Global)
+  await config.update("language.skipSameLanguage", true, vscode.ConfigurationTarget.Global)
   await waitFor(() => owner.browse.inspect(sameLanguage.document.uri)?.status === "ready", "restored language detection")
   assert((await chineseRequests()) === beforeSameLanguage + 1, "Restoring language detection discarded its cached result.")
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   checks.push("offline target-language detection skips browse, hover and preview HTTP, preserves source and isolates its disable switch in cache")
 
-  const previousScreeningTerms = config.inspect<readonly string[]>("preserveTerms")?.globalValue
+  const previousScreeningTerms = config.inspect<readonly string[]>("terms.sources")?.globalValue
   try {
     const termsFile = vscode.Uri.joinPath(workspace, "screening-terms.json")
     await vscode.workspace.fs.writeFile(termsFile, new TextEncoder().encode(JSON.stringify(["Widget", "Studio Edition"])))
-    await config.update("preserveTerms", [termsFile.toString()], vscode.ConfigurationTarget.Global)
+    await config.update("terms.sources", [termsFile.toString()], vscode.ConfigurationTarget.Global)
     const source = "这是 Widget 的使用说明，请阅读完整内容。\n\n这是 sourceId 的使用说明，请阅读完整内容。\n\n这是 Studio Edition 的使用说明，请阅读完整内容。"
     const screened = await open("screened-language.md", "markdown", source)
     const before = (await requests()).length
@@ -1676,10 +1719,10 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
       owner.browse.inspect(screened.document.uri)!.units.every((unit) => unit.translation === unit.text) && screened.document.getText() === source && !screened.document.isDirty,
       "Language screening changed the source or its local result."
     )
-    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
     checks.push("native preserve-term configuration and explicit identifiers allow mixed technical Chinese to complete without HTTP or source edits")
   } finally {
-    await config.update("preserveTerms", previousScreeningTerms, vscode.ConfigurationTarget.Global)
+    await config.update("terms.sources", previousScreeningTerms, vscode.ConfigurationTarget.Global)
   }
 
   const filteredSource = [
@@ -1712,7 +1755,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     filteredState.units.filter((unit) => unit.translation !== unit.text).length === 1 && filtered.document.getText() === filteredSource && !filtered.document.isDirty,
     "Request filtering changed technical content, duplicated Chinese prose or edited source."
   )
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   const afterFiltered = (await requests()).length
   const endpointHover = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", filtered.document.uri, new vscode.Position(4, 26))
   const chineseHover = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", filtered.document.uri, new vscode.Position(1, 8))
@@ -1773,7 +1816,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     "Identifier hover did not bypass the preserve term or duplicated an unchanged model result."
   )
   assert(identifiers.document.getText() === identifierSource && !identifiers.document.isDirty, "Identifier filtering edited the Markdown source.")
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   const identifierYamlSource = "read_only: sourceId\nendpoint: ./src/config.ts\nversion: v1.2.3\n"
   const identifierYaml = await open("identifier-filter.yaml", "yaml", identifierYamlSource)
   const yamlIdentifierCount = (await owner.documents.parse(identifierYaml.document)).groups.flatMap((group) => group.units).length
@@ -1783,7 +1826,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   const expectedYamlIdentifierItems = await Promise.all(["endpoint", "version"].map(requestFingerprint))
   assert(JSON.stringify(yamlIdentifierItems.sort()) === JSON.stringify(expectedYamlIdentifierItems.sort()), "YAML keys stopped translating or technical values reached HTTP.")
   assert(identifierYaml.document.getText() === identifierYamlSource && !identifierYaml.document.isDirty, "Identifier filtering edited YAML source.")
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   checks.push(
     "default terms preserve whole Markdown/YAML identifiers while technical values complete locally and prose and unmatched YAML keys translate; preview preserves terms, hover requests them and unchanged results do not duplicate source"
   )
@@ -1804,22 +1847,22 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     owner.browse.inspect(mixed.document.uri)!.units.filter((unit) => unit.translation !== unit.text).length === 1,
     "Mixed code failed to preserve skipped units or translate its foreign comment."
   )
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   await config.update("browse.strings", false, vscode.ConfigurationTarget.Global)
   checks.push("mixed code batches skip Chinese comments and string literals while sending only the foreign-language unit")
 
-  await config.update("sourceLanguage", "", vscode.ConfigurationTarget.Global)
+  await config.update("language.source", "", vscode.ConfigurationTarget.Global)
   const automaticSource = await open("automatic-source.md", "markdown", "Read the original document. Leave source language unspecified.")
   await start(automaticSource.document, 1)
   assert(
     (await requests()).at(-1)?.sourceDeclared === false && (await requests()).at(-1)?.target === "zh-CN",
     "Empty source did not omit its declaration while retaining a concrete target."
   )
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
-  await config.update("sourceLanguage", "en", vscode.ConfigurationTarget.Global)
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
+  await config.update("language.source", "en", vscode.ConfigurationTarget.Global)
   checks.push("empty source language uses automatic detection without a source prompt declaration and keeps an explicit resolved target")
 
-  await vscode.commands.executeCommand("commentTranslatePlus.showErrors")
+  await vscode.commands.executeCommand("commentTranslatePlus.logging.show")
   let output: vscode.TextDocument | undefined
   await waitFor(() => {
     output = vscode.workspace.textDocuments.find((document) => owner.documents.isOwnOutput(document))
@@ -1830,7 +1873,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   const fault = await open("failed-link.md", "markdown", faultSource)
   await fetch(origin + "/control", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ damageLink: true }) })
   try {
-    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
     await waitFor(() => owner.browse.inspect(fault.document.uri)?.status === "error", "specific partial link failure")
     const snapshot = owner.browse.inspect(fault.document.uri)!
     assert(snapshot.total === 3 && snapshot.units.length === 2 && snapshot.failedUnits.length === 1, "Partial failure hid completed work or miscounted unresolved units.")
@@ -1848,18 +1891,18 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     )
     assert(!failureLog.includes("system=") && !failureLog.includes("--- 原文与译文 ---"), "Default summary expanded full request contents.")
     const beforeShow = output!.getText()
-    await vscode.commands.executeCommand("commentTranslatePlus.showErrors")
-    await vscode.commands.executeCommand("commentTranslatePlus.showErrors")
+    await vscode.commands.executeCommand("commentTranslatePlus.logging.show")
+    await vscode.commands.executeCommand("commentTranslatePlus.logging.show")
     assert(output!.getText() === beforeShow, "Opening diagnostics printed the same failures again.")
   } finally {
     await fetch(origin + "/control", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ damageLink: false }) })
   }
   const beforeRepair = (await requests()).length
-  await vscode.commands.executeCommand("commentTranslatePlus.retry")
+  await vscode.commands.executeCommand("commentTranslatePlus.document.retry")
   await waitFor(() => owner.browse.inspect(fault.document.uri)?.status === "ready" && owner.browse.inspect(fault.document.uri)?.units.length === 3, "repair only the failed link")
   assert((await requests()).length === beforeRepair + 1 && (await requests()).at(-1)?.count === 1, "Retry requested completed neighbours.")
   assert(fault.document.getText() === faultSource && !fault.document.isDirty, "Failure reporting modified the source.")
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   checks.push("partial failure logs once with the exact source line and missing link delimiter; diagnostics stays quiet and retry requests only the unresolved unit")
 
   for (const mode of ["once", "always"]) {
@@ -1873,7 +1916,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     const before = (await requests()).length
     await fetch(origin + "/control", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ referenceContamination: mode }) })
     try {
-      await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+      await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
       await waitFor(() => owner.browse.inspect(contamination.document.uri)?.status === (mode === "once" ? "ready" : "error"), "reference contamination recovery " + mode)
       const snapshot = owner.browse.inspect(contamination.document.uri)!
       const sent = (await requests()).slice(before).filter((request) => request.itemFingerprints?.includes(fingerprint))
@@ -1907,16 +1950,16 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     }
     if (mode === "always") {
       const beforeRepair = (await requests()).length
-      await vscode.commands.executeCommand("commentTranslatePlus.retry")
+      await vscode.commands.executeCommand("commentTranslatePlus.document.retry")
       await waitFor(() => owner.browse.inspect(contamination.document.uri)?.status === "ready", "manual reference contamination recovery")
       const repairs = (await requests()).slice(beforeRepair).filter((request) => request.itemFingerprints?.includes(fingerprint))
       assert(repairs.length === 1 && repairs[0].count === 1, "Contamination entered the cache or manual recovery retried a completed neighbour.")
     }
-    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
     const beforeReuse = (await requests()).length
     await start(contamination.document, 2)
     assert((await requests()).length === beforeReuse, "The validated source-only recovery was not reused from cache.")
-    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
     checks.push("reference contamination " + mode + " reports added code, preserves source and neighbours, and caches only validated recovery")
   }
 
@@ -1925,7 +1968,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   const beforeLeak = (await requests()).length
   await fetch(origin + "/control", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ leakDiagnostics: true }) })
   try {
-    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
     await waitFor(() => owner.browse.inspect(leakDocument.document.uri)?.status === "error", "translated retry diagnostics are rejected")
     const snapshot = owner.browse.inspect(leakDocument.document.uri)!
     assert(snapshot.units.length === 0 && snapshot.failedUnits.length === 1, "Translated diagnostics appeared as a completed browse result.")
@@ -1938,16 +1981,16 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     await fetch(origin + "/control", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ leakDiagnostics: false }) })
   }
   const beforeLeakRepair = (await requests()).length
-  await vscode.commands.executeCommand("commentTranslatePlus.retry")
+  await vscode.commands.executeCommand("commentTranslatePlus.document.retry")
   await waitFor(() => owner.browse.inspect(leakDocument.document.uri)?.status === "ready", "retry after diagnostic leakage")
   assert(
     (await requests()).length === beforeLeakRepair + 1 && validatedText(owner.browse.inspect(leakDocument.document.uri)!.units[0].translation).includes("阅读原始文档"),
     "An invalid diagnostic was cached instead of repaired."
   )
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   checks.push("translated retry diagnostics never enter browse results or cache; exhaustion preserves source and manual retry repairs only the failed target")
 
-  await updateObserved("logDetails", true)
+  await updateObserved("logging.details", true)
   const detailed = await open("detailed-log.md", "markdown", "Read the original document. Inspect this request in detail.")
   const currentDetails = () =>
     output!
@@ -1957,13 +2000,13 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
       .join("")
   await fetch(origin + "/control", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ broken: true }) })
   try {
-    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
     await waitFor(() => owner.browse.inspect(detailed.document.uri)?.status === "error", "detailed retry exhaustion")
     await waitFor(() => currentDetails().includes("detailed-log.md · 翻译失败"), "exhausted task reaches the native output document before manual recovery")
   } finally {
     await fetch(origin + "/control", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ broken: false }) })
   }
-  await vscode.commands.executeCommand("commentTranslatePlus.retry")
+  await vscode.commands.executeCommand("commentTranslatePlus.document.retry")
   await waitFor(() => owner.browse.inspect(detailed.document.uri)?.status === "ready" && owner.browse.inspect(detailed.document.uri)?.units.length === 1, "detailed retry recovery")
   try {
     await waitFor(() => {
@@ -1988,7 +2031,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     "The four model responses or two independent retry diagnostics were hidden."
   )
   assert(detailLog.includes("阅读原始文档") && !detailLog.includes("--- 原文与译文 ---"), "Enabled details omitted the model response or repeated source/translation pairs.")
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   const cancelledSource = "Read the original document. Inspect cancellation details."
   const cancelledDetail = await open("cancelled-detail.md", "markdown", cancelledSource)
   const cancelledStart = output!.getText().length
@@ -1997,7 +2040,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   try {
     const pending = vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", cancelledDetail.document.uri, new vscode.Position(0, 6))
     await waitFor(async () => (await requests()).length === cancelledRequest + 1, "detailed hover starts HTTP")
-    await vscode.commands.executeCommand("commentTranslatePlus.cancel")
+    await vscode.commands.executeCommand("commentTranslatePlus.translation.cancel")
     await waitFor(async () => (await requests())[cancelledRequest]?.cancelled === true, "detailed hover aborts HTTP")
     assert(!values(await pending).includes("[注释翻译+]"), "Cancelled detail hover returned a stale translation.")
     await waitFor(() => output!.getText().slice(cancelledStart).includes("cancelled-detail.md · 任务已取消"), "cancelled request reaches the native output document")
@@ -2009,7 +2052,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     await control(false)
   }
   checks.push("cancelled native hover retains cancellation origin and HTTP stage without source/translation pairs or stale translation")
-  await config.update("logDetails", false, vscode.ConfigurationTarget.Global)
+  await config.update("logging.details", false, vscode.ConfigurationTarget.Global)
   checks.push("opt-in request details define repeated system prompts once across retries/tasks, preserve user inputs and pair sources with restored results")
 
   const outputEditor = await vscode.window.showTextDocument(output!, { viewColumn: vscode.ViewColumn.One, preview: false })
@@ -2028,7 +2071,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   await vscode.commands.executeCommand("workbench.action.closeActiveEditor")
   checks.push("selection and documentation hover never translate the extension's own output document")
 
-  await updateObserved("activeProfile", "unchanged")
+  await updateObserved("service.activeProfile", "unchanged")
   const unchangedHoverSource = "Read the original document.\r\nContinue reading.\r\n\r\nKeep `sourceId` unchanged."
   const unchangedHover = await open("unchanged-hover.md", "markdown", unchangedHoverSource)
   const unchangedHoverAt = new vscode.Position(0, 5)
@@ -2108,13 +2151,13 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
         JSON.stringify(new TextDecoder().decode(await vscode.workspace.fs.readFile(unchangedPreview.uri)))
     )
   }
-  await vscode.commands.executeCommand("commentTranslatePlus.retry")
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  await vscode.commands.executeCommand("commentTranslatePlus.document.retry")
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   await start(unchanged.document, 4)
   assert((await requests()).length === unchangedRequests, "Retry, preview or stop/start re-requested successful unchanged results.")
   assert(unchanged.document.getText() === unchangedSource && !unchanged.document.isDirty, "Unchanged translation handling modified source.")
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
-  await config.update("activeProfile", "test", vscode.ConfigurationTarget.Global)
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
+  await config.update("service.activeProfile", "test", vscode.ConfigurationTarget.Global)
   checks.push("unchanged and representation-only responses complete normally, create no rows or duplicate hovers, preserve preview/source and stay cached across controls")
 
   await waitFor(
@@ -2130,12 +2173,12 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     pendingPreview = await vscode.workspace.openTextDocument(markdownPreviewUri(pendingDocument.document.uri))
     await waitFor(() => pendingPreview.getText().includes('role="progressbar"'), "inline preview loading markers")
     assert(!pendingPreview.getText().includes("> 正在翻译"), "Preview contains a top loading banner.")
-    await vscode.commands.executeCommand("commentTranslatePlus.cancel")
+    await vscode.commands.executeCommand("commentTranslatePlus.translation.cancel")
     await waitFor(() => !pendingPreview.getText().includes('role="progressbar"') && pendingPreview.getText().includes("翻译已取消"), "cancel removes preview markers")
   } finally {
     await fetch(origin + "/control", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ hold: false }) })
   }
-  await vscode.commands.executeCommand("commentTranslatePlus.preview")
+  await vscode.commands.executeCommand("commentTranslatePlus.preview.open")
   await waitFor(() => pendingPreview.getText().includes("阅读原始文档") && !pendingPreview.getText().includes('role="progressbar"'), "reopening cancelled preview completes")
   await fetch(origin + "/control", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ broken: true }) })
   try {
@@ -2161,14 +2204,14 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   const replacementAt = new vscode.Position(1, 10)
   const replacementAction = async (document = replacement.document, position = replacementAt) => {
     const hovers = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", document.uri, position)
-    const header = hovers.flatMap((hover) => hover.contents).find((item) => typeof item !== "string" && item.value.includes("command:commentTranslatePlus.replaceHover")) as
+    const header = hovers.flatMap((hover) => hover.contents).find((item) => typeof item !== "string" && item.value.includes("command:commentTranslatePlus.replacement.applyHover")) as
       | vscode.MarkdownString
       | undefined
     assert(header && typeof header.isTrusted === "object" && header.isTrusted.enabledCommands.length === 1, "Source hover did not expose one narrowly trusted replace command.")
     assert((header.value.match(/command:/g) ?? []).length === 1, "Source hover contains unrelated actions.")
-    const query = header.value.match(/command:commentTranslatePlus\.replaceHover\?([^ )"]+)/)?.[1]
+    const query = header.value.match(/command:commentTranslatePlus\.replacement\.applyHover\?([^ )"]+)/)?.[1]
     assert(query, "Replacement action is missing its snapshot arguments.")
-    const command = vscode.Uri.parse("command:commentTranslatePlus.replaceHover?" + query)
+    const command = vscode.Uri.parse("command:commentTranslatePlus.replacement.applyHover?" + query)
     let args: unknown
     // Use the same URI/JSON boundary as native command links, including VS Code's fallback for literal percent text.
     try {
@@ -2180,27 +2223,27 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   }
   const action = await replacementAction()
   const beforeReplace = (await requests()).length
-  assert(await vscode.commands.executeCommand("commentTranslatePlus.replaceHover", action), "Hover replace failed.")
+  assert(await vscode.commands.executeCommand("commentTranslatePlus.replacement.applyHover", action), "Hover replace failed.")
   assert(replacement.document.getText() === replacementSource.replace("Read the original document.", "阅读原始文档。"), "Hover replace changed unrelated code or comment syntax.")
   assert((await requests()).length === beforeReplace, "Clicking replace requested translation again.")
   await vscode.commands.executeCommand("undo")
   await waitFor(() => replacement.document.getText() === replacementSource, "native undo for hover replacement")
   assert(
-    (await vscode.commands.executeCommand("commentTranslatePlus.replaceHover", action)) === false && replacement.document.getText() === replacementSource,
+    (await vscode.commands.executeCommand("commentTranslatePlus.replacement.applyHover", action)) === false && replacement.document.getText() === replacementSource,
     "A stale hover wrote into a newer document version."
   )
   const freshAction = await replacementAction()
   assert(
-    (await vscode.commands.executeCommand("commentTranslatePlus.replaceHover", { ...freshAction, start: 0, end: 0, source: "" })) === false &&
+    (await vscode.commands.executeCommand("commentTranslatePlus.replacement.applyHover", { ...freshAction, start: 0, end: 0, source: "" })) === false &&
       replacement.document.getText() === replacementSource,
     "Replacement accepted an empty source range as an insertion."
   )
-  await config.update("targetLanguage", "fr", vscode.ConfigurationTarget.Global)
+  await config.update("language.target", "fr", vscode.ConfigurationTarget.Global)
   assert(
-    (await vscode.commands.executeCommand("commentTranslatePlus.replaceHover", freshAction)) === false && replacement.document.getText() === replacementSource,
+    (await vscode.commands.executeCommand("commentTranslatePlus.replacement.applyHover", freshAction)) === false && replacement.document.getText() === replacementSource,
     "A stale configuration snapshot replaced source."
   )
-  await config.update("targetLanguage", "zh-CN", vscode.ConfigurationTarget.Global)
+  await config.update("language.target", "zh-CN", vscode.ConfigurationTarget.Global)
   const readonlyUri = vscode.Uri.parse("hover-readonly:/readonly.ts")
   const readonlyProvider = vscode.workspace.registerTextDocumentContentProvider("hover-readonly", { provideTextDocumentContent: () => replacementSource })
   try {
@@ -2208,11 +2251,11 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     await vscode.window.showTextDocument(readonlyDocument, { viewColumn: vscode.ViewColumn.One, preserveFocus: false, preview: false })
     const readonlyHover = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", readonlyUri, replacementAt)
     assert(
-      values(readonlyHover).includes("阅读原始文档") && !values(readonlyHover).includes("command:commentTranslatePlus.replaceHover"),
+      values(readonlyHover).includes("阅读原始文档") && !values(readonlyHover).includes("command:commentTranslatePlus.replacement.applyHover"),
       "Readonly hover exposed an unusable replace action."
     )
     assert(
-      (await vscode.commands.executeCommand("commentTranslatePlus.replaceHover", { ...freshAction, uri: readonlyUri.toString(), version: readonlyDocument.version })) === false,
+      (await vscode.commands.executeCommand("commentTranslatePlus.replacement.applyHover", { ...freshAction, uri: readonlyUri.toString(), version: readonlyDocument.version })) === false,
       "Readonly document accepted replacement."
     )
     assert(readonlyDocument.getText() === replacementSource && !readonlyDocument.isDirty, "Readonly replacement modified the document.")
@@ -2237,7 +2280,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     )
     const promptAction = await replacementAction(target.document, new vscode.Position(1, 25))
     const beforePromptReplace = (await requests()).length
-    assert(await vscode.commands.executeCommand("commentTranslatePlus.replaceHover", promptAction), "Visible inactive prompt replacement failed for " + JSON.stringify(newline))
+    assert(await vscode.commands.executeCommand("commentTranslatePlus.replacement.applyHover", promptAction), "Visible inactive prompt replacement failed for " + JSON.stringify(newline))
     assert(target.document.getText() === source.replace(promptSource, promptTranslation), "Prompt replacement changed placeholders, surrounding code or line endings.")
     assert(neighbor.getText() === "Unrelated editor must stay unchanged.", "Replacement modified the focused neighbor editor.")
     assert((await requests()).length === beforePromptReplace, "Prompt replacement requested translation again.")
@@ -2249,7 +2292,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   const hiddenAction = await replacementAction(hidden.document, new vscode.Position(0, 10))
   const neighbor = await open("hover-neighbor.md", "markdown", "Unrelated editor must stay unchanged.")
   await waitFor(() => !vscode.window.visibleTextEditors.some((editor) => editor.document === hidden.document), "hidden replacement target")
-  assert((await vscode.commands.executeCommand("commentTranslatePlus.replaceHover", hiddenAction)) === false, "An invisible source accepted a hover replacement.")
+  assert((await vscode.commands.executeCommand("commentTranslatePlus.replacement.applyHover", hiddenAction)) === false, "An invisible source accepted a hover replacement.")
   assert(hidden.document.getText() === "Read the original document." && neighbor.document.getText() === "Unrelated editor must stay unchanged.", "Hidden replacement changed a document.")
   const hiddenTabs = vscode.window.tabGroups.all.flatMap((group) => group.tabs).filter((tab) => tab.input instanceof vscode.TabInputText && tab.input.uri.toString() === hiddenAction.uri)
   assert(hiddenTabs.length > 0 && (await vscode.window.tabGroups.close(hiddenTabs)), "The source tab could not be closed.")
@@ -2257,7 +2300,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     () => !vscode.window.tabGroups.all.some((group) => group.tabs.some((tab) => tab.input instanceof vscode.TabInputText && tab.input.uri.toString() === hiddenAction.uri)),
     "closed replacement tab"
   )
-  assert((await vscode.commands.executeCommand("commentTranslatePlus.replaceHover", hiddenAction)) === false, "A closed source accepted a hover replacement.")
+  assert((await vscode.commands.executeCommand("commentTranslatePlus.replacement.applyHover", hiddenAction)) === false, "A closed source accepted a hover replacement.")
   checks.push("hover replacement keeps encoded URI and percent content intact while hidden and closed sources remain rejected")
 
   await config.update("hover.comments", false, vscode.ConfigurationTarget.Global)
@@ -2271,7 +2314,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
       | vscode.MarkdownString
       | undefined
     assert(
-      translated && !translated.isTrusted && !translated.value.includes("command:commentTranslatePlus.replaceHover"),
+      translated && !translated.isTrusted && !translated.value.includes("command:commentTranslatePlus.replacement.applyHover"),
       "Translated documentation lost native Markdown formatting or gained a source edit action."
     )
     assert(richDocumentation.value.startsWith("**Read the original document.**"), "Translation mutated the original language-service documentation.")
@@ -2318,12 +2361,12 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     (await requests()).length === protectedRequests && protectedDocument.document.getText() === protectedSource && !protectedDocument.document.isDirty,
     "Protection broke shared cache or changed source."
   )
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   checks.push(
     "short placeholders restore reordered code, literal marker text and paired formatting with added inner spaces/tabs across browse, hover and native preview without re-requesting or changing source"
   )
-  const beforeScalarTerms = config.inspect<readonly string[]>("preserveTerms")?.globalValue
-  await config.update("preserveTerms", [], vscode.ConfigurationTarget.Global)
+  const beforeScalarTerms = config.inspect<readonly string[]>("terms.sources")?.globalValue
+  await config.update("terms.sources", [], vscode.ConfigurationTarget.Global)
   try {
     const scalarSource = new TextDecoder().decode(await vscode.workspace.fs.readFile(vscode.Uri.joinPath(workspace, "examples/development/scalars-and-table.md")))
     const scalarDocument = await open("scalar-display.md", "markdown", scalarSource)
@@ -2345,7 +2388,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
       (await requests()).length === scalarRequests && scalarDocument.document.getText() === scalarSource && !scalarDocument.document.isDirty,
       "Scalar/table display changed source or discarded shared cache."
     )
-    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
     checks.push("YAML keys and scalar values translate independently, native values stay local, fields/tables share rows and previews preserve original pipes using shared cache")
 
     const yamlFieldsSource = "name: data-analysis\nmetadata:\n  availability: active\n  default_enabled: true\n  read_only: false\n  required: false"
@@ -2367,7 +2410,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     const beforeYamlBlock = (await requests()).length
     const preservedYaml = owner.browse.inspect(yamlFieldsDocument.document.uri)!.units.filter((unit) => unit.display?.start !== 0)
     yamlFieldsDocument.editor.selection = new vscode.Selection(0, 0, 1, 0)
-    assert(await vscode.commands.executeCommand<boolean>("commentTranslatePlus.retranslateBlock"), "YAML block retranslation was not accepted.")
+    assert(await vscode.commands.executeCommand<boolean>("commentTranslatePlus.browse.retranslateBlock"), "YAML block retranslation was not accepted.")
     await waitFor(() => owner.browse.inspect(yamlFieldsDocument.document.uri)?.status === "ready", "YAML block retranslation")
     const yamlBlockRequests = (await requests()).slice(beforeYamlBlock)
     assert(yamlBlockRequests.reduce((sum, request) => sum + (request.count ?? 0), 0) === 2, "YAML block retranslation did not target exactly the field key and value.")
@@ -2382,34 +2425,34 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     const yamlHover = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", yamlFieldsDocument.document.uri, new vscode.Position(0, 2))
     assert(values(yamlHover).includes("名称"), "Standalone YAML hover did not resolve its scalar unit.")
     yamlFieldsDocument.editor.selection = new vscode.Selection(0, 2, 0, 2)
-    assert(await vscode.commands.executeCommand<boolean>("commentTranslatePlus.translateAndReplace"), "Standalone YAML cursor replacement failed.")
+    assert(await vscode.commands.executeCommand<boolean>("commentTranslatePlus.replacement.translate"), "Standalone YAML cursor replacement failed.")
     assert(yamlFieldsDocument.document.getText() === yamlFieldsSource.replace("name", '"名称"'), "Standalone YAML replacement changed native values or unrelated fields.")
     assert((await requests()).length === yamlRequests, "Standalone YAML hover or replacement discarded the scalar cache.")
     await vscode.commands.executeCommand("undo")
     assert(yamlFieldsDocument.document.getText() === yamlFieldsSource, "Standalone YAML replacement could not be undone.")
-    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
     checks.push("standalone YAML reading preserves colons and true/false values; scalar hover and cursor replacement reuse cache and support undo")
   } finally {
-    await config.update("preserveTerms", beforeScalarTerms, vscode.ConfigurationTarget.Global)
+    await config.update("terms.sources", beforeScalarTerms, vscode.ConfigurationTarget.Global)
   }
 
   const invalidYaml = await open("invalid-yaml.yml", "yaml", "name: [invalid")
   const beforeInvalidYaml = (await requests()).length
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   await waitFor(() => owner.browse.inspect(invalidYaml.document.uri)?.status === "error", "invalid standalone YAML")
   assert(
     owner.browse.inspect(invalidYaml.document.uri)!.errors.includes("yaml-invalid") && (await requests()).length === beforeInvalidYaml,
     "Invalid YAML fell back to string translation."
   )
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   checks.push("invalid standalone YAML retains source, reports a parsing error and sends no translation request")
 
   const foldedSource = "---\ndescription: >-\n  Read the original document.\n---"
   const foldedDocument = await open("folded-scalar.md", "markdown", foldedSource)
-  await updateObserved("logDetails", true)
+  await updateObserved("logging.details", true)
   const foldedLogStart = output!.getText().length
   await start(foldedDocument.document, 2)
-  await vscode.commands.executeCommand("commentTranslatePlus.retranslate")
+  await vscode.commands.executeCommand("commentTranslatePlus.document.retranslate")
   await waitFor(() => {
     const text = output!.getText().slice(foldedLogStart)
     return text.includes("folded-scalar.md · 任务完成") && text.includes("--- assistant（finish_reason=stop） ---") && text.includes("阅读原始文档。")
@@ -2427,17 +2470,17 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     "YAML diagnostics lost the referenced system definition or original field syntax in the request."
   )
   assert(!foldedLog.includes("--- 原文与译文 ---"), "YAML diagnostics repeated source and translation pairs.")
-  await updateObserved("logDetails", false)
+  await updateObserved("logging.details", false)
   checks.push("YAML request diagnostics show model responses without source/translation pairs while references retain original block syntax")
   const foldedHover = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", foldedDocument.document.uri, new vscode.Position(2, 4))
   const foldedText = values(foldedHover)
   assert(foldedText.includes("阅读原始文档。") && !foldedText.includes(">-"), "Folded scalar hover retained its serialization header or lost its value.")
   assert(foldedDocument.document.getText() === foldedSource && !foldedDocument.document.isDirty, "Folded scalar display changed the source.")
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   checks.push("folded YAML block values show complete translated hover text without the >- header or source edits")
 
   await config.update("hover.enabled", false, vscode.ConfigurationTarget.Global)
-  const replaceCommand = () => vscode.commands.executeCommand<boolean>("commentTranslatePlus.translateAndReplace")
+  const replaceCommand = () => vscode.commands.executeCommand<boolean>("commentTranslatePlus.replacement.translate")
   const selectedSource = "const before = 1;\r\n// prefix Read the original document. suffix %20\r\nconst after = 2;"
   const selectedTarget = await open("command replacement (中文 %25).ts", "typescript", selectedSource)
   selectedTarget.editor.selection = new vscode.Selection(1, 10, 1, 37)
@@ -2492,7 +2535,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   const cachedCommandRequests = (await requests()).length
   assert((await replaceCommand()) && (await requests()).length === cachedCommandRequests, "A ready cursor unit ignored its browse translation.")
   assert(cachedCommand.document.getText() === "阅读原始文档。 CachedCommand", "Cached command translation did not replace its source.")
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   await vscode.commands.executeCommand("undo")
   await waitFor(() => cachedCommand.document.getText() === "Read the original document. CachedCommand", "browse cache command undo")
   const failedCommand = await open("command-invalid-result.md", "markdown", "Read the original document. InvalidCommand")
@@ -2526,7 +2569,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   } finally {
     readonlyCommandProvider.dispose()
   }
-  await updateObserved("activeProfile", "unchanged")
+  await updateObserved("service.activeProfile", "unchanged")
   const unchangedCommand = await open("command-unchanged.md", "markdown", "AcmeSDK keeps its original product name.")
   const unchangedVersion = unchangedCommand.document.version
   assert((await replaceCommand()) && unchangedCommand.document.version === unchangedVersion && !unchangedCommand.document.isDirty, "An unchanged command result created an edit.")
@@ -2549,10 +2592,10 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
         requests: afterUnchangedCommand.slice(unchangedCommandRequests)
       })
   )
-  await config.update("activeProfile", "test", vscode.ConfigurationTarget.Global)
+  await config.update("service.activeProfile", "test", vscode.ConfigurationTarget.Global)
   checks.push("translate-and-replace rejects code cursors, blank/multiple selections and readonly targets offline; unchanged results succeed without edits and stay cached")
 
-  for (const reason of ["edit", "profile", "cancel", "hidden"] as const) {
+  for (const reason of ["edit", "profile", "translation.cancel", "hidden"] as const) {
     const source = "Read the original document. CommandStale " + reason
     const target = await open("command-stale-" + reason + ".md", "markdown", source)
     const beforeRequest = (await requests()).length
@@ -2561,15 +2604,15 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
       const pending = replaceCommand()
       await waitFor(async () => (await requests()).length > beforeRequest, reason + " command HTTP started")
       if (reason === "edit") assert(await target.editor.edit((edit) => edit.insert(new vscode.Position(0, 0), "User edit. ")), "Pending command edit failed.")
-      else if (reason === "profile") await config.update("activeProfile", "other", vscode.ConfigurationTarget.Global)
-      else if (reason === "cancel") await vscode.commands.executeCommand("commentTranslatePlus.cancel")
+      else if (reason === "profile") await config.update("service.activeProfile", "other", vscode.ConfigurationTarget.Global)
+      else if (reason === "translation.cancel") await vscode.commands.executeCommand("commentTranslatePlus.translation.cancel")
       else await open("command-neighbor.md", "markdown", "Neighbor remains unchanged.")
       await control(false)
       assert((await pending) === false, "An invalidated command replaced source: " + reason)
       assert(target.document.getText() === (reason === "edit" ? "User edit. " + source : source), "A late command wrote stale translation: " + reason)
     } finally {
       await control(false)
-      if (reason === "profile") await config.update("activeProfile", "test", vscode.ConfigurationTarget.Global)
+      if (reason === "profile") await config.update("service.activeProfile", "test", vscode.ConfigurationTarget.Global)
     }
   }
   checks.push("pending translate-and-replace discards edited, reconfigured, cancelled or hidden source snapshots")
@@ -2661,10 +2704,10 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   const scopedReference = await open("scoped-unit-references.md", "markdown", scopedSource)
   const scopedUnits = (await owner.documents.parse(scopedReference.document, true)).groups.flatMap((group) => group.units)
   assert(scopedUnits.length === 9, "The real TypeScript grammar did not extract the fenced string.")
-  const previousScopedAdaptive = config.get<boolean>("adaptiveBatching")
-  const previousScopedItems = config.get<number>("initialItemsPerRequest")
-  await updateObserved("adaptiveBatching", false)
-  await updateObserved("initialItemsPerRequest", 20)
+  const previousScopedAdaptive = config.get<boolean>("request.adaptiveBatching")
+  const previousScopedItems = config.get<number>("request.initialItems")
+  await updateObserved("request.adaptiveBatching", false)
+  await updateObserved("request.initialItems", 20)
   try {
     const beforeScopedReference = (await requests()).length
     const scopedResult = await owner.translations.translate(scopedReference.document, { units: scopedUnits }, new AbortController().signal)
@@ -2683,8 +2726,8 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     )
     assert(scopedReference.document.getText() === scopedSource && !scopedReference.document.isDirty, "Reference selection modified source.")
   } finally {
-    await updateObserved("adaptiveBatching", previousScopedAdaptive)
-    await updateObserved("initialItemsPerRequest", previousScopedItems)
+    await updateObserved("request.adaptiveBatching", previousScopedAdaptive)
+    await updateObserved("request.initialItems", previousScopedItems)
   }
   const previousHoverStrings = config.get<boolean>("hover.strings")
   await config.update("hover.strings", true, vscode.ConfigurationTarget.Global)
@@ -2735,7 +2778,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   )
   assert(introduction.document.getText() === introductionSource && !introduction.document.isDirty, "Heading reference selection changed source.")
   checks.push("single-target hover prioritizes local meaning under budget and uses a heading's immediate introduction without modifying source")
-  await updateObserved("maxContextCharacters", 0)
+  await updateObserved("request.maxContextCharacters", 0)
   const disabledReference = await open("hover-reference-disabled.md", "markdown", "# Another useful title\n\nRead the original document. ContextDisabledHover")
   const beforeDisabledReference = (await requests()).length
   assert(
@@ -2745,20 +2788,20 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   const disabledFingerprint = await requestFingerprint("Read the original document. ContextDisabledHover")
   const disabledRequests = (await requests()).slice(beforeDisabledReference).filter((request) => request.inputFingerprint === disabledFingerprint)
   assert(disabledRequests.length === 1 && disabledRequests[0].count === 1 && disabledRequests[0].referenceIncluded === false, "Zero reference budget still submitted reference content.")
-  await updateObserved("maxContextCharacters", 2000)
+  await updateObserved("request.maxContextCharacters", 2000)
   checks.push("hover sends only its target, omits duplicate source references, retains a distinct title and obeys final input/reference budgets including zero")
   const policy = {
-    adaptiveBatching: false,
-    batchBySemanticScope: false,
-    initialItemsPerRequest: 2,
-    initialRequestCharacters: 10000,
-    batchGrowthSuccesses: 1,
-    batchGrowthItems: 2,
-    batchGrowthFactor: 1.5,
-    batchShrinkFactor: 0.25,
-    maxTranslationAttempts: 2,
-    includeContext: true,
-    maxConcurrentRequests: 1
+    "request.adaptiveBatching": false,
+    "request.batchBySemanticScope": false,
+    "request.initialItems": 2,
+    "request.initialCharacters": 10000,
+    "request.batchGrowthSuccesses": 1,
+    "request.batchGrowthItems": 2,
+    "request.batchGrowthFactor": 1.5,
+    "request.batchShrinkFactor": 0.25,
+    "request.maxAttempts": 2,
+    "request.includeContext": true,
+    "request.maxConcurrent": 1
   }
   const previous = Object.fromEntries(Object.keys(policy).map((key) => [key, config.get(key)]))
   try {
@@ -2788,7 +2831,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     )
     const referenceRequests = (await requests()).slice(beforeReference).filter((request) => request.inputFingerprint === fingerprint)
     assert(referenceRequests.length === 1 && referenceRequests[0].contextCharacters === longTitle.length, "A configured unit reference above 1000 characters was still discarded.")
-    await updateObserved("includeContext", false)
+    await updateObserved("request.includeContext", false)
     const beforeDisabledUnit = (await requests()).length
     assert(
       values(await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", referenceTarget.document.uri, new vscode.Position(2, 10))).includes("阅读原始文档"),
@@ -2824,7 +2867,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     values(shellHover).includes("阅读原始文档。") && (await requests()).length === shellsBeforeHover && shells.document.getText() === shellsSource && !shells.document.isDirty,
     "Hover or preview lost local wrappers, bypassed cache or edited source."
   )
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   checks.push("local quote, emphasis and link shells share restored browse, hover and Markdown preview results without source edits")
 
   await config.update("hover.documentation", false, vscode.ConfigurationTarget.Global)
@@ -2856,7 +2899,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   const prefixPreview = await vscode.workspace.openTextDocument(markdownPreviewUri(prefixes.document.uri))
   await waitFor(() => prefixPreview.getText() === "- 读取任务/上下文字段。\r\n\r\n2. 读取输入/输出字段。", "locally restored list prefix preview")
   assert(prefixes.document.getText() === prefixSource && !prefixes.document.isDirty, "Prefix recovery edited the original document.")
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   checks.push(
     "Markdown selection hover omits list prefixes, repairs echoed markers and caches Chinese slash prose; browse and preview retain original ordered numbering without source edits"
   )
@@ -2932,14 +2975,14 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     )
     const comment = units.find((unit) => unit.kind === "comment")!
     target.editor.selection = new vscode.Selection(target.document.positionAt(comment.start + 4), target.document.positionAt(comment.start + 4))
-    assert(await vscode.commands.executeCommand("commentTranslatePlus.translateAndReplace"), "Fenced comment cursor replacement was rejected by whole-document validation.")
+    assert(await vscode.commands.executeCommand("commentTranslatePlus.replacement.translate"), "Fenced comment cursor replacement was rejected by whole-document validation.")
     assert(
       target.document.getText() === source.slice(0, comment.start) + comment.text.replace("Read the original document.", "阅读原始文档。") + source.slice(comment.end),
       "Fenced replacement changed its container or neighbouring code."
     )
     await vscode.commands.executeCommand("undo")
     await waitFor(() => target.document.getText() === source && !target.document.isDirty, "embedded replacement undo")
-    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
     await config.update("browse.comments", false, vscode.ConfigurationTarget.Global)
     await config.update("browse.strings", true, vscode.ConfigurationTarget.Global)
     const strings = (await owner.documents.parse(target.document)).groups.flatMap((group) => group.units)
@@ -2956,7 +2999,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
       "Enabled fenced strings were not translated."
     )
     assert(target.document.getText() === source && !target.document.isDirty, "Embedded reading or preview wrote to the source.")
-    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
     await config.update("browse.comments", true, vscode.ConfigurationTarget.Global)
     await config.update("browse.strings", false, vscode.ConfigurationTarget.Global)
   }
@@ -2984,8 +3027,8 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   for (const model of ["language-review-fixture", "language-choice-fixture", "language-recovery-fixture"]) {
     const scenarioSource = reviewSource + " Review scenario: " + model + "."
     const fingerprint = await requestFingerprint(scenarioSource)
-    await config.update("profiles", [{ id: "review", provider: "openai", apiUrl: origin + "/v1/chat/completions", model, apiKey: "mock-test" }], vscode.ConfigurationTarget.Global)
-    await config.update("activeProfile", "review", vscode.ConfigurationTarget.Global)
+    await config.update("service.profiles", [{ id: "review", provider: "openai", apiUrl: origin + "/v1/chat/completions", model, apiKey: "mock-test" }], vscode.ConfigurationTarget.Global)
+    await config.update("service.activeProfile", "review", vscode.ConfigurationTarget.Global)
     const target = await open(model + ".md", "markdown", scenarioSource)
     const before = (await requests()).length
     await start(target.document, 1)
@@ -3001,29 +3044,29 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
       "A soft language review forced a rewrite or lost the corrected translation."
     )
     assert(target.document.getText() === scenarioSource && !target.document.isDirty, "Language review modified source.")
-    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
     await start(target.document, 1)
     assert(
       (await requests()).slice(before).filter((request) => request.model === model && request.inputFingerprint === fingerprint).length === attempts,
       "A reviewed result was not cached."
     )
-    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   }
   checks.push(
     "language recovery uses compact single-item feedback, retains unchanged wording, retries English rewrites until corrected and caches only accepted results without editing source"
   )
 
   await config.update(
-    "profiles",
+    "service.profiles",
     [{ id: "rewrite", provider: "openai", apiUrl: origin + "/v1/chat/completions", model: "language-rewrite-fixture", apiKey: "mock-test" }],
     vscode.ConfigurationTarget.Global
   )
-  await config.update("activeProfile", "rewrite", vscode.ConfigurationTarget.Global)
+  await config.update("service.activeProfile", "rewrite", vscode.ConfigurationTarget.Global)
   const rewriteSource = reviewSource + " Review scenario: repeated rewrite."
   const rewriteFingerprint = await requestFingerprint(rewriteSource)
   const rewriteTarget = await open("language-rewrite.md", "markdown", rewriteSource)
   const beforeRewrite = (await requests()).length
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   await waitFor(() => owner.browse.inspect(rewriteTarget.document.uri)?.status === "ready", "other-language rewrites finish with a candidate")
   const rewriteState = owner.browse.inspect(rewriteTarget.document.uri)!
   const rewriteSent = (await requests()).slice(beforeRewrite).filter((request) => request.model === "language-rewrite-fixture" && request.inputFingerprint === rewriteFingerprint)
@@ -3036,7 +3079,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     "A single-item failure sent batch labels or diagnostic codes."
   )
   assert(rewriteTarget.document.getText() === rewriteSource && !rewriteTarget.document.isDirty, "Exhausted language recovery edited source.")
-  await vscode.commands.executeCommand("commentTranslatePlus.retranslate")
+  await vscode.commands.executeCommand("commentTranslatePlus.document.retranslate")
   await waitFor(
     () => owner.browse.inspect(rewriteTarget.document.uri)?.status === "ready" && owner.browse.inspect(rewriteTarget.document.uri)?.pending === 0,
     "manual language retranslation selects another candidate"
@@ -3045,18 +3088,18 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     (await requests()).slice(beforeRewrite).filter((request) => request.model === "language-rewrite-fixture" && request.inputFingerprint === rewriteFingerprint).length === 6,
     "Explicit retranslation did not refresh the candidate."
   )
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   checks.push("repeated English rewrites become display candidates after bounded recovery; explicit retranslation refreshes the result without editing source")
 
   await config.update(
-    "profiles",
+    "service.profiles",
     [{ id: "transport", provider: "openai", apiUrl: origin + "/v1/chat/completions", model: "transport-retry-fixture", apiKey: "mock-test" }],
     vscode.ConfigurationTarget.Global
   )
-  await config.update("activeProfile", "transport", vscode.ConfigurationTarget.Global)
-  await config.update("initialItemsPerRequest", 2, vscode.ConfigurationTarget.Global)
-  await config.update("maxItemsPerRequest", 2, vscode.ConfigurationTarget.Global)
-  await config.update("adaptiveBatching", false, vscode.ConfigurationTarget.Global)
+  await config.update("service.activeProfile", "transport", vscode.ConfigurationTarget.Global)
+  await config.update("request.initialItems", 2, vscode.ConfigurationTarget.Global)
+  await config.update("request.maxItems", 2, vscode.ConfigurationTarget.Global)
+  await config.update("request.adaptiveBatching", false, vscode.ConfigurationTarget.Global)
   const transportSource = "1. Read the original document. TransportRetryCase.\n2. Keep `sourceId` unchanged."
   const transportTarget = await open("transport-retry.md", "markdown", transportSource)
   const beforeTransport = (await requests()).length
@@ -3069,18 +3112,18 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   )
   assert(transportRequests[0].messageFingerprint === transportRequests[1].messageFingerprint, "Network recovery changed the original messages.")
   assert(transportTarget.document.getText() === transportSource && !transportTarget.document.isDirty, "Network recovery modified source.")
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   await start(transportTarget.document, 2)
   assert((await requests()).filter((request) => request.inputFingerprint === transportFingerprint).length === 2, "Results recovered from a network failure were not cached.")
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   checks.push("temporary connection failures resend identical messages without model feedback or shrinking, then cache successful results and preserve source")
 
   await config.update(
-    "profiles",
+    "service.profiles",
     [{ id: "log-recovery", provider: "openai", apiUrl: origin + "/v1/chat/completions", model: "log-recovery-fixture", apiKey: "mock-test" }],
     vscode.ConfigurationTarget.Global
   )
-  await config.update("activeProfile", "log-recovery", vscode.ConfigurationTarget.Global)
+  await config.update("service.activeProfile", "log-recovery", vscode.ConfigurationTarget.Global)
   for (const [name, source, expected, attempts] of [
     ["heading", "## Sources", "## 来源", 2],
     ["inline", "Read `sourceId` unchanged. InlineCodeToleranceCase.", "阅读 sourceChanged，并标记 `body/html`。", 1],
@@ -3108,20 +3151,20 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     await waitFor(() => preview.getText().includes(expected), "synthetic output preview: " + name)
     assert((await sent()).length === attempts, "Hover or preview did not reuse the recovered cache: " + name)
     assert(target.document.getText() === source && !target.document.isDirty, "Log recovery changed source: " + name)
-    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
     await start(target.document, 1)
     assert((await sent()).length === attempts, "Reopening browse resubmitted the recovered unit: " + name)
-    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   }
   checks.push("appended corrections, omitted inline emphasis and style/code wrapper recovery share cached browse, hover and native preview results without source edits or excess attempts")
 
   await config.update(
-    "profiles",
+    "service.profiles",
     [{ id: "history", provider: "openai", apiUrl: origin + "/v1/chat/completions", model: "retry-history-fixture", apiKey: "mock-test" }],
     vscode.ConfigurationTarget.Global
   )
-  await config.update("activeProfile", "history", vscode.ConfigurationTarget.Global)
-  await config.update("batchShrinkFactor", 1, vscode.ConfigurationTarget.Global)
+  await config.update("service.activeProfile", "history", vscode.ConfigurationTarget.Global)
+  await config.update("request.batchShrinkFactor", 1, vscode.ConfigurationTarget.Global)
   const historySource = "1. Keep `firstId_abcdefghijklmnopqrstuvwxyz_123456789` unchanged.\n2. Read the original document. JointRetryHistoryCase."
   const historyTarget = await open("joint-retry-history.md", "markdown", historySource)
   const historyFingerprint = await requestFingerprint("Keep <CTP0> unchanged.\n\n%%\n\nRead the original document. JointRetryHistoryCase.")
@@ -3140,24 +3183,24 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     owner.browse.inspect(historyTarget.document.uri)!.units.every((unit) => validatedText(unit.translation).includes("保留") || validatedText(unit.translation).includes("阅读")),
     "Joint recovery published an invalid result."
   )
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   await start(historyTarget.document, 2)
   assert(
     (await requests()).slice(beforeHistory).filter((request) => request.model === "retry-history-fixture" && request.inputFingerprint === historyFingerprint).length === 2,
     "Jointly recovered results were not cached."
   )
   assert(historyTarget.document.getText() === historySource && !historyTarget.document.isDirty, "Retry history changed source.")
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   checks.push("multiple failed units retry together with the exact assistant response and numbered corrections, retain source and cache the accepted batch")
 
   await config.update(
-    "profiles",
+    "service.profiles",
     [{ id: "request-echo", provider: "openai", apiUrl: origin + "/v1/chat/completions", model: "request-echo-fixture", apiKey: "mock-test" }],
     vscode.ConfigurationTarget.Global
   )
-  await config.update("activeProfile", "request-echo", vscode.ConfigurationTarget.Global)
-  await config.update("maxItemsPerRequest", 4, vscode.ConfigurationTarget.Global)
-  await config.update("initialItemsPerRequest", 4, vscode.ConfigurationTarget.Global)
+  await config.update("service.activeProfile", "request-echo", vscode.ConfigurationTarget.Global)
+  await config.update("request.maxItems", 4, vscode.ConfigurationTarget.Global)
+  await config.update("request.initialItems", 4, vscode.ConfigurationTarget.Global)
   const echoSource = Array.from({ length: 4 }, (_, index) => `${index + 1}. Read the original document. RequestEchoCase${index}.`).join("\n")
   const echoTarget = await open("request-echo.md", "markdown", echoSource)
   const echoFingerprints = new Set(await Promise.all(Array.from({ length: 4 }, (_, index) => requestFingerprint(`Read the original document. RequestEchoCase${index}.`))))
@@ -3177,13 +3220,13 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   await waitFor(() => echoPreview.getText().includes("阅读原始文档。"), "request echo preview")
   assert(!echoPreview.getText().includes("Read the original document."), "Preview retained untranslated request echo tails.")
   assert(echoTarget.document.getText() === echoSource && !echoTarget.document.isDirty, "Request echo recovery modified source.")
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   await start(echoTarget.document, 4)
   assert((await echoRecords()).length === echoRequests.length, "Recovered echo results were not cached.")
-  await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   checks.push("request echoes reject all copied source tails before caching, recover without contaminated history and share complete browse/preview results without source edits")
-  await config.update("initialItemsPerRequest", 2, vscode.ConfigurationTarget.Global)
-  await config.update("maxItemsPerRequest", 2, vscode.ConfigurationTarget.Global)
+  await config.update("request.initialItems", 2, vscode.ConfigurationTarget.Global)
+  await config.update("request.maxItems", 2, vscode.ConfigurationTarget.Global)
 
   for (const newline of ["\n", "\r\n"]) {
     const source = "> Read the original \t" + newline + ">   document. Keep `sourceId` unchanged."
@@ -3200,7 +3243,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     const preview = await vscode.workspace.openTextDocument(markdownPreviewUri(target.document.uri))
     await waitFor(() => preview.getText() === expected, "folded multiline prose preview")
     assert(target.document.getText() === source && !target.document.isDirty, "Folding reading prose wrote to source.")
-    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   }
   checks.push("LF/CRLF multiline prose sends one joining space without line placeholders and shares folded browse/native preview results while preserving source")
   for (const newline of ["\n", "\r\n"]) {
@@ -3211,11 +3254,11 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     const translated = owner.browse.inspect(target.document.uri)!.units[0].translation
     assert(validatedText(translated).includes("阅读原始文档。") && validatedText(translated).includes("/gallery/<code>/"), "Indented comment markup was rejected or changed.")
     assert((await requests()).length === before + 1, "An intact comment translation required a retry.")
-    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
     await start(target.document, 1)
     assert((await requests()).length === before + 1, "The accepted comment translation was not cached.")
     assert(target.document.getText() === source && !target.document.isDirty, "Comment translation modified source.")
-    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   }
   checks.push("indented Python comment markup survives folded translation on the first request and is cached under LF/CRLF without source edits")
   await config.update("browse.strings", true, vscode.ConfigurationTarget.Global)
@@ -3241,11 +3284,11 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     )
     const sent = (await requests()).slice(before)
     assert(sent.length > 0 && sent.every((request) => !request.retryFeedbackIncluded), "Ordinary docstring wrapping required recovery.")
-    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
     await start(target.document, parsed.length)
     assert((await requests()).length === before + sent.length, "Folded docstring translation was not cached.")
     assert(target.document.getText() === source && !target.document.isDirty, "Docstring browsing changed source.")
-    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
   }
   await config.update("browse.strings", false, vscode.ConfigurationTarget.Global)
   checks.push("indented Python docstring prose folds continuations before mock HTTP, completes without retries and reuses cache under LF/CRLF without source edits")
@@ -3265,7 +3308,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
       "Locally completed Python selectors changed their source representation."
     )
     assert(target.document.getText() === source && !target.document.isDirty, "Selector browsing modified Python source.")
-    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
     await config.update("browse.strings", previousStrings, vscode.ConfigurationTarget.Global)
   }
   checks.push("real Python grammar completes descendant selectors with quoted predicates locally without HTTP or source edits")
@@ -3315,7 +3358,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
         owner.preview.close(preview.uri)
       }
       assert(target.document.getText() === source && !target.document.isDirty, "Shell reading or preview edited its source.")
-      await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+      await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
       await config.update("browse.strings", false, vscode.ConfigurationTarget.Global)
     }
   }
@@ -3340,11 +3383,11 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     const hovers = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", target.document.uri, new vscode.Position(0, 3))
     assert(values(hovers ?? []).includes(url), "Source hover lost the complete template URL.")
     assert(target.document.getText() === source && !target.document.isDirty, "Template URL reading wrote to source.")
-    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
     const cached = (await requests()).length
     await start(target.document, 1)
     assert((await requests()).length === cached, "Template URL result was not shared with the reading cache.")
-    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
     owner.preview.close(preview.uri)
   }
   checks.push(

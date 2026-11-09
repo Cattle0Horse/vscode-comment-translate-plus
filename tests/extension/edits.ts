@@ -73,16 +73,16 @@ export async function runEditReuse(workspace: vscode.Uri, owner: Application, or
   assert((await records()).slice(typing).reduce((sum, record) => sum + record.count, 0) === 1, "Settled typing duplicated requests or resubmitted unchanged neighbours.")
   checks.push("continuous typing, viewport refresh and hover stay offline until idle, then browse and preview translate only the final changed unit")
   const config = vscode.workspace.getConfiguration("commentTranslatePlus")
-  const originalDelay = config.inspect<number>("editDebounceMs")?.globalValue
+  const originalDelay = config.inspect<number>("translation.editDebounceMs")?.globalValue
   try {
-    await config.update("editDebounceMs", 2000, vscode.ConfigurationTarget.Global)
+    await config.update("translation.editDebounceMs", 2000, vscode.ConfigurationTarget.Global)
     const delayed = (await records()).length
     assert(await editor.edit((builder) => builder.replace(document.lineAt(2).range, "Keep both lines together. Read the complete field.")), "Custom debounce edit failed.")
     await new Promise((resolve) => setTimeout(resolve, 1300))
     assert((await records()).length === delayed, "Custom debounce sent a request at the default delay.")
     await waitFor(() => owner.browse.inspect(uri)?.units.length === 2 && owner.browse.inspect(uri)?.status === "ready", "custom debounce completion")
     assert((await records()).slice(delayed).reduce((sum, record) => sum + record.count, 0) === 1, "Custom debounce duplicated translation requests.")
-    await config.update("editDebounceMs", 0, vscode.ConfigurationTarget.Global)
+    await config.update("translation.editDebounceMs", 0, vscode.ConfigurationTarget.Global)
     const immediate = (await records()).length
     assert(await editor.edit((builder) => builder.replace(document.lineAt(2).range, "Read the complete field. Keep both lines together.")), "Zero debounce edit failed.")
     await new Promise((resolve) => setTimeout(resolve, 700))
@@ -90,7 +90,7 @@ export async function runEditReuse(workspace: vscode.Uri, owner: Application, or
     await waitFor(() => owner.browse.inspect(uri)?.units.length === 2 && owner.browse.inspect(uri)?.status === "ready", "zero debounce completion")
     checks.push("native debounce configuration delays edited requests for the chosen interval and supports zero without restarting browse")
   } finally {
-    await config.update("editDebounceMs", originalDelay, vscode.ConfigurationTarget.Global)
+    await config.update("translation.editDebounceMs", originalDelay, vscode.ConfigurationTarget.Global)
   }
   const shared = (await records()).length
   assert(await editor.edit((builder) => builder.replace(document.lineAt(2).range, "Keep both lines together.")), "Shared preview/browse source edit failed.")

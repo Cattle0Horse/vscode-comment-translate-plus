@@ -127,8 +127,8 @@ export class TranslationHover implements vscode.Disposable, vscode.HoverProvider
             const args = encodeURIComponent(JSON.stringify([replacement]).replaceAll("%", "\\u0025"))
               .replaceAll("(", "%28")
               .replaceAll(")", "%29")
-            header.appendMarkdown(" &nbsp; [$(replace)](command:commentTranslatePlus.replaceHover?" + args + ' "替换")')
-            header.isTrusted = { enabledCommands: ["commentTranslatePlus.replaceHover"] }
+            header.appendMarkdown(" &nbsp; [$(replace)](command:commentTranslatePlus.replacement.applyHover?" + args + ' "替换")')
+            header.isTrusted = { enabledCommands: ["commentTranslatePlus.replacement.applyHover"] }
           }
         }
       }

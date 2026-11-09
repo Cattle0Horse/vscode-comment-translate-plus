@@ -86,152 +86,146 @@
     ],
     "commands": [
       {
-        "command": "commentTranslatePlus.toggleDocumentBrowseMode",
-        "title": "切换当前文档注释浏览模式",
+        "command": "commentTranslatePlus.browse.toggle",
+        "title": "开启或关闭当前文档翻译浏览",
         "category": "Comment Translate Plus",
         "enablement": "commentTranslatePlus.supported",
         "icon": "$(eye-closed)"
       },
       {
-        "command": "commentTranslatePlus.toggleDocumentBrowseMode.active",
-        "title": "切换当前文档注释浏览模式",
+        "command": "commentTranslatePlus.browse.toggle.active",
+        "title": "开启或关闭当前文档翻译浏览",
         "category": "Comment Translate Plus",
         "enablement": "commentTranslatePlus.supported",
         "icon": "$(eye)"
       },
       {
-        "command": "commentTranslatePlus.cancel",
-        "title": "取消进行中的翻译",
+        "command": "commentTranslatePlus.translation.cancel",
+        "title": "取消当前文档与后台翻译",
         "category": "Comment Translate Plus",
         "icon": "$(debug-stop)"
       },
       {
-        "command": "commentTranslatePlus.translateAll",
-        "title": "翻译全文",
-        "category": "Comment Translate Plus",
-        "enablement": "commentTranslatePlus.supported"
-      },
-      {
-        "command": "commentTranslatePlus.translateWorkspace",
+        "command": "commentTranslatePlus.workspace.translate",
         "title": "后台翻译所有文件",
         "category": "Comment Translate Plus",
         "icon": "$(cloud-download)"
       },
       {
-        "command": "commentTranslatePlus.retranslate",
+        "command": "commentTranslatePlus.document.retranslate",
         "title": "重新翻译当前文件",
         "category": "Comment Translate Plus",
         "enablement": "commentTranslatePlus.supported",
         "icon": "$(refresh)"
       },
       {
-        "command": "commentTranslatePlus.retranslateBlock",
+        "command": "commentTranslatePlus.browse.retranslateBlock",
         "title": "重新翻译当前块",
         "category": "Comment Translate Plus",
         "enablement": "commentTranslatePlus.supported",
         "icon": "$(refresh)"
       },
       {
-        "command": "commentTranslatePlus.retry",
-        "title": "重试当前文件失败批次",
+        "command": "commentTranslatePlus.document.retry",
+        "title": "重试当前文档未完成翻译",
         "category": "Comment Translate Plus",
         "enablement": "commentTranslatePlus.supported",
         "icon": "$(debug-restart)"
       },
       {
-        "command": "commentTranslatePlus.showErrors",
+        "command": "commentTranslatePlus.logging.show",
         "title": "查看翻译状态与错误",
         "category": "Comment Translate Plus",
         "icon": "$(output)"
       },
       {
-        "command": "commentTranslatePlus.showCacheUsage",
+        "command": "commentTranslatePlus.cache.showUsage",
         "title": "查看缓存使用情况",
         "category": "Comment Translate Plus"
       },
       {
-        "command": "commentTranslatePlus.clearPersistentCache",
+        "command": "commentTranslatePlus.cache.clearDisk",
         "title": "清空持久化缓存",
         "category": "Comment Translate Plus"
       },
       {
-        "command": "commentTranslatePlus.actions",
-        "title": "注释浏览操作",
+        "command": "commentTranslatePlus.ui.showActions",
+        "title": "翻译操作",
         "category": "Comment Translate Plus",
         "icon": "$(ellipsis)"
       },
       {
-        "command": "commentTranslatePlus.setLanguages",
+        "command": "commentTranslatePlus.language.configure",
         "title": "设置源语言或目标语言",
         "category": "Comment Translate Plus",
         "icon": "$(translate)"
       },
       {
-        "command": "commentTranslatePlus.settings",
+        "command": "commentTranslatePlus.ui.openSettings",
         "title": "打开扩展设置",
         "category": "Comment Translate Plus",
         "icon": "$(settings-gear)"
       },
       {
-        "command": "commentTranslatePlus.selectProfile",
+        "command": "commentTranslatePlus.service.selectProfile",
         "title": "选择翻译配置",
         "category": "Comment Translate Plus",
         "icon": "$(server)"
       },
       {
-        "command": "commentTranslatePlus.toggleMode",
-        "title": "切换对照或占位模式",
+        "command": "commentTranslatePlus.browse.toggleDisplayMode",
+        "title": "切换译文布局（对照或占位）",
         "category": "Comment Translate Plus",
         "icon": "$(split-horizontal)"
       },
       {
-        "command": "commentTranslatePlus.toggleHover",
+        "command": "commentTranslatePlus.hover.toggle",
         "title": "开启或关闭悬浮翻译",
         "category": "Comment Translate Plus",
         "icon": "$(comment)"
       },
       {
-        "command": "commentTranslatePlus.toggleAuto",
+        "command": "commentTranslatePlus.auto.toggle",
         "title": "开启或关闭工作区自动注释浏览",
         "category": "Comment Translate Plus",
         "icon": "$(play)"
       },
       {
-        "command": "commentTranslatePlus.preview",
+        "command": "commentTranslatePlus.preview.open",
         "title": "打开 Markdown 翻译预览",
         "category": "Comment Translate Plus",
         "enablement": "commentTranslatePlus.markdown",
         "icon": "$(open-preview)"
       },
       {
-        "command": "commentTranslatePlus.translateAndReplace",
+        "command": "commentTranslatePlus.replacement.translate",
         "title": "翻译并替换",
         "category": "Comment Translate Plus",
         "enablement": "!commentTranslatePlus.excluded"
       },
       {
-        "command": "commentTranslatePlus.retranslatePreview",
-        "title": "重新翻译",
+        "command": "commentTranslatePlus.preview.retranslate",
+        "title": "重新翻译此预览",
         "category": "Comment Translate Plus",
         "icon": "$(refresh)"
       },
       {
-        "command": "commentTranslatePlus.addPreserveTerm",
+        "command": "commentTranslatePlus.terms.add",
         "title": "添加保留词",
         "category": "Comment Translate Plus"
       },
       {
-        "command": "commentTranslatePlus.refreshPreserveTerms",
+        "command": "commentTranslatePlus.terms.refresh",
         "title": "刷新保留词",
         "category": "Comment Translate Plus"
       },
       {
-        "command": "commentTranslatePlus.addCurrentFileToAutoExclude",
+        "command": "commentTranslatePlus.auto.excludeCurrentFile",
         "title": "添加当前文件到自动翻译排除规则",
         "category": "Comment Translate Plus"
       },
       {
-        "command": "commentTranslatePlus.addCurrentFileToAutoInclude",
+        "command": "commentTranslatePlus.auto.includeCurrentFile",
         "title": "添加当前文件到自动翻译包含规则",
         "category": "Comment Translate Plus"
       }
@@ -239,7 +233,7 @@
     "configuration": {
       "title": "注释翻译+",
       "properties": {
-        "commentTranslatePlus.sourceLanguage": {
+        "commentTranslatePlus.language.source": {
           "type": "string",
           "default": "auto",
           "scope": "window",
@@ -471,7 +465,7 @@
             "祖鲁语"
           ]
         },
-        "commentTranslatePlus.targetLanguage": {
+        "commentTranslatePlus.language.target": {
           "type": "string",
           "default": "",
           "scope": "window",
@@ -701,19 +695,19 @@
             "祖鲁语"
           ]
         },
-        "commentTranslatePlus.logFile": {
+        "commentTranslatePlus.logging.file": {
           "type": "string",
           "default": "",
           "scope": "window",
           "description": "将供 Agent 排查问题的结构化日志追加到 UTF-8 JSONL 文件，留空关闭。路径解析与保留词写入文件一致，支持 ~/、绝对路径、网络共享路径、file URI 或相对第一个工作区文件夹的路径；日志仅支持本地文件系统，自动创建父目录。独立于输出面板的 logLevel 和 logDetails，包含任务、请求、完整模型消息和响应、重试差异及诊断，密钥始终脱敏。当前日志文件不参与翻译，修改路径不会补写历史记录。"
         },
-        "commentTranslatePlus.logDetails": {
+        "commentTranslatePlus.logging.details": {
           "type": "boolean",
           "default": false,
           "scope": "window",
           "description": "在输出日志中显示完整请求和服务返回内容，方便排查翻译问题。默认关闭；开启后日志会包含发送的正文和参考内容。修改后无需重新翻译。"
         },
-        "commentTranslatePlus.logLevel": {
+        "commentTranslatePlus.logging.level": {
           "type": "string",
           "enum": [
             "info",
@@ -724,26 +718,26 @@
           "scope": "window",
           "description": "选择输出日志的详细程度：info 显示任务进度、重试和错误，warning 仅显示警告、重试和错误，error 仅显示最终错误。完整请求和返回内容需另行开启 logDetails。修改后无需重新翻译。"
         },
-        "commentTranslatePlus.skipSameLanguage": {
+        "commentTranslatePlus.language.skipSameLanguage": {
           "type": "boolean",
           "default": true,
           "scope": "window",
           "description": "跳过已是目标语言的内容，减少不必要的请求。检测在本地完成；短文本、混合语言或无法确定语言时仍会翻译。简体和繁体中文视为同一种语言，需要繁简转换时请关闭。"
         },
-        "commentTranslatePlus.persistentCache": {
+        "commentTranslatePlus.cache.disk.enabled": {
           "type": "boolean",
           "default": false,
           "scope": "window",
           "description": "将译文保存到本机，重载 VS Code 后可继续复用，减少重复请求。译文以明文存放在扩展存储目录，不随设置同步。关闭后停止读写并保留已保存的译文；需要删除时执行“清空持久化缓存”命令。"
         },
-        "commentTranslatePlus.persistentCacheMaxEntries": {
+        "commentTranslatePlus.cache.disk.maxEntries": {
           "type": "integer",
           "default": 100000,
           "minimum": 1000,
           "scope": "window",
           "description": "本机最多保存多少条译文，每个独立翻译片段计一条。超过此数量或容量限制时，优先清理较久未使用的条目，直到数量和容量均降至各自上限的 80%。"
         },
-        "commentTranslatePlus.persistentCacheMaxSizeMB": {
+        "commentTranslatePlus.cache.disk.maxSizeMB": {
           "type": "integer",
           "default": 20,
           "minimum": 1,
@@ -751,7 +745,7 @@
           "scope": "window",
           "description": "本机译文缓存的内容容量上限，单位为 MiB（1 MiB = 1024 × 1024 字节）。数据库索引等会额外占用磁盘空间，因此实际文件可能更大；超过限制时优先清理较久未使用的条目。"
         },
-        "commentTranslatePlus.editDebounceMs": {
+        "commentTranslatePlus.translation.editDebounceMs": {
           "type": "integer",
           "default": 1000,
           "minimum": 0,
@@ -759,7 +753,7 @@
           "scope": "window",
           "description": "翻译模式或翻译预览中，停止编辑后等待多久再翻译，单位为毫秒。增大可减少连续输入时的重复请求，0 表示不等待；等待期间悬浮也不会提前发起翻译。修改从下一次编辑生效。"
         },
-        "commentTranslatePlus.requestScheduling.slowStart": {
+        "commentTranslatePlus.request.slowStart": {
           "type": "object",
           "description": "控制首次连接翻译服务时如何逐步增加同时进行的请求，避免一开始发送过多请求。通常保持默认；只需填写想修改的字段，其余使用默认值。",
           "additionalProperties": false,
@@ -774,19 +768,19 @@
               "default": 1,
               "minimum": 1,
               "maximum": 20,
-              "description": "首次使用服务时允许同时进行的请求数。仅在慢启动开启时生效，实际不会超过 maxConcurrentRequests。"
+              "description": "首次使用服务时允许同时进行的请求数。仅在慢启动开启时生效，实际不会超过 request.maxConcurrent。"
             },
             "growthFactor": {
               "type": "number",
               "default": 2,
               "minimum": 1.1,
               "maximum": 10,
-              "description": "慢启动每轮提速时，将允许同时进行的请求数乘以多少。例如 2 表示翻倍，结果向上取整，最多达到 maxConcurrentRequests。"
+              "description": "慢启动每轮提速时，将允许同时进行的请求数乘以多少。例如 2 表示翻倍，结果向上取整，最多达到 request.maxConcurrent。"
             }
           },
           "default": {}
         },
-        "commentTranslatePlus.requestScheduling.retry": {
+        "commentTranslatePlus.request.retry": {
           "type": "object",
           "description": "控制请求失败后等待多久再重试，包括服务要求的等待时间和连续失败时的延长等待。通常保持默认；只需填写想修改的字段，其余使用默认值。",
           "additionalProperties": false,
@@ -842,7 +836,7 @@
           },
           "default": {}
         },
-        "commentTranslatePlus.requestScheduling.recovery": {
+        "commentTranslatePlus.request.recovery": {
           "type": "object",
           "description": "控制服务限流或网络故障时如何降低请求并发，以及成功后如何逐步恢复。通常保持默认；只需填写想修改的字段，其余使用默认值。",
           "additionalProperties": false,
@@ -857,7 +851,7 @@
               "default": 1,
               "minimum": 1,
               "maximum": 20,
-              "description": "故障降速后至少保留多少个同时请求的额度，实际不会超过 maxConcurrentRequests，也不会因故障提高已有额度。"
+              "description": "故障降速后至少保留多少个同时请求的额度，实际不会超过 request.maxConcurrent，也不会因故障提高已有额度。"
             },
             "successes": {
               "type": "integer",
@@ -871,7 +865,7 @@
               "default": 1,
               "minimum": 1,
               "maximum": 20,
-              "description": "故障恢复时，每轮增加多少个同时请求的额度，最多达到 maxConcurrentRequests。"
+              "description": "故障恢复时，每轮增加多少个同时请求的额度，最多达到 request.maxConcurrent。"
             },
             "decreaseFactor": {
               "type": "number",
@@ -904,7 +898,7 @@
           },
           "default": {}
         },
-        "commentTranslatePlus.maxRequestsPerSecond": {
+        "commentTranslatePlus.request.maxPerSecond": {
           "type": "integer",
           "default": 2,
           "minimum": 1,
@@ -912,7 +906,7 @@
           "scope": "window",
           "description": "每秒最多发出多少个翻译服务请求，所有文件共用此额度。遇到服务限流时可调低；实际发送速度还受最大并发、服务等待时间和自动调度限制。"
         },
-        "commentTranslatePlus.maxConcurrentRequests": {
+        "commentTranslatePlus.request.maxConcurrent": {
           "type": "integer",
           "default": 2,
           "minimum": 1,
@@ -920,7 +914,7 @@
           "scope": "window",
           "description": "最多允许多少个翻译服务请求同时进行，所有文件共用此额度。调高可同时处理更多内容，也可能触发服务限流；自动调度可能暂时使用更低的并发数。"
         },
-        "commentTranslatePlus.profiles": {
+        "commentTranslatePlus.service.profiles": {
           "type": "array",
           "default": [
             {
@@ -945,7 +939,7 @@
               "id": {
                 "type": "string",
                 "minLength": 1,
-                "description": "此配置的唯一标识，例如 local；不能为空，也不能与其他配置重复。activeProfile 使用此值选择配置。"
+                "description": "此配置的唯一标识，例如 local；不能为空，也不能与其他配置重复。service.activeProfile 使用此值选择配置。"
               },
               "name": {
                 "type": "string",
@@ -1133,13 +1127,27 @@
             ]
           }
         },
-        "commentTranslatePlus.activeProfile": {
+        "commentTranslatePlus.service.activeProfile": {
           "type": "string",
           "default": "",
           "scope": "window",
-          "description": "当前使用的翻译配置，填写 profiles 中某一项的 id。留空时使用列表第一项；也可通过状态栏的“选择翻译配置”切换。"
+          "description": "当前使用的翻译配置，填写 service.profiles 中某一项的 id。留空时使用列表第一项；也可通过状态栏的“选择翻译配置”切换。"
         },
-        "commentTranslatePlus.displayMode": {
+        "commentTranslatePlus.browse.translationScope": {
+          "type": "string",
+          "enum": [
+            "viewport",
+            "document"
+          ],
+          "default": "viewport",
+          "scope": "resource",
+          "description": "翻译浏览范围：选择只翻译当前视口并跟随滚动，或开启浏览后直接翻译全文。全文模式仍优先处理当前视口，编辑后继续沿用；修改后立即应用于已开启的文档浏览。",
+          "enumDescriptions": [
+            "跟随视口：只提交当前视口中的可翻译内容，滚动时继续补充",
+            "翻译全文：开启浏览后处理全文，当前视口始终优先"
+          ]
+        },
+        "commentTranslatePlus.browse.displayMode": {
           "type": "string",
           "enum": [
             "contrast",
@@ -1249,13 +1257,13 @@
           "scope": "resource",
           "description": "自动翻译：选择哪些工作区文件不自动开启翻译模式，优先于 auto.include；后台翻译所有文件也遵循此列表。使用相对工作区根目录的通配路径。"
         },
-        "commentTranslatePlus.preserveTermsWriteFile": {
+        "commentTranslatePlus.terms.writeFile": {
           "type": "string",
           "default": "",
           "scope": "resource",
-          "description": "保留词：执行“添加保留词”时写入的 JSON/JSONC 文件，例如 .vscode/preserve-terms.jsonc。留空时首次使用命令会让你选择并保存路径；文件或父目录不存在时自动创建。支持工作区相对路径、绝对路径、网络共享路径、~/ 和可写文件系统 URI。要让此文件参与翻译，还需将它加入 preserveTerms。"
+          "description": "保留词：执行“添加保留词”时写入的 JSON/JSONC 文件，例如 .vscode/preserve-terms.jsonc。留空时首次使用命令会让你选择并保存路径；文件或父目录不存在时自动创建。支持工作区相对路径、绝对路径、网络共享路径、~/ 和可写文件系统 URI。要让此文件参与翻译，还需将它加入 terms.sources。"
         },
-        "commentTranslatePlus.preserveTerms": {
+        "commentTranslatePlus.terms.sources": {
           "type": "array",
           "items": {
             "type": "string",
@@ -1265,7 +1273,7 @@
           "scope": "resource",
           "description": "保留词：翻译模式和翻译预览使用的保留词文件列表，填写 JSON/JSONC 文件路径或 HTTPS 地址，多个文件会合并。未设置时使用内置词表，自定义列表替换内置词表，空列表禁用词表。仅整段待译内容匹配时跳过翻译，句子中出现词条不会跳过整句；悬浮和“翻译并替换”不使用词表。支持工作区相对路径、绝对路径、网络共享路径、~/ 和文件系统 URI；HTTP 仅支持本机回环地址。预设词表: 'https://raw.githubusercontent.com/Cattle0Horse/vscode-comment-translate-plus/refs/heads/main/resources/preserve-terms.full.json'、'https://raw.githubusercontent.com/Cattle0Horse/vscode-comment-translate-plus/refs/heads/main/resources/preserve-terms.json'。其中，preserve-terms.json 是内置词表的。"
         },
-        "commentTranslatePlus.minimumMarkerCharacters": {
+        "commentTranslatePlus.translation.minimumMarkerCharacters": {
           "type": "integer",
           "default": 32,
           "minimum": 1,
@@ -1273,7 +1281,7 @@
           "scope": "window",
           "description": "不可翻译的长数据至少达到多少个字符时，才考虑用短标记代替发送，以减少请求长度；译文显示时会还原数据。仅在能明显缩短请求时使用，普通名称和自然语言不会仅因长度被替换。通常保持默认。字符按 UTF-16 计数。"
         },
-        "commentTranslatePlus.maxItemsPerRequest": {
+        "commentTranslatePlus.request.maxItems": {
           "type": "integer",
           "default": 30,
           "minimum": 1,
@@ -1281,7 +1289,7 @@
           "scope": "window",
           "description": "一次请求最多包含多少个独立翻译片段，例如段落、标题或表格单元格，而非文件行数。实际数量还受请求长度和内容分组限制；调低可减小单次请求，但可能增加请求次数。"
         },
-        "commentTranslatePlus.maxRequestCharacters": {
+        "commentTranslatePlus.request.maxCharacters": {
           "type": "integer",
           "default": 12000,
           "minimum": 256,
@@ -1289,7 +1297,7 @@
           "scope": "window",
           "description": "一次请求允许的最大字符数。OpenAI 兼容服务计算全部消息文本，包括提示词、正文、参考和重试说明；Google/Bing 计算待译文本。按 UTF-16 字符计数，不是 token 数。超出上限的单个片段会报错，不会截断原文。"
         },
-        "commentTranslatePlus.maxContextCharacters": {
+        "commentTranslatePlus.request.maxContextCharacters": {
           "type": "integer",
           "default": 2000,
           "minimum": 0,
@@ -1297,41 +1305,41 @@
           "scope": "window",
           "description": "一次请求最多附带多少个字符的上下文参考，帮助模型理解正文；0 表示不附带参考。按 UTF-16 字符计数，并受总请求长度限制。Google/Bing 不发送参考；通常保持默认。"
         },
-        "commentTranslatePlus.includeContext": {
+        "commentTranslatePlus.request.includeContext": {
           "type": "boolean",
           "default": true,
           "scope": "window",
-          "description": "是否在翻译请求中附带上下文参考。关闭后不生成或发送 context；开启时仍受 maxContextCharacters 的单次请求总字符上限约束。Google/Bing 不发送参考。"
+          "description": "是否在翻译请求中附带上下文参考。关闭后不生成或发送 context；开启时仍受 request.maxContextCharacters 的单次请求总字符上限约束。Google/Bing 不发送参考。"
         },
-        "commentTranslatePlus.adaptiveBatching": {
+        "commentTranslatePlus.request.adaptiveBatching": {
           "type": "boolean",
           "default": true,
           "scope": "window",
           "description": "仅用于 OpenAI 兼容服务：根据翻译成功或失败自动调整每次发送的内容量。关闭后使用初始项数和字符目标；失败内容仍会按重试规则缩小批次重试。通常建议开启。"
         },
-        "commentTranslatePlus.batchBySemanticScope": {
+        "commentTranslatePlus.request.batchBySemanticScope": {
           "type": "boolean",
           "default": true,
           "scope": "window",
           "description": "将同一章节、列表、表格或 YAML 层级内的内容放在同一批翻译，减少不相关内容混在一次请求中。关闭后允许跨这些范围合并，仍受项数和字符上限限制。"
         },
-        "commentTranslatePlus.initialItemsPerRequest": {
+        "commentTranslatePlus.request.initialItems": {
           "type": "integer",
           "default": 5,
           "minimum": 1,
           "maximum": 1000,
           "scope": "window",
-          "description": "仅用于 OpenAI 兼容服务：开始时每次请求计划翻译多少个片段，实际不超过 maxItemsPerRequest。开启 adaptiveBatching 后会自动调整；关闭后一直以此值作为目标。"
+          "description": "仅用于 OpenAI 兼容服务：开始时每次请求计划翻译多少个片段，实际不超过 request.maxItems。开启 adaptiveBatching 后会自动调整；关闭后一直以此值作为目标。"
         },
-        "commentTranslatePlus.initialRequestCharacters": {
+        "commentTranslatePlus.request.initialCharacters": {
           "type": "integer",
           "default": 6000,
           "minimum": 256,
           "maximum": 200000,
           "scope": "window",
-          "description": "仅用于 OpenAI 兼容服务：开始时每次请求计划使用的消息字符数，包括提示词、正文和参考。开启 adaptiveBatching 后会自动调整。为保留完整片段可超过此目标，但不能超过 maxRequestCharacters；按 UTF-16 字符计数。"
+          "description": "仅用于 OpenAI 兼容服务：开始时每次请求计划使用的消息字符数，包括提示词、正文和参考。开启 adaptiveBatching 后会自动调整。为保留完整片段可超过此目标，但不能超过 request.maxCharacters；按 UTF-16 字符计数。"
         },
-        "commentTranslatePlus.batchGrowthSuccesses": {
+        "commentTranslatePlus.request.batchGrowthSuccesses": {
           "type": "integer",
           "default": 3,
           "minimum": 1,
@@ -1339,23 +1347,23 @@
           "scope": "window",
           "description": "开启 adaptiveBatching 后，达到当前项数或字符目标的请求累计成功多少次，才增加每次发送的内容量。失败会重新计数，内容不足的小批次成功不计入。仅用于 OpenAI 兼容服务。"
         },
-        "commentTranslatePlus.batchGrowthItems": {
+        "commentTranslatePlus.request.batchGrowthItems": {
           "type": "integer",
           "default": 1,
           "minimum": 1,
           "maximum": 1000,
           "scope": "window",
-          "description": "开启 adaptiveBatching 后，每轮增加多少个翻译片段。例如设为 1，每轮将项数目标增加 1，最多达到 maxItemsPerRequest。仅用于 OpenAI 兼容服务。"
+          "description": "开启 adaptiveBatching 后，每轮增加多少个翻译片段。例如设为 1，每轮将项数目标增加 1，最多达到 request.maxItems。仅用于 OpenAI 兼容服务。"
         },
-        "commentTranslatePlus.batchGrowthFactor": {
+        "commentTranslatePlus.request.batchGrowthFactor": {
           "type": "number",
           "default": 1.25,
           "minimum": 1,
           "maximum": 4,
           "scope": "window",
-          "description": "开启 adaptiveBatching 后，每轮将消息字符目标乘以多少。例如 1.25 表示增加 25%，1 表示不增加；最多达到 maxRequestCharacters。仅用于 OpenAI 兼容服务。"
+          "description": "开启 adaptiveBatching 后，每轮将消息字符目标乘以多少。例如 1.25 表示增加 25%，1 表示不增加；最多达到 request.maxCharacters。仅用于 OpenAI 兼容服务。"
         },
-        "commentTranslatePlus.batchShrinkFactor": {
+        "commentTranslatePlus.request.batchShrinkFactor": {
           "type": "number",
           "default": 0.5,
           "minimum": 0.1,
@@ -1363,7 +1371,7 @@
           "scope": "window",
           "description": "翻译结果不完整等可重试失败发生时，将批次的项数和字符目标缩小到原来的多少。例如 0.5 表示减半，1 表示不按比例缩小。也用于安排失败内容的重试批次，最后一次逐项重试；关闭 adaptiveBatching 后仍适用于重试。仅用于 OpenAI 兼容服务。"
         },
-        "commentTranslatePlus.maxTranslationAttempts": {
+        "commentTranslatePlus.request.maxAttempts": {
           "type": "integer",
           "default": 3,
           "minimum": 1,
@@ -1371,7 +1379,7 @@
           "scope": "window",
           "description": "仅用于 OpenAI 兼容服务：一次翻译任务中，每个片段最多尝试多少次，包含首次请求；1 表示不自动重试。用于可恢复的请求失败、结果缺失或格式错误，成功片段不重复请求；鉴权等不可恢复错误直接报告。"
         },
-        "commentTranslatePlus.preserveTermsRefreshSeconds": {
+        "commentTranslatePlus.terms.refreshSeconds": {
           "type": "integer",
           "default": 900,
           "minimum": 0,
@@ -1379,36 +1387,34 @@
           "scope": "window",
           "description": "每隔多少秒重新读取本地和网络保留词文件，默认 900 秒（15 分钟）。0 表示只手动刷新；修改词表文件后不会立即自动读取，可执行“刷新保留词”立即更新。更新后的词表用于后续任务，已有译文不会因此重新翻译。"
         },
-        "commentTranslatePlus.actions": {
+        "commentTranslatePlus.ui.actions": {
           "type": "array",
           "items": {
             "type": "string",
             "enum": [
-              "toggleDocumentBrowseMode",
-              "translateAll",
-              "translateWorkspace",
-              "retranslateBlock",
-              "cancel",
-              "retranslate",
-              "retry",
-              "translateAndReplace",
-              "addPreserveTerm",
-              "setLanguages",
-              "selectProfile",
-              "toggleMode",
-              "toggleHover",
-              "toggleAuto",
-              "addCurrentFileToAutoExclude",
-              "addCurrentFileToAutoInclude",
-              "preview",
-              "showCacheUsage",
-              "clearPersistentCache",
-              "settings",
-              "showErrors"
+              "browse.toggle",
+              "workspace.translate",
+              "browse.retranslateBlock",
+              "translation.cancel",
+              "document.retranslate",
+              "document.retry",
+              "replacement.translate",
+              "terms.add",
+              "language.configure",
+              "service.selectProfile",
+              "browse.toggleDisplayMode",
+              "hover.toggle",
+              "auto.toggle",
+              "auto.excludeCurrentFile",
+              "auto.includeCurrentFile",
+              "preview.open",
+              "cache.showUsage",
+              "cache.clearDisk",
+              "ui.openSettings",
+              "logging.show"
             ],
             "enumDescriptions": [
-              "切换当前文档注释浏览模式",
-              "翻译全文",
+              "开启或关闭当前文档翻译浏览",
               "后台翻译所有文件",
               "重新翻译当前块",
               "取消进行中的翻译；已取消时继续翻译",
@@ -1418,7 +1424,7 @@
               "添加保留词",
               "源语言与目标语言",
               "选择翻译配置",
-              "切换对照 / 占位模式",
+              "切换译文布局（对照 / 占位）",
               "开启 / 关闭悬浮翻译",
               "开启 / 关闭工作区自动注释浏览",
               "添加当前文件到自动翻译排除规则",
@@ -1432,30 +1438,29 @@
           },
           "uniqueItems": true,
           "default": [
-            "toggleDocumentBrowseMode",
-            "translateAll",
-            "translateWorkspace",
-            "retranslateBlock",
-            "cancel",
-            "retranslate",
-            "retry",
-            "translateAndReplace",
-            "addPreserveTerm",
-            "setLanguages",
-            "selectProfile",
-            "toggleMode",
-            "toggleHover",
-            "toggleAuto",
-            "addCurrentFileToAutoExclude",
-            "addCurrentFileToAutoInclude",
-            "preview",
-            "showCacheUsage",
-            "clearPersistentCache",
-            "settings",
-            "showErrors"
+            "browse.toggle",
+            "workspace.translate",
+            "browse.retranslateBlock",
+            "translation.cancel",
+            "document.retranslate",
+            "document.retry",
+            "replacement.translate",
+            "terms.add",
+            "language.configure",
+            "service.selectProfile",
+            "browse.toggleDisplayMode",
+            "hover.toggle",
+            "auto.toggle",
+            "auto.excludeCurrentFile",
+            "auto.includeCurrentFile",
+            "preview.open",
+            "cache.showUsage",
+            "cache.clearDisk",
+            "ui.openSettings",
+            "logging.show"
           ],
           "scope": "resource",
-          "markdownDescription": "自定义状态栏和“注释浏览操作”菜单：按列表顺序显示，删除条目即可隐藏，空列表隐藏全部。填写不带 `commentTranslatePlus.` 前缀的操作 ID，例如 `translateAll`。`cancel` 在取消后显示为“继续翻译”。部分操作仅在适用的文档或翻译状态下显示；修改后下次打开菜单生效。此设置不影响命令面板或快捷键。"
+          "markdownDescription": "自定义状态栏和“翻译操作”菜单：按列表顺序显示，删除条目即可隐藏，空列表隐藏全部。填写不带 `commentTranslatePlus.` 前缀的命令 ID，例如 `browse.toggle`。`translation.cancel` 在取消后显示为“继续翻译”。部分操作仅在适用的文档或翻译状态下显示；修改后下次打开菜单生效。此设置不影响命令面板或快捷键。"
         }
       }
     },
@@ -1468,22 +1473,22 @@
     "menus": {
       "editor/title": [
         {
-          "command": "commentTranslatePlus.toggleDocumentBrowseMode",
+          "command": "commentTranslatePlus.browse.toggle",
           "when": "commentTranslatePlus.supported && !commentTranslatePlus.browse",
           "group": "navigation@20"
         },
         {
-          "command": "commentTranslatePlus.toggleDocumentBrowseMode.active",
+          "command": "commentTranslatePlus.browse.toggle.active",
           "when": "commentTranslatePlus.supported && commentTranslatePlus.browse",
           "group": "navigation@20"
         },
         {
-          "command": "commentTranslatePlus.preview",
+          "command": "commentTranslatePlus.preview.open",
           "when": "commentTranslatePlus.markdown",
           "group": "navigation@22"
         },
         {
-          "command": "commentTranslatePlus.retranslatePreview",
+          "command": "commentTranslatePlus.preview.retranslate",
           "when": "activeCustomEditorId == vscode.markdown.preview.editor && resourceScheme == comment-translate-plus-preview",
           "group": "navigation@20"
         }
@@ -1497,89 +1502,85 @@
       ],
       "commentTranslatePlus.browseMenu": [
         {
-          "command": "commentTranslatePlus.translateAll",
-          "group": "browse@1"
-        },
-        {
-          "command": "commentTranslatePlus.translateWorkspace",
+          "command": "commentTranslatePlus.workspace.translate",
           "group": "browse@1.1"
         },
         {
-          "command": "commentTranslatePlus.toggleDocumentBrowseMode",
+          "command": "commentTranslatePlus.browse.toggle",
           "group": "browse@0"
         },
         {
-          "command": "commentTranslatePlus.cancel",
+          "command": "commentTranslatePlus.translation.cancel",
           "group": "browse@2",
           "when": "commentTranslatePlus.browse"
         },
         {
-          "command": "commentTranslatePlus.retranslate",
+          "command": "commentTranslatePlus.document.retranslate",
           "group": "browse@3",
           "when": "commentTranslatePlus.browse"
         },
         {
-          "command": "commentTranslatePlus.retranslateBlock",
+          "command": "commentTranslatePlus.browse.retranslateBlock",
           "group": "browse@3.1"
         },
         {
-          "command": "commentTranslatePlus.retry",
+          "command": "commentTranslatePlus.document.retry",
           "group": "browse@4",
           "when": "commentTranslatePlus.browse"
         },
         {
-          "command": "commentTranslatePlus.showErrors",
+          "command": "commentTranslatePlus.logging.show",
           "group": "browse@5"
         },
         {
-          "command": "commentTranslatePlus.setLanguages",
+          "command": "commentTranslatePlus.language.configure",
           "group": "browse@6"
         },
         {
-          "command": "commentTranslatePlus.settings",
+          "command": "commentTranslatePlus.ui.openSettings",
           "group": "browse@7"
         },
         {
-          "command": "commentTranslatePlus.selectProfile",
+          "command": "commentTranslatePlus.service.selectProfile",
           "group": "browse@8"
         },
         {
-          "command": "commentTranslatePlus.toggleMode",
+          "command": "commentTranslatePlus.browse.toggleDisplayMode",
           "group": "browse@9"
         },
         {
-          "command": "commentTranslatePlus.toggleHover",
+          "command": "commentTranslatePlus.hover.toggle",
           "group": "browse@10"
         },
         {
-          "command": "commentTranslatePlus.toggleAuto",
+          "command": "commentTranslatePlus.auto.toggle",
           "group": "browse@11"
         },
         {
-          "command": "commentTranslatePlus.preview",
+          "command": "commentTranslatePlus.preview.open",
           "group": "browse@12",
           "when": "commentTranslatePlus.markdown"
         },
         {
-          "command": "commentTranslatePlus.translateAndReplace",
+          "command": "commentTranslatePlus.replacement.translate",
           "group": "browse@13"
         },
         {
-          "command": "commentTranslatePlus.addCurrentFileToAutoExclude",
+          "command": "commentTranslatePlus.auto.excludeCurrentFile",
           "group": "browse@14"
         },
         {
-          "command": "commentTranslatePlus.addCurrentFileToAutoInclude",
+          "command": "commentTranslatePlus.auto.includeCurrentFile",
           "group": "browse@15"
         }
       ],
       "commandPalette": [
         {
-          "command": "commentTranslatePlus.toggleDocumentBrowseMode.active",
+          "command": "commentTranslatePlus.browse.toggle.active",
           "when": "false"
         },
         {
-          "command": "commentTranslatePlus.retranslatePreview",
+          "command": "commentTranslatePlus.preview.retranslate",
           "when": "activeCustomEditorId == vscode.markdown.preview.editor && resourceScheme == comment-translate-plus-preview"
         }
       ]

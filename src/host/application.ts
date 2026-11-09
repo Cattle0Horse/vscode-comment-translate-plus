@@ -64,8 +64,8 @@ export class Application implements vscode.Disposable {
       this.browse.tryAutomatic()
     }
     this.subscriptions = [
-      vscode.commands.registerCommand("commentTranslatePlus.addPreserveTerm", () => addPreserveTerm(home)),
-      vscode.commands.registerCommand("commentTranslatePlus.refreshPreserveTerms", async () => {
+      vscode.commands.registerCommand("commentTranslatePlus.terms.add", () => addPreserveTerm(home)),
+      vscode.commands.registerCommand("commentTranslatePlus.terms.refresh", async () => {
         try {
           const document = vscode.window.activeTextEditor?.document
           if (document && this.documents.supports(document)) await this.translations.terms.get(document.uri)
@@ -119,7 +119,7 @@ export class Application implements vscode.Disposable {
     if (pending) clearTimeout(pending.timer)
     this.timers.delete(id)
     if (!this.browse.has(document.uri) && !this.preview.has(document.uri)) return
-    const configuredDelay = vscode.workspace.getConfiguration("commentTranslatePlus", document.uri).get<unknown>("editDebounceMs", 1000)
+    const configuredDelay = vscode.workspace.getConfiguration("commentTranslatePlus", document.uri).get<unknown>("translation.editDebounceMs", 1000)
     const delay = typeof configuredDelay === "number" && Number.isInteger(configuredDelay) && configuredDelay >= 0 && configuredDelay <= 60000 ? configuredDelay : 1000
     const update: PendingEdit = { timer: setTimeout(() => void this.refreshEdited(document, update), delay), previous, edits, retain: pending?.retain ?? true }
     this.timers.set(id, update)
@@ -169,11 +169,11 @@ export class Application implements vscode.Disposable {
 
   private async reconfigure(event: vscode.ConfigurationChangeEvent): Promise<void> {
     if (this.disposed) return
-    if (["persistentCache", "persistentCacheMaxEntries", "persistentCacheMaxSizeMB"].some((key) => event.affectsConfiguration("commentTranslatePlus." + key)))
+    if (["cache.disk.enabled", "cache.disk.maxEntries", "cache.disk.maxSizeMB"].some((key) => event.affectsConfiguration("commentTranslatePlus." + key)))
       await this.translations.configureCache()
     if (this.disposed) return
-    if (["logLevel", "logDetails", "logFile"].some((key) => event.affectsConfiguration("commentTranslatePlus." + key))) this.translations.configureLog()
-    if (event.affectsConfiguration("commentTranslatePlus.logFile")) {
+    if (["logging.level", "logging.details", "logging.file"].some((key) => event.affectsConfiguration("commentTranslatePlus." + key))) this.translations.configureLog()
+    if (event.affectsConfiguration("commentTranslatePlus.logging.file")) {
       for (const document of vscode.workspace.textDocuments) {
         if (!this.documents.isOwnOutput(document)) continue
         this.exclude(document, "configuration-changed")
@@ -181,19 +181,21 @@ export class Application implements vscode.Disposable {
         this.preview.close(document.uri)
       }
     }
-    if (event.affectsConfiguration("commentTranslatePlus.browse")) this.documents.clear()
-    if (event.affectsConfiguration("commentTranslatePlus.profiles")) this.translations.reset()
+    const syntax = ["browse.comments", "browse.strings"].some((key) => event.affectsConfiguration("commentTranslatePlus." + key))
+    if (syntax) this.documents.clear()
+    if (event.affectsConfiguration("commentTranslatePlus.service.profiles")) this.translations.reset()
     const processing = [
-      "profiles",
-      "activeProfile",
-      "sourceLanguage",
-      "targetLanguage",
-      "preserveTerms",
-      "skipSameLanguage",
-      "browse",
+      "service.profiles",
+      "service.activeProfile",
+      "language.source",
+      "language.target",
+      "terms.sources",
+      "language.skipSameLanguage",
+      "browse.comments",
+      "browse.strings",
       ...requestPolicyConfigurationKeys,
-      "maxRequestsPerSecond",
-      "maxConcurrentRequests"
+      "request.maxPerSecond",
+      "request.maxConcurrent"
     ].some((key) => event.affectsConfiguration("commentTranslatePlus." + key))
 
     if (processing || event.affectsConfiguration("commentTranslatePlus.hover"))
@@ -202,7 +204,7 @@ export class Application implements vscode.Disposable {
         this.replacement.cancel(document.uri, "configuration-changed")
       }
     if (processing) this.preview.update(undefined, "configuration-changed")
-    if (processing || event.affectsConfiguration("commentTranslatePlus.auto")) await this.browse.reconfigure()
+    if (processing || event.affectsConfiguration("commentTranslatePlus.auto") || event.affectsConfiguration("commentTranslatePlus.browse.translationScope")) await this.browse.reconfigure()
     this.browse.render()
   }
 

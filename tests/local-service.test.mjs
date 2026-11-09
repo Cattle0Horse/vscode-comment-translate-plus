@@ -24,19 +24,19 @@ test("discovers the unique local model and separates credentials from serializab
   })
   const apiUrl = `http://127.0.0.1:${server.address().port}/v1/chat/completions`
   const profile = await localServiceProfile({ profileId: "integration-local", apiUrl, apiKey: "synthetic-only" })
-  assert.equal(profile.settings.profiles[0].id, "integration-local")
-  assert.equal(profile.settings.activeProfile, "integration-local")
-  assert.equal(profile.settings.profiles[0].model, "current-local-model")
-  assert.equal(profile.settings.profiles[0].apiUrl, apiUrl)
+  assert.equal(profile.settings["service.profiles"][0].id, "integration-local")
+  assert.equal(profile.settings["service.activeProfile"], "integration-local")
+  assert.equal(profile.settings["service.profiles"][0].model, "current-local-model")
+  assert.equal(profile.settings["service.profiles"][0].apiUrl, apiUrl)
   assert.equal(profile.apiKey, "synthetic-only")
   assert.ok(!JSON.stringify(profile.settings).includes("synthetic-only"))
   models = [{ id: "first" }, { id: "second" }]
   await assert.rejects(localServiceProfile({ profileId: "integration-local", apiUrl, apiKey: "synthetic-only" }), /exactly one model/)
   const before = requests
   const selected = await localServiceProfile({ profileId: "other-local", apiUrl, model: "explicit-model", apiKey: "synthetic-only" })
-  assert.equal(selected.settings.activeProfile, selected.settings.profiles[0].id)
-  assert.equal(selected.settings.activeProfile, "other-local")
-  assert.equal(selected.settings.profiles[0].model, "explicit-model")
+  assert.equal(selected.settings["service.activeProfile"], selected.settings["service.profiles"][0].id)
+  assert.equal(selected.settings["service.activeProfile"], "other-local")
+  assert.equal(selected.settings["service.profiles"][0].model, "explicit-model")
   assert.equal(requests, before)
 })
 
@@ -44,15 +44,15 @@ test("local test profiles derive an optional identifier and reject missing or un
   const endpoint = "http://127.0.0.1:0/v1/chat/completions"
   for (const profileId of [undefined, "", "  "]) {
     const profile = await localServiceProfile({ profileId, apiUrl: endpoint, model: "configured-model" })
-    assert.equal(profile.settings.profiles[0].id, endpoint)
-    assert.equal(profile.settings.activeProfile, endpoint)
+    assert.equal(profile.settings["service.profiles"][0].id, endpoint)
+    assert.equal(profile.settings["service.activeProfile"], endpoint)
   }
   for (const apiUrl of [undefined, "", "  "]) {
     await assert.rejects(localServiceProfile({ profileId: "integration-local", apiUrl }), /COMMENT_TRANSLATE_TEST_API_URL/)
   }
   const anonymous = await localServiceProfile({ profileId: "anonymous", apiUrl: "http://127.0.0.1:12345/v1/chat/completions", model: "configured-model" })
   assert.equal(anonymous.apiKey, "")
-  assert.equal(anonymous.settings.profiles[0].name, "anonymous")
+  assert.equal(anonymous.settings["service.profiles"][0].name, "anonymous")
   for (const apiUrl of ["https://example.com/v1/chat/completions", "http://key@127.0.0.1:9999/v1/chat/completions", "http://127.0.0.1:9999/v1/chat/completions?key=value"]) {
     await assert.rejects(localServiceProfile({ profileId: "integration-local", apiUrl, model: "explicit" }), /loopback/)
   }
@@ -71,11 +71,11 @@ test("local startup reads dotenv without a profile identifier and preserves expl
   const script = "import {localServiceFromEnvironment} from " + JSON.stringify(moduleUrl) + "; console.log(JSON.stringify(await localServiceFromEnvironment()))"
   const run = (overrides = {}) => JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e", script], { cwd: folder, env: { ...env, ...overrides }, encoding: "utf8" }))
   const file = run()
-  assert.equal(file.settings.activeProfile, endpoint)
-  assert.equal(file.settings.profiles[0].model, "file-model")
+  assert.equal(file.settings["service.activeProfile"], endpoint)
+  assert.equal(file.settings["service.profiles"][0].model, "file-model")
   assert.equal(file.apiKey, "synthetic-key")
   assert.ok(!JSON.stringify(file.settings).includes("synthetic-key"))
   const override = run({ COMMENT_TRANSLATE_TEST_MODEL: "environment-model", COMMENT_TRANSLATE_TEST_API_KEY: "" })
-  assert.equal(override.settings.profiles[0].model, "environment-model")
+  assert.equal(override.settings["service.profiles"][0].model, "environment-model")
   assert.equal(override.apiKey, "")
 })

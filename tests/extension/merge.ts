@@ -47,7 +47,7 @@ export async function runMerge(workspace: vscode.Uri, owner: Application, origin
     const snapshot = { uri: result.uri.toString(), version: result.version, start: 0, end: sources[3].length, source: sources[3], text: "阅读原始文档。 MergeResult.", identity }
     const before = (await requests()).length
     await control(true)
-    await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")
+    await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
     await waitFor(async () => (await requests()).length > before, "ordinary editor starts held translation")
     await openMerge()
     await waitFor(() => !owner.browse.has(result.uri), "merge editor cancels existing browse")
@@ -77,13 +77,13 @@ export async function runMerge(workspace: vscode.Uri, owner: Application, origin
     }
     assert.equal(vscode.window.activeTextEditor?.document, result)
     vscode.window.activeTextEditor!.selection = new vscode.Selection(0, 0, 0, sources[3].length)
-    for (const command of ["toggleDocumentBrowseMode", "toggleDocumentBrowseMode.active", "translateAll", "retranslate", "retranslateBlock", "retry", "translateAndReplace", "preview"]) {
+    for (const command of ["browse.toggle", "browse.toggle.active", "document.retranslate", "browse.retranslateBlock", "document.retry", "replacement.translate", "preview.open"]) {
       await vscode.commands.executeCommand("commentTranslatePlus." + command)
     }
-    assert.equal(await vscode.commands.executeCommand("commentTranslatePlus.replaceHover", snapshot), false, "An old hover replacement must not edit a merge result")
+    assert.equal(await vscode.commands.executeCommand("commentTranslatePlus.replacement.applyHover", snapshot), false, "An old hover replacement must not edit a merge result")
     await new Promise((resolve) => setTimeout(resolve, 150))
     assert.equal((await requests()).length, afterOpen, "Merge translation entry points must remain offline")
-    await vscode.commands.executeCommand("commentTranslatePlus.translateWorkspace")
+    await vscode.commands.executeCommand("commentTranslatePlus.workspace.translate")
     await new Promise((resolve) => setTimeout(resolve, 150))
     // The global background command may process the ordinary file, while every
     // visible merge pane remains excluded from requests and presentation.

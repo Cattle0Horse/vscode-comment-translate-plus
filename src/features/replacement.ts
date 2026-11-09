@@ -28,7 +28,7 @@ export async function replacementIdentity(uri: vscode.Uri, translations: Transla
 
 export class SourceReplacementAction implements vscode.Disposable {
   private readonly replacements = new Map<string, AbortController>()
-  private readonly registration = vscode.commands.registerCommand("commentTranslatePlus.replaceHover", (value) => this.replace(value))
+  private readonly registration = vscode.commands.registerCommand("commentTranslatePlus.replacement.applyHover", (value) => this.replace(value))
   constructor(
     private readonly documents: DocumentReader,
     private readonly translations: TranslationRuntime

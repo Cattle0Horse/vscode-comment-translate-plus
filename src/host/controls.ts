@@ -26,10 +26,10 @@ export class Controls implements vscode.Disposable {
     private readonly retranslate: () => Promise<void>
   ) {
     const command = (id: string, action: (...args: unknown[]) => unknown) => this.subscriptions.push(vscode.commands.registerCommand("commentTranslatePlus." + id, action))
-    const toggleDocumentBrowseMode = () => this.browse.toggle()
-    command("toggleDocumentBrowseMode", toggleDocumentBrowseMode)
-    command("toggleDocumentBrowseMode.active", toggleDocumentBrowseMode)
-    command("cancel", () => {
+    const toggleBrowse = () => this.browse.toggle()
+    command("browse.toggle", toggleBrowse)
+    command("browse.toggle.active", toggleBrowse)
+    command("translation.cancel", () => {
       const uri = vscode.window.activeTextEditor?.document.uri
       if (uri) {
         this.browse.cancel(uri)
@@ -40,12 +40,11 @@ export class Controls implements vscode.Disposable {
       this.background.cancel("user-cancelled")
       return vscode.commands.executeCommand("editor.action.hideHover")
     })
-    command("retranslate", () => this.retranslate())
-    command("translateAll", () => this.browse.translateAll())
-    command("translateWorkspace", () => this.background.translateAll())
-    command("retranslateBlock", () => this.browse.retranslateBlock())
-    command("retranslatePreview", (value) => this.preview.retranslate(value))
-    command("retry", () => {
+    command("document.retranslate", () => this.retranslate())
+    command("workspace.translate", () => this.background.translateAll())
+    command("browse.retranslateBlock", () => this.browse.retranslateBlock())
+    command("preview.retranslate", (value) => this.preview.retranslate(value))
+    command("document.retry", () => {
       const document = vscode.window.activeTextEditor?.document
       if (document && this.documents.isExcluded(document)) return
       const uri = document?.uri
@@ -54,30 +53,30 @@ export class Controls implements vscode.Disposable {
         this.preview.update(uri)
       }
     })
-    command("showErrors", () => this.translations.showErrors())
-    command("showCacheUsage", () => this.translations.showCacheUsage())
-    command("clearPersistentCache", () => this.translations.clearPersistentCache())
-    command("translateAndReplace", () => this.replacement.translateAndReplace())
-    command("actions", () => this.actions())
-    command("setLanguages", () => this.setLanguages())
-    command("selectProfile", () => this.selectProfile())
-    command("toggleMode", () => this.updateSetting("displayMode", displayMode(vscode.window.activeTextEditor?.document.uri) === "contrast" ? "inplace" : "contrast"))
-    command("toggleHover", () => {
+    command("logging.show", () => this.translations.showErrors())
+    command("cache.showUsage", () => this.translations.showCacheUsage())
+    command("cache.clearDisk", () => this.translations.clearPersistentCache())
+    command("replacement.translate", () => this.replacement.translateAndReplace())
+    command("ui.showActions", () => this.actions())
+    command("language.configure", () => this.setLanguages())
+    command("service.selectProfile", () => this.selectProfile())
+    command("browse.toggleDisplayMode", () => this.updateSetting("browse.displayMode", displayMode(vscode.window.activeTextEditor?.document.uri) === "contrast" ? "inplace" : "contrast"))
+    command("hover.toggle", () => {
       const config = vscode.workspace.getConfiguration("commentTranslatePlus")
       return this.updateSetting("hover.enabled", !config.get<boolean>("hover.enabled", true))
     })
-    command("toggleAuto", () => {
+    command("auto.toggle", () => {
       const config = vscode.workspace.getConfiguration("commentTranslatePlus")
       return this.updateSetting("auto.enabled", !config.get<boolean>("auto.enabled", false))
     })
-    command("addCurrentFileToAutoExclude", () => this.addCurrentFileRule("exclude"))
-    command("addCurrentFileToAutoInclude", () => this.addCurrentFileRule("include"))
-    command("preview", () => this.preview.open())
-    command("settings", () => vscode.commands.executeCommand("workbench.action.openSettings", "@ext:cattle-horse.vscode-comment-translate-plus"))
+    command("auto.excludeCurrentFile", () => this.addCurrentFileRule("exclude"))
+    command("auto.includeCurrentFile", () => this.addCurrentFileRule("include"))
+    command("preview.open", () => this.preview.open())
+    command("ui.openSettings", () => vscode.commands.executeCommand("workbench.action.openSettings", "@ext:cattle-horse.vscode-comment-translate-plus"))
     this.subscriptions.push(this.translations.onDidChangeProgress(() => this.render()))
 
     this.status.name = "注释翻译+"
-    this.status.command = "commentTranslatePlus.actions"
+    this.status.command = "commentTranslatePlus.ui.showActions"
   }
 
   render(): void {
@@ -168,41 +167,40 @@ export class Controls implements vscode.Disposable {
     const items = excluded
       ? []
       : [
-          { label: "切换当前文档注释浏览模式", command: "toggleDocumentBrowseMode" },
-          { label: "翻译全文", command: "translateAll" },
-          { label: "重新翻译当前块", command: "retranslateBlock" }
+          { label: "开启或关闭当前文档翻译浏览", command: "browse.toggle" },
+          { label: "重新翻译当前块", command: "browse.retranslateBlock" }
         ]
     if (snapshot || this.background.isRunning || this.translations.isWorking)
       items.push({
         label: !this.background.isRunning && snapshot?.status === "cancelled" ? "继续翻译" : "取消进行中的翻译",
-        command: "cancel"
+        command: "translation.cancel"
       })
-    if (snapshot) items.push({ label: "重新翻译当前文件", command: "retranslate" }, { label: "重试失败批次", command: "retry" })
-    items.push({ label: "后台翻译所有文件", command: "translateWorkspace" })
-    if (!excluded) items.push({ label: "翻译并替换", command: "translateAndReplace" })
+    if (snapshot) items.push({ label: "重新翻译当前文件", command: "document.retranslate" }, { label: "重试失败批次", command: "document.retry" })
+    items.push({ label: "后台翻译所有文件", command: "workspace.translate" })
+    if (!excluded) items.push({ label: "翻译并替换", command: "replacement.translate" })
     items.push(
-      { label: "添加保留词", command: "addPreserveTerm" },
-      { label: "源语言与目标语言", command: "setLanguages" },
-      { label: "选择翻译配置", command: "selectProfile" },
-      { label: "切换对照 / 占位模式", command: "toggleMode" },
-      { label: "开启 / 关闭悬停翻译", command: "toggleHover" },
-      { label: "开启 / 关闭工作区自动注释浏览", command: "toggleAuto" },
-      { label: "添加当前文件到自动翻译排除规则", command: "addCurrentFileToAutoExclude" },
-      { label: "添加当前文件到自动翻译包含规则", command: "addCurrentFileToAutoInclude" }
+      { label: "添加保留词", command: "terms.add" },
+      { label: "源语言与目标语言", command: "language.configure" },
+      { label: "选择翻译配置", command: "service.selectProfile" },
+      { label: "切换译文布局（对照 / 占位）", command: "browse.toggleDisplayMode" },
+      { label: "开启 / 关闭悬停翻译", command: "hover.toggle" },
+      { label: "开启 / 关闭工作区自动注释浏览", command: "auto.toggle" },
+      { label: "添加当前文件到自动翻译排除规则", command: "auto.excludeCurrentFile" },
+      { label: "添加当前文件到自动翻译包含规则", command: "auto.includeCurrentFile" }
     )
-    if (document && !excluded && isMarkdownDocument(document)) items.push({ label: "打开 Markdown 翻译预览", command: "preview" })
+    if (document && !excluded && isMarkdownDocument(document)) items.push({ label: "打开 Markdown 翻译预览", command: "preview.open" })
     items.push(
-      { label: "查看缓存使用情况", command: "showCacheUsage" },
-      { label: "清空持久化缓存", command: "clearPersistentCache" },
-      { label: "扩展设置", command: "settings" },
-      { label: "查看日志与错误", command: "showErrors" }
+      { label: "查看缓存使用情况", command: "cache.showUsage" },
+      { label: "清空持久化缓存", command: "cache.clearDisk" },
+      { label: "扩展设置", command: "ui.openSettings" },
+      { label: "查看日志与错误", command: "logging.show" }
     )
     const configured = vscode.workspace.getConfiguration("commentTranslatePlus", vscode.window.activeTextEditor?.document.uri).get<unknown>(
-      "actions",
+      "ui.actions",
       items.map((item) => item.command)
     )
     if (!Array.isArray(configured)) {
-      void vscode.window.showErrorMessage("commentTranslatePlus.actions 必须是操作 ID 数组。")
+      void vscode.window.showErrorMessage("commentTranslatePlus.ui.actions 必须是操作 ID 数组。")
       return
     }
     const ordered = [...new Set(configured)].flatMap((id) => {
@@ -211,10 +209,10 @@ export class Controls implements vscode.Disposable {
     })
     const selected = await vscode.window.showQuickPick(ordered, {
       title: "注释翻译+",
-      placeHolder: "当前文档的注释浏览操作"
+      placeHolder: "当前文档的翻译操作"
     })
     if (selected) {
-      const command = selected.command === "cancel" && !this.background.isRunning && snapshot?.status === "cancelled" ? "retry" : selected.command
+      const command = selected.command === "translation.cancel" && !this.background.isRunning && snapshot?.status === "cancelled" ? "document.retry" : selected.command
       await vscode.commands.executeCommand("commentTranslatePlus." + command)
     }
   }
@@ -248,7 +246,7 @@ export class Controls implements vscode.Disposable {
       })),
       { title: "选择翻译配置" }
     )
-    if (selected) await this.updateSetting("activeProfile", selected.id)
+    if (selected) await this.updateSetting("service.activeProfile", selected.id)
   }
 
   private async setLanguages(): Promise<void> {
@@ -257,13 +255,13 @@ export class Controls implements vscode.Disposable {
       [
         {
           label: "源语言",
-          key: "sourceLanguage",
+          key: "language.source",
           fallback: "auto",
           prompt: "例如 en、zh-CN；auto 或留空自动识别。"
         },
         {
           label: "目标语言",
-          key: "targetLanguage",
+          key: "language.target",
           fallback: "",
           prompt: "例如 zh-CN、en；留空使用 VS Code 界面语言。"
         }

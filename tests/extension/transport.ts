@@ -5,14 +5,14 @@ import type { Application } from "../../src/host/application.ts"
 export async function runTransport(workspace: vscode.Uri, owner: Application, origin: string): Promise<string[]> {
   const config = vscode.workspace.getConfiguration("commentTranslatePlus")
   const settings = {
-    profiles: [{ id: "congestion", provider: "openai", apiUrl: origin + "/public/v1/chat/completions", model: "congestion-fixture", apiKey: "" }],
-    activeProfile: "congestion",
-    skipSameLanguage: false,
-    maxConcurrentRequests: 4,
-    maxRequestsPerSecond: 100,
-    maxTranslationAttempts: 3,
-    "requestScheduling.retry": { initialDelayMs: 80, maxDelayMs: 80, jitterRatio: 0 },
-    "requestScheduling.recovery": { successes: 1, intervalMs: 20, networkFailureWindowMs: 1000, networkFailureThreshold: 2 }
+    "service.profiles": [{ id: "congestion", provider: "openai", apiUrl: origin + "/public/v1/chat/completions", model: "congestion-fixture", apiKey: "" }],
+    "service.activeProfile": "congestion",
+    "language.skipSameLanguage": false,
+    "request.maxConcurrent": 4,
+    "request.maxPerSecond": 100,
+    "request.maxAttempts": 3,
+    "request.retry": { initialDelayMs: 80, maxDelayMs: 80, jitterRatio: 0 },
+    "request.recovery": { successes: 1, intervalMs: 20, networkFailureWindowMs: 1000, networkFailureThreshold: 2 }
   }
   const previous = Object.fromEntries(Object.keys(settings).map((key) => [key, config.inspect(key)?.globalValue]))
   const uri = vscode.Uri.joinPath(workspace, "congestion-scenario.md")
@@ -41,7 +41,7 @@ export async function runTransport(workspace: vscode.Uri, owner: Application, or
     if (document.getText() !== source || document.isDirty || !validatedText(owner.browse.inspect(uri)?.units[0].translation).includes("阅读原始文档"))
       throw Error("Transport recovery changed source or failed to publish the validated translation.")
     owner.browse.stop(uri, true)
-    await config.update("requestScheduling.retry", { http503: false, respectRetryAfter: false, initialDelayMs: 0 }, vscode.ConfigurationTarget.Global)
+    await config.update("request.retry", { http503: false, respectRetryAfter: false, initialDelayMs: 0 }, vscode.ConfigurationTarget.Global)
     const disabledSource = source + " Disabled recovery."
     await vscode.workspace.fs.writeFile(disabledUri, new TextEncoder().encode(disabledSource))
     const disabledDocument = await vscode.workspace.openTextDocument(disabledUri)
