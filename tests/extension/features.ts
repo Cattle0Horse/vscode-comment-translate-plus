@@ -900,7 +900,7 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
       const afterBrowse = (await requests()).length
       const offset = source.lastIndexOf("Read the original document.") + 3
       const hover = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", target.document.uri, target.document.positionAt(offset))
-      assert(values(hover).includes("            阅读原始文档。"), "Docstring hover lost continuation indentation.")
+      assert(/\n阅读原始文档。\n/u.test(values(hover)) && !values(hover).includes("            阅读原始文档。"), "Docstring hover retained source continuation indentation.")
       assert((await requests()).length === afterBrowse, "Docstring hover did not reuse the restored browse result.")
       assert(target.document.getText() === source && !target.document.isDirty, "Docstring browse or hover modified source.")
       await vscode.commands.executeCommand("commentTranslatePlus.toggleDocumentBrowseMode")

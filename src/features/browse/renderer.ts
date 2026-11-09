@@ -1,7 +1,7 @@
 import * as vscode from "vscode"
 import type { BrowseSnapshot } from "./session.ts"
 import { displayMode } from "../../host/configuration.ts"
-import { translationDisplayText, displayTranslations, readingText } from "../../documents/presentation.ts"
+import { translationDisplayText, displayTranslations, readingText, hoverTranslationText } from "../../documents/presentation.ts"
 import type { DisplayTranslation } from "../../documents/presentation.ts"
 
 interface DisplayUnit {
@@ -153,7 +153,7 @@ export class BrowseRenderer implements vscode.Disposable, vscode.CodeLensProvide
           return [
             {
               range,
-              hoverMessage: new vscode.MarkdownString().appendCodeblock(unit.translation),
+              hoverMessage: new vscode.MarkdownString().appendCodeblock(hoverTranslationText(unit.translation)),
               renderOptions: {
                 before: {
                   contentText: unit.kind === "string" ? readingText(unit.translation, unit.source) : translationDisplayText(unit.translation, unit.format).replace(/\s*\r?\n\s*/g, " ")
@@ -186,7 +186,7 @@ export class BrowseRenderer implements vscode.Disposable, vscode.CodeLensProvide
     const end = editor.document.lineAt(editor.document.lineCount - 1).range.end
     for (const [line, row] of rows) {
       if (line > editor.document.lineCount) continue
-      const hoverMessage = new vscode.MarkdownString().appendCodeblock(row.map((item) => item.unit.translation).join("\n\n"))
+      const hoverMessage = new vscode.MarkdownString().appendCodeblock(row.map((item) => hoverTranslationText(item.unit.translation)).join("\n\n"))
       const content = { contentText: row.map((item) => item.text).join(" · "), textDecoration: `none; transform: translateX(${row[0].column}ch);` }
       if (line < editor.document.lineCount) contrast.push({ range: new vscode.Range(line, 0, line, 0), hoverMessage, renderOptions: { before: content } })
       else tail.push({ range: new vscode.Range(end, end), hoverMessage, renderOptions: { after: content } })

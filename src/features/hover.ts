@@ -1,5 +1,5 @@
 import * as vscode from "vscode"
-import { translatedMarkdown, translationDisplayText } from "../documents/presentation.ts"
+import { translatedMarkdown, translationDisplayText, hoverTranslationText } from "../documents/presentation.ts"
 import { translationIsUnchanged } from "../documents/validation.ts"
 import type { TextUnit } from "../model/document.ts"
 import type { TranslationValue } from "../model/translation.ts"
@@ -114,7 +114,7 @@ export class TranslationHover implements vscode.Disposable, vscode.HoverProvider
         if (translated && (typeof translated !== "string" || (selected ? translated !== unit.text : !translationIsUnchanged(unit, translated)))) {
           const content = new vscode.MarkdownString()
           content.appendCodeblock(
-            typeof translated === "string" ? translationDisplayText(translated, unit.format, unit) : translated.text,
+            hoverTranslationText(typeof translated === "string" ? translationDisplayText(translated, unit.format, unit) : translated.text),
             typeof translated === "string" && unit.kind !== "identifier" ? (unit.language ?? document.languageId) : "text"
           )
           contents.push(content)

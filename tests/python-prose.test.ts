@@ -12,7 +12,7 @@ import { TranslationStore } from "../src/translation/store.ts"
 import { chatFixture, modelContext, modelFeedback, requestTranslation } from "./support/fixtures.ts"
 import type { TextUnit } from "../src/model/document.ts"
 import { parseMarkdownWithCode } from "../src/documents/markdown.ts"
-import { displayTranslations, translatedMarkdown, translationDisplayText } from "../src/documents/presentation.ts"
+import { displayTranslations, translatedMarkdown, translationDisplayText, hoverTranslationText } from "../src/documents/presentation.ts"
 
 // The grammar boundary is TextMate's public token protocol; the desktop suite also uses the real Python grammar.
 const grammar = {
@@ -545,6 +545,20 @@ test("indented docstring prose folds continuation lines and caches a single-line
     assert.equal(projectionContent(unit, validatedText(result.get(unit.id)!)), unit.projection!.unit.text.match(/^[\t ]*/u)![0] + output)
     assert.deepEqual(await run(), result)
     assert.equal(fixture.seen.length, 1, "Ordinary prose wrapping caused retries or prevented caching.")
+  }
+})
+
+test("hover prose omits source indentation while preserving relative layout and replacement bytes", () => {
+  for (const newline of ["\n", "\r\n"]) {
+    const { units } = docstring(["Read the catalog.", "", "Visit the gallery before", "collecting the ticket."], newline)
+    const unit = units.find((unit) => unit.text.includes("Visit the gallery"))!
+    const translated = prepareTranslation(unit, 32).restore("先参观画廊，再领取门票。")
+    assert.match(translated, /^ {4}/u)
+    assert.equal(hoverTranslationText(translationDisplayText(translated, unit.format, unit)), "先参观画廊，再领取门票。")
+    assert.match(translationDisplayText(translated, unit.format, unit), /^ {4}/u)
+    const text = "\t说明  内容" + newline + "\t  子项" + newline + "\t结束"
+    assert.equal(hoverTranslationText(text), "说明  内容" + newline + "  子项" + newline + "结束")
+    assert.equal(hoverTranslationText("首行" + newline + "  子项"), "首行" + newline + "  子项")
   }
 })
 

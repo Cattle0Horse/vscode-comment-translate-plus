@@ -63,6 +63,18 @@ export function translationDisplayText(text: string, format: TextUnit["format"],
   return displayNode(document.contents)
 }
 
+/** Hover code blocks have no source column to align with. */
+export function hoverTranslationText(text: string): string {
+  const prefixes = [...text.matchAll(/^[\t ]*(?=\S)/gmu)].map((match) => match[0])
+  let common = prefixes[0] ?? ""
+  for (const prefix of prefixes) {
+    let length = 0
+    while (length < common.length && common[length] === prefix[length]) length++
+    common = common.slice(0, length)
+  }
+  return common ? text.replace(/^[\t ]+/gmu, (prefix) => (prefix.startsWith(common) ? prefix.slice(common.length) : prefix)) : text
+}
+
 export interface DisplayTranslation extends TextUnit {
   readonly translation: string
   /** Syntax ownership stays with the original unit after its displayed text has been decoded. */

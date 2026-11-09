@@ -17,6 +17,22 @@ async function waitFor(check: () => boolean, label: string): Promise<void> {
 
 export async function runCommentParagraphs(workspace: vscode.Uri, owner: Application, origin: string): Promise<string[]> {
   const records = async () => ((await (await fetch(origin + "/state")).json()) as { requests: { count: number }[] }).requests
+  const config = vscode.workspace.getConfiguration("commentTranslatePlus")
+  const previousStrings = config.inspect<boolean>("hover.strings")?.globalValue
+  try {
+    await config.update("hover.strings", true, vscode.ConfigurationTarget.Global)
+    for (const newline of ["\n", "\r\n"]) {
+      const source = ["def read_catalog():", '    """Catalog.', "", "        Read the original", "        document.", '    """'].join(newline)
+      const document = await vscode.workspace.openTextDocument({ language: "python", content: source })
+      await vscode.window.showTextDocument(document, { preview: false })
+      const hovers = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", document.uri, new vscode.Position(3, 12))
+      const content = hovers.flatMap((hover) => hover.contents).find((item) => typeof item !== "string" && item.value.includes("阅读原始文档。"))
+      assert(content && typeof content !== "string" && /(?:^|\n)```[^\n]*\n阅读原始文档。\n```/u.test(content.value), "Python hover retained source indentation: " + JSON.stringify(hovers))
+      assert(document.getText() === source, "Python hover changed source indentation.")
+    }
+  } finally {
+    await config.update("hover.strings", previousStrings, vscode.ConfigurationTarget.Global)
+  }
   for (const [index, newline] of ["\n", "\r\n"].entries()) {
     const source = ["<<<<<<< HEAD", "// Read the original document.", "||||||| base", "// Keep its context.", "=======", "// Read the original document.", ">>>>>>> incoming"].join(newline)
     const uri = vscode.Uri.joinPath(workspace, "git-conflict-" + index + ".ts")
