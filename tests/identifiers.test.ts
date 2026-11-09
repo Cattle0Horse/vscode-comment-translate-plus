@@ -86,16 +86,25 @@ test("name translation uses bounded raw context and caches distinct meanings ind
   assert.equal(fixture.seen.length, 2, "Repeated name hover failed to reuse its context-specific cached meaning.")
 })
 
-test("custom name prompts control both messages and expose identifier conditions without parsing inserted code", async (t) => {
+test("name and prose requests share the default messages for the same prepared text", async (t) => {
   const fixture = await chatFixture(t, () => "unused")
   const request = {
-    settings: { ...fixture.settings, systemPrompt: "{{#if isIdentifier}}name:${contentType}{{/if}}", userPrompt: "${content}\n${context}" },
-    context: "const ctx = '${isIdentifier} {{#if context}}';",
+    settings: fixture.settings,
+    context: "function getUserProfile() {}",
+    items: [{ id: "name", text: "get User Profile", format: "text" as const, kind: "identifier" as const }]
+  }
+  assert.deepEqual(modelRequest(request).payload.messages, modelRequest({ ...request, items: [{ ...request.items[0], kind: undefined }] }).payload.messages)
+})
+
+test("custom name prompts control both messages without parsing inserted code", async (t) => {
+  const fixture = await chatFixture(t, () => "unused")
+  const request = {
+    settings: { ...fixture.settings, systemPrompt: "{{#if context}}name:${contentType}{{/if}}", userPrompt: "${content}\n${context}" },
+    context: "const ctx = '${contentType} {{#if context}}';",
     items: [{ id: "name", text: "ctx", format: "text" as const, kind: "identifier" as const }]
   }
   assert.deepEqual(modelRequest(request).payload.messages, [
     { role: "system", content: "name:identifier" },
-    { role: "user", content: "ctx\nconst ctx = '${isIdentifier} {{#if context}}';" }
+    { role: "user", content: "ctx\nconst ctx = '${contentType} {{#if context}}';" }
   ])
-  assert.equal(modelRequest({ ...request, items: [{ ...request.items[0], kind: undefined }] }).payload.messages[0].role, "user")
 })
