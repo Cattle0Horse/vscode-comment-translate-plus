@@ -1,5 +1,5 @@
 import * as vscode from "vscode"
-import { displayMode, getTranslationSettings, isMarkdownDocument, profiles } from "./configuration.ts"
+import { displayMode, getTranslationSettings, gitResource, isMarkdownDocument, profiles } from "./configuration.ts"
 import { TranslationHover } from "../features/hover.ts"
 import { MarkdownPreview } from "../features/preview.ts"
 import { describeError } from "../model/diagnostics.ts"
@@ -218,14 +218,23 @@ export class Controls implements vscode.Disposable {
   }
 
   private async addCurrentFileRule(kind: "include" | "exclude"): Promise<void> {
-    const document = vscode.window.activeTextEditor?.document
-    const folder = document && !document.isUntitled ? vscode.workspace.getWorkspaceFolder(document.uri) : undefined
-    if (!document || !folder) {
+    const group = vscode.window.tabGroups.activeTabGroup
+    const input = group.activeTab?.input
+    const editor = vscode.window.activeTextEditor
+    // A diff owns its modified path even when the original has focus. Embedded
+    // merge panes expose their focused document through the stable editor API.
+    let uri: vscode.Uri | undefined
+    if (input instanceof vscode.TabInputTextDiff) uri = input.modified
+    else if (input instanceof vscode.TabInputText) uri = input.uri
+    else if (editor && (editor.viewColumn === undefined || editor.viewColumn === group.viewColumn)) uri = editor.document.uri
+    const resource = uri && (uri.scheme === "git" || uri.scheme === "git-graph" ? gitResource(uri)?.uri : uri)
+    const folder = resource && vscode.workspace.getWorkspaceFolder(resource)
+    if (!resource || !folder) {
       void vscode.window.showWarningMessage("请先打开工作区内的文件，再添加自动翻译规则。")
       return
     }
-    const pattern = vscode.workspace.asRelativePath(document.uri, false).replace(/[[\]*?{}]/g, (character) => "[" + character + "]")
-    const config = vscode.workspace.getConfiguration("commentTranslatePlus", document.uri)
+    const pattern = vscode.workspace.asRelativePath(resource, false).replace(/[[\]*?{}]/g, (character) => "[" + character + "]")
+    const config = vscode.workspace.getConfiguration("commentTranslatePlus", resource)
     const key = "auto." + kind
     const rules = config.get<string[]>(key, kind === "include" ? ["**/*"] : [])
     try {

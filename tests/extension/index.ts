@@ -17,6 +17,7 @@ import { runSecrets } from "./secrets.ts"
 import { runBackgroundRules } from "./background.ts"
 import { runProgress } from "./progress.ts"
 import { runFileLogging } from "./logging.ts"
+import { runFileRules } from "./fileRules.ts"
 
 function assert(value: unknown, message: string): asserts value {
   if (!value) throw Error(message)
@@ -77,6 +78,7 @@ export async function run(): Promise<void> {
   }
   try {
     for (const [key, value] of Object.entries(settings)) await config.update(key, value, vscode.ConfigurationTarget.Global)
+    checks.push(...(await runFileRules(workspace, controller)))
     checks.push(...(await runIdentifiers(workspace, controller, test.origin)))
     checks.push(...(await runSecrets(workspace, controller)))
     editor = await vscode.window.showTextDocument(document, { viewColumn: vscode.ViewColumn.One, preserveFocus: false, preview: false })

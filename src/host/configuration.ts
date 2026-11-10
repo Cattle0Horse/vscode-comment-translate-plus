@@ -129,7 +129,7 @@ export function browseTranslationScope(uri: vscode.Uri): BrowseTranslationScope 
 
 export function automatic(document: vscode.TextDocument): boolean {
   let resource = document.uri
-  if (resource.scheme === "git") resource = gitResource(resource) ?? resource
+  if (resource.scheme === "git") resource = gitResource(resource)?.uri ?? resource
   let folder = vscode.workspace.getWorkspaceFolder(resource)
   if (!folder && document.uri.scheme !== "git") {
     for (const tab of vscode.window.tabGroups.all.flatMap((group) => group.tabs)) {
@@ -138,7 +138,8 @@ export function automatic(document: vscode.TextDocument): boolean {
       const peer = original.toString() === document.uri.toString() ? modified : modified.toString() === document.uri.toString() ? original : undefined
       if (!peer) continue
       const scope = document.uri.scheme === "git-graph" ? document.uri : peer
-      resource = gitResource(scope) ?? scope
+      const git = gitResource(scope)
+      resource = git?.exists ? git.uri : scope
       folder = vscode.workspace.getWorkspaceFolder(resource)
       if (folder) break
     }
@@ -152,7 +153,7 @@ export function automatic(document: vscode.TextDocument): boolean {
   return include.some(matches) && !exclude.some(matches)
 }
 
-function gitResource(uri: vscode.Uri): vscode.Uri | undefined {
+export function gitResource(uri: vscode.Uri): { readonly uri: vscode.Uri; readonly exists: boolean } | undefined {
   if (uri.scheme !== "git" && uri.scheme !== "git-graph") return undefined
   try {
     const data: unknown = JSON.parse(uri.scheme === "git" ? uri.query : Buffer.from(uri.query, "base64").toString("utf8"))
@@ -160,14 +161,14 @@ function gitResource(uri: vscode.Uri): vscode.Uri | undefined {
     if (uri.scheme === "git") {
       const { path: filePath, ref } = data as Record<string, unknown>
       if (typeof filePath !== "string" || !path.isAbsolute(filePath) || typeof ref !== "string") return undefined
-      return vscode.Uri.file(filePath)
+      return { uri: vscode.Uri.file(filePath), exists: true }
     }
     const { repo, filePath, exists } = data as Record<string, unknown>
-    if (typeof repo !== "string" || !path.isAbsolute(repo) || typeof filePath !== "string" || !filePath || path.isAbsolute(filePath) || exists !== true) return undefined
+    if (typeof repo !== "string" || !path.isAbsolute(repo) || typeof filePath !== "string" || !filePath || path.isAbsolute(filePath) || typeof exists !== "boolean") return undefined
     const absolute = path.resolve(repo, filePath)
     const relative = path.relative(repo, absolute)
     if (!relative || relative === ".." || relative.startsWith(".." + path.sep) || path.isAbsolute(relative)) return undefined
-    return vscode.Uri.file(absolute)
+    return { uri: vscode.Uri.file(absolute), exists }
   } catch {
     return undefined
   }
