@@ -82,7 +82,7 @@ const candidates = Array.from(
   { length: 30 },
   (_, index) => new TranslationUnit({ ...unit("Read the catalog entry " + index + ".", index), reference: [], preserved: false }, settings, openai)
 )
-for (const candidate of candidates) candidate.prepare("")
+for (const candidate of candidates) await candidate.prepare("")
 const policy = new BatchPolicy(settings, openai)
 
 export default {
@@ -131,8 +131,8 @@ export default {
     },
     {
       id: "plan-30-items-200-times",
-      run() {
-        for (let index = 0; index < 200; index++) assert.equal(policy.plan(candidates).units.length, 30)
+      async run() {
+        for (let index = 0; index < 200; index++) assert.equal((await policy.plan(candidates)).units.length, 30)
       }
     }
   ]

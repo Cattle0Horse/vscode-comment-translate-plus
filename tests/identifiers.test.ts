@@ -68,14 +68,14 @@ test("name translation uses bounded raw context and caches distinct meanings ind
   })
   const settings = { ...fixture.settings, preserveTerms: emptyPreserveTerms }
   const store = new TranslationStore()
-  const run = (type: string) => {
+  const run = async (type: string) => {
     const source = "function getUserProfile(): " + type + " {}"
     const start = source.indexOf("getUserProfile")
     const unit = identifierUnit(source, start, "typescript", [{ start, end: start + 14, scopes: ["source.ts", "entity.name.function.ts"] }])!
-    assert.deepEqual(unitReferences(unit, 30), [], "An oversized source block was truncated or leaked past the reference budget.")
+    assert.deepEqual(await unitReferences(unit, 30), [], "An oversized source block was truncated or leaked past the reference budget.")
     return store.translate(
       "name-fixture",
-      prepareInput(settings, { units: [unit] }),
+      await prepareInput(settings, { units: [unit] }),
       (input, signal) => requestTranslation(fixture.service, settings, input, signal, fixture.gate),
       new AbortController().signal
     )

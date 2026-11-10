@@ -16,7 +16,7 @@ test("default terms preserve standalone PascalCase names while sentences and amb
   const input = inputOf(parseMarkdown("# GalleryPathType\n\nXMLParser\n\nHTTPClient2\n\nGallery\n\nGUIDE\n\nRead GalleryPathType before entering."))
   const store = new TranslationStore()
   t.after(() => store.clear())
-  const prepared = prepareInput(settings, input)
+  const prepared = await prepareInput(settings, input)
   const run = () =>
     store.translate(
       serviceIdentity(settings),
@@ -83,7 +83,7 @@ test("preserved bodies retain exact source syntax, share the result cache and ar
   const settings = { ...fixture.settings, preserveTerms: parsePreserveTerms(["Widget", { pattern: "Widget\\r\\nEdition" }]), skipSameLanguage: true }
   const store = new TranslationStore()
   t.after(() => store.clear())
-  const prepared = prepareInput(settings, { units })
+  const prepared = await prepareInput(settings, { units })
   const run = () =>
     store.translate(
       serviceIdentity(settings),
@@ -115,7 +115,7 @@ test("preserved bodies retain exact source syntax, share the result cache and ar
   assert.equal(fixture.seen.length, 0)
   const disabled = { ...settings, preserveTerms: emptyPreserveTerms }
   const previous = prepared.units[0]
-  const updated = prepareInput(disabled, { units: [previous] })
+  const updated = await prepareInput(disabled, { units: [previous] })
   const translated = await store.translate(
     serviceIdentity(disabled),
     updated,

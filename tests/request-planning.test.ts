@@ -87,7 +87,7 @@ test("later batches exclude abandoned units while retaining the request item lim
   const interests = new Map(units.map((unit) => [unit.id, new AbortController()]))
   const pending = new TranslationService().request(
     settings,
-    prepareInput(settings, { units }),
+    await prepareInput(settings, { units }),
     controller.signal,
     gate,
     undefined,

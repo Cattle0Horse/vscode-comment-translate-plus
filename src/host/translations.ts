@@ -230,7 +230,7 @@ export class TranslationRuntime implements vscode.Disposable {
       let started = performance.now()
       for (let index = 0; index < batch.units.length; index += 100) {
         signal.throwIfAborted()
-        units.push(...prepareInput(configured, { units: batch.units.slice(index, index + 100) }).units)
+        units.push(...(await prepareInput(configured, { units: batch.units.slice(index, index + 100) })).units)
         if (performance.now() - started >= 8) {
           await new Promise((resolve) => setTimeout(resolve, 0))
           started = performance.now()
@@ -249,7 +249,15 @@ export class TranslationRuntime implements vscode.Disposable {
             accepted,
             {
               details: this.log.detailsEnabled || this.fileLog.enabled,
-              emit: (event) => this.logTranslation(event, configured, document, version, batch)
+              emit: (event) =>
+                this.logTranslation(
+                  event,
+                  configured,
+                  document,
+                  version,
+                  batch,
+                  units.flatMap((unit) => unit.sensitiveValues ?? [])
+                )
             },
             interests,
             priority,
@@ -327,19 +335,21 @@ export class TranslationRuntime implements vscode.Disposable {
     const version = document.version
     const settings = await this.settings(document.uri)
     if (document.isClosed || document.version !== version) return
-    this.store.invalidate(settings.identity, [prepareInput(settings, { units: parsed.groups.flatMap((group) => group.units) })])
+    const input = await prepareInput(settings, { units: parsed.groups.flatMap((group) => group.units) })
+    if (document.isClosed || document.version !== version) return
+    this.store.invalidate(settings.identity, [input])
   }
 
   async retainUnchanged(document: vscode.TextDocument, previous: ParsedDocument, current: ParsedDocument, edits: readonly (readonly SourceEdit[])[]): Promise<void> {
     const version = document.version
     const settings = await this.settings(document.uri)
     if (document.isClosed || document.version !== version) return
-    this.store.retainUnchanged(
-      settings.identity,
+    const [before, after] = await Promise.all([
       prepareInput(settings, { units: previous.groups.flatMap((group) => group.units) }),
-      prepareInput(settings, { units: current.groups.flatMap((group) => group.units) }),
-      edits
-    )
+      prepareInput(settings, { units: current.groups.flatMap((group) => group.units) })
+    ])
+    if (document.isClosed || document.version !== version) return
+    this.store.retainUnchanged(settings.identity, before, after, edits)
   }
 
   reset(): void {
@@ -408,8 +418,16 @@ export class TranslationRuntime implements vscode.Disposable {
     this.fileLog.record({ kind: "diagnostic", level, message, ...detail })
   }
 
-  private logTranslation(event: TranslationEvent, settings: TranslationSettings, document: vscode.TextDocument, version: number, input: TranslationInput): void {
+  private logTranslation(
+    event: TranslationEvent,
+    settings: TranslationSettings,
+    document: vscode.TextDocument,
+    version: number,
+    input: TranslationInput,
+    sensitiveValues: readonly string[]
+  ): void {
     if (this.disposed) return
+    const secrets = [settings.apiKey, ...sensitiveValues]
     this.fileLog.record(
       {
         ...event,
@@ -423,7 +441,7 @@ export class TranslationRuntime implements vscode.Disposable {
         sourceLanguage: settings.sourceLanguage,
         targetLanguage: settings.targetLanguage
       },
-      [settings.apiKey]
+      secrets
     )
     const file = vscode.workspace.asRelativePath(document.uri, false)
     this.log.record(event, {
@@ -432,6 +450,7 @@ export class TranslationRuntime implements vscode.Disposable {
       model: settings.model || settings.provider,
       targetLanguage: settings.targetLanguage,
       apiKey: settings.apiKey,
+      sensitiveValues: secrets,
       position: (offset) => {
         const position = document.positionAt(offset)
         return file + ":" + (position.line + 1) + ":" + (position.character + 1)

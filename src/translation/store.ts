@@ -31,7 +31,7 @@ interface PendingUnit {
 
 function unitKey(identity: string, unit: TextUnit): string {
   const references = unit.reference?.map(({ kind, text }) => ({ kind, text })) ?? []
-  return JSON.stringify([identity, unitContentKey(unit), references, "preserved" in unit && unit.preserved === true])
+  return JSON.stringify([identity, unitContentKey(unit), references, "preserved" in unit && unit.preserved === true, "sensitiveValues" in unit ? unit.sensitiveValues : []])
 }
 
 export const memoryCacheMaxEntries = 1024

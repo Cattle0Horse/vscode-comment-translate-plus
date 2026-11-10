@@ -1,6 +1,7 @@
 import type { TranslationProvider } from "./protocol.ts"
 import { modelRequest, splitTranslations, defaultSystemPrompt, defaultUserPrompt } from "./prompts.ts"
 import { ModelRetry, RequestRetry } from "../../model/diagnostics.ts"
+import { redactSensitiveText, sensitiveValues } from "../../documents/secrets.ts"
 
 export const openai: TranslationProvider = {
   id: "openai",
@@ -10,9 +11,14 @@ export const openai: TranslationProvider = {
   validate(settings) {
     if (!settings.model.trim()) throw Error("service-settings-incomplete")
   },
-  prepare(request) {
+  async prepare(request) {
     const { settings, items } = request
     const { separator, payload, referenceCharacters } = modelRequest(request)
+    const secrets = await sensitiveValues(
+      payload.messages.map((message) => message.content),
+      [settings.apiKey, ...(request.sensitiveValues ?? [])]
+    )
+    for (const message of payload.messages) message.content = redactSensitiveText(message.content, secrets)
     return {
       characters: payload.messages.reduce((sum, message) => sum + message.content.length, 0),
       referenceCharacters,

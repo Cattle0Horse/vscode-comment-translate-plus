@@ -11,6 +11,7 @@ import { inputOf, limits, requestTranslation } from "./support/fixtures.ts"
 
 for (const provider of ["google", "bing"] as const) {
   test(provider + " translates without an API key when the service rejects the default HTTP client", async (t) => {
+    const credential = "ghp_" + "Ab12".repeat(9)
     let bootstrapAgent: string | undefined
     const server = createServer(async (request, response) => {
       const url = new URL(request.url!, "http://localhost")
@@ -22,6 +23,7 @@ for (const provider of ["google", "bing"] as const) {
         assert.equal(request.headers.authorization, undefined)
         assert.equal(url.searchParams.get("sl"), "auto")
         assert.equal(url.searchParams.get("tl"), "zh-CN")
+        assert.ok(!url.searchParams.get("q")!.includes(credential))
         response.end(JSON.stringify([[[url.searchParams.get("q")!.replace("Hello world", "你好世界")]]]))
         return
       }
@@ -45,6 +47,7 @@ for (const provider of ["google", "bing"] as const) {
       assert.equal(form.get("to"), "zh-Hans")
       assert.equal(form.get("token"), "fixture-token")
       assert.equal(form.get("key"), "123456")
+      assert.ok(!form.get("text")!.includes(credential))
       response.end(JSON.stringify([{ translations: [{ text: form.get("text")!.replace("Hello world", "你好世界"), to: "zh-Hans" }] }]))
     })
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
@@ -55,6 +58,7 @@ for (const provider of ["google", "bing"] as const) {
     const origin = "http://127.0.0.1:" + (server.address() as AddressInfo).port
     const settings = {
       ...limits,
+      minimumMarkerCharacters: 1000,
       provider,
       apiUrl: origin + (provider === "google" ? "/google" : "/bing/translator"),
       model: "",
@@ -67,8 +71,8 @@ for (const provider of ["google", "bing"] as const) {
       targetLanguage: "zh-CN",
       skipSameLanguage: false
     }
-    const input = inputOf(parseMarkdown("Hello world with `sourceId`."))
+    const input = inputOf(parseMarkdown('Hello world with `sourceId`, password="' + credential + '".'))
     const results = await requestTranslation(new TranslationService(), settings, input, new AbortController().signal, new RequestGate(100, 2))
-    assert.deepEqual(results, [{ id: input.units[0].id, text: "你好世界 with `sourceId`." }])
+    assert.deepEqual(results, [{ id: input.units[0].id, text: '你好世界 with `sourceId`, password="' + credential + '".' }])
   })
 }

@@ -96,6 +96,7 @@ export function describeError(code: string): string {
     "service-response-incomplete": "模型没有完整结束生成，对应内容保留原文。",
     "service-response-invalid": "服务返回格式无效，对应内容保留原文。",
     "service-settings-incomplete": "翻译配置不完整，请检查模型及具体目标语言；目标语言不能为空或 auto。",
+    "service-secret-scan-failed": "本地敏感内容检测未能完成，未发送请求，请查看日志。",
     "service-provider-unknown": "翻译服务未接入，请检查 profile 的 provider 设置。",
     "service-body-too-large": "服务返回内容超过大小限制，对应内容保留原文。",
     "service-text-too-large": "完整单元超出此翻译服务的输入上限，未截断送出。",

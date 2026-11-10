@@ -97,18 +97,18 @@ test("malformed fenced YAML retains source and valid neighbouring Markdown remai
   assert.equal(translatedMarkdown(parsed, translations), source.replaceAll("Read", "阅读"))
 })
 
-test("local meaning wins over distant titles and YAML ancestors under a tight reference budget", () => {
+test("local meaning wins over distant titles and YAML ancestors under a tight reference budget", async () => {
   for (const newline of ["\n", "\r\n"]) {
     const source = ["# " + "General ".repeat(120), "", "- Billing: statements and invoices for customer accounts.", "  - Charge"].join(newline)
     const child = inputOf(parseMarkdown(source)).units.at(-1)!
-    const context = referenceText([{ ...child, reference: unitReferences(child, 2000) }])
+    const context = referenceText([{ ...child, reference: await unitReferences(child, 2000) }])
     assert.ok(
       context.startsWith("# General") && context.includes("- Billing: statements and invoices for customer accounts."),
       "The total context budget discarded a complete structural block that still fit."
     )
     const yaml = "root_" + "x".repeat(970) + ":" + newline + "  state: State of the electrical switch"
     const field = inputOf(parseYaml(yaml)).units.find((unit) => unit.content === "state")!
-    const fieldContext = referenceText([{ ...field, reference: unitReferences(field, 2000) }])
+    const fieldContext = referenceText([{ ...field, reference: await unitReferences(field, 2000) }])
     assert.ok(
       fieldContext.startsWith("root_") && fieldContext.includes("  state: State of the electrical switch"),
       "The total context budget discarded a complete YAML ancestor that still fit."
@@ -118,7 +118,7 @@ test("local meaning wins over distant titles and YAML ancestors under a tight re
     const continuation = inputOf(parseMarkdown(["- Billing: statements and invoices for customer accounts.", "", "  " + "General ".repeat(120), "", "  Charge."].join(newline))).units.at(
       -1
     )!
-    const continuationContext = referenceText([{ ...continuation, reference: unitReferences(continuation, 2000) }])
+    const continuationContext = referenceText([{ ...continuation, reference: await unitReferences(continuation, 2000) }])
     assert.ok(
       continuationContext.includes("- Billing: statements and invoices for customer accounts.") && continuationContext.includes("General"),
       "The total context budget discarded a complete neighbouring block that still fit."
@@ -126,36 +126,36 @@ test("local meaning wins over distant titles and YAML ancestors under a tight re
   }
 })
 
-test("headings use their direct explanation and paragraph neighbours stay within structural boundaries", () => {
+test("headings use their direct explanation and paragraph neighbours stay within structural boundaries", async () => {
   for (const newline of ["\n", "\r\n"]) {
     const source = ["# Manual", "", "## Charge", "", "Apply an electrical charge to the capacitor.", "", "Keep it.", "", "## Billing", "", "Charge the customer."].join(newline)
     const units = inputOf(parseMarkdown(source)).units
     const heading = units.find((unit) => unit.text === "## Charge")!
-    const headingContext = referenceText([{ ...heading, reference: unitReferences(heading, 2000) }])
+    const headingContext = referenceText([{ ...heading, reference: await unitReferences(heading, 2000) }])
     assert.equal(headingContext, "# Manual\n\nApply an electrical charge to the capacitor.")
     const short = units.find((unit) => unit.text === "Keep it.")!
-    const shortContext = referenceText([{ ...short, reference: unitReferences(short, 2000) }])
+    const shortContext = referenceText([{ ...short, reference: await unitReferences(short, 2000) }])
     assert.ok(shortContext.includes("Apply an electrical charge to the capacitor.") && !shortContext.includes("Billing"))
     const separated = inputOf(parseMarkdown("# Section\n\n- Other item.\n\n> Quoted paragraph.\n\nShort.\n\n" + "Long prose. ".repeat(12))).units
     for (const unit of separated.filter((unit) => unit.text === "Short." || unit.text.startsWith("Long prose."))) {
-      const context = referenceText([{ ...unit, reference: unitReferences(unit, 2000) }])
+      const context = referenceText([{ ...unit, reference: await unitReferences(unit, 2000) }])
       assert.ok(context.includes("Short.") && context.includes("Long prose."), "Complete neighbouring paragraphs were not available to an isolated target.")
       assert.ok(!context.includes("Quoted paragraph") && !context.includes("Other item"), "A context crossed its list or quote container.")
     }
     const noLead = inputOf(parseMarkdown("## Charge\n\n- List boundary\n\nUnrelated later paragraph.")).units[0]
-    const noLeadContext = referenceText([{ ...noLead, reference: unitReferences(noLead, 2000) }])
+    const noLeadContext = referenceText([{ ...noLead, reference: await unitReferences(noLead, 2000) }])
     assert.ok(noLeadContext.includes("List boundary") && !noLeadContext.includes("Unrelated later"), "A heading skipped its direct list to collect unrelated prose.")
   }
 })
 
-test("table references select the header, delimiter and full row atomically", () => {
+test("table references select the header, delimiter and full row atomically", async () => {
   const source = "| Operation | Meaning |\n| --- | --- |\n| Charge | Apply electricity. |"
   const unit = inputOf(parseMarkdown(source)).units.find((unit) => unit.text === "Charge")!
-  assert.equal(referenceText([{ ...unit, reference: unitReferences(unit, source.length) }]), source)
-  assert.equal(referenceText([{ ...unit, reference: unitReferences(unit, source.length - 1) }]), "", "A partial table lost the relationship between its columns and target row.")
+  assert.equal(referenceText([{ ...unit, reference: await unitReferences(unit, source.length) }]), source)
+  assert.equal(referenceText([{ ...unit, reference: await unitReferences(unit, source.length - 1) }]), "", "A partial table lost the relationship between its columns and target row.")
 })
 
-test("isolated Markdown targets retain neighbouring rules, section guidance and document background", () => {
+test("isolated Markdown targets retain neighbouring rules, section guidance and document background", async () => {
   for (const newline of ["\n", "\r\n"]) {
     const source = [
       "The village library opens its reading room on Saturday mornings.",
@@ -176,27 +176,27 @@ test("isolated Markdown targets retain neighbouring rules, section guidance and 
     ].join(newline)
     const units = inputOf(parseMarkdown(source)).units
     const target = units.find((unit) => unit.text.includes("cannot replace a local map"))!
-    const context = referenceText([{ ...target, reference: unitReferences(target, 2000) }])
+    const context = referenceText([{ ...target, reference: await unitReferences(target, 2000) }])
     for (const required of ["Load the selected book", "Discover illustrated books before", "The village library opens", "### Book Guides"])
       assert.ok(context.includes(required), "An isolated rule lost its explanatory context: " + required)
     assert.ok(!context.includes("Unrelated"), "Reference selection crossed a section boundary.")
     const heading = units.find((unit) => unit.text === "### Book Guides")!
-    const headingContext = referenceText([{ ...heading, reference: unitReferences(heading, 2000) }])
+    const headingContext = referenceText([{ ...heading, reference: await unitReferences(heading, 2000) }])
     assert.ok(headingContext.includes("Discover a travel guide"), "A list-led heading has no explanation of its contents.")
   }
 })
 
-test("Markdown neighbours use complete blocks within the total context budget", () => {
+test("Markdown neighbours use complete blocks within the total context budget", async () => {
   const previous = "Explain the electrical meaning of charge."
   const target = "Apply the charge to the capacitor and keep the connection stable until the next operation completes."
   const next = "Disconnect the supply after charging."
   const units = inputOf(parseMarkdown(["## Circuit", previous, target, next, "## Billing", "Charge the customer."].join("\n\n"))).units
   const unit = units.find((item) => item.text === target)!
-  const context = referenceText([{ ...unit, reference: unitReferences(unit, 2000) }])
+  const context = referenceText([{ ...unit, reference: await unitReferences(unit, 2000) }])
   assert.ok(context.includes(previous) && context.includes(next) && !context.includes("customer"), "Long prose lost adjacent context or crossed into billing.")
   const oversized = "- " + "Remote detail ".repeat(120)
   const tight = inputOf(parseMarkdown(["## Circuit", "", oversized, "- Disconnect the supply.", "- Keep it disconnected."].join("\n"))).units.at(-1)!
-  const fallback = referenceText([{ ...tight, reference: unitReferences(tight, 2000) }])
+  const fallback = referenceText([{ ...tight, reference: await unitReferences(tight, 2000) }])
   assert.ok(fallback.includes("Remote detail") && fallback.includes("- Disconnect the supply."), "A complete reference block within the total budget was discarded.")
 })
 
@@ -208,31 +208,31 @@ test("reference output follows global source order across headings and list cont
   assert.equal(referenceText(units.slice().reverse()), expected)
 })
 
-test("source windows fall back to complete nearer lines without truncation or mixing alternatives", () => {
+test("source windows fall back to complete nearer lines without truncation or mixing alternatives", async () => {
   for (const newline of ["\n", "\r\n"]) {
     const source = ["x".repeat(1100), "// Electrical input", 'const state = "Open";', "// End input", "y".repeat(1100)].join(newline)
     const start = source.indexOf("Open")
     const unit = { id: "open", start, end: start + 4, text: "Open", format: "text" as const, kind: "string" as const }
     const referenced = { ...unit, reference: sourceReferences(source, unit, "typescript") }
-    assert.equal(referenceText([{ ...referenced, reference: unitReferences(referenced, 2000) }]), ["// Electrical input", 'const state = "Open";', "// End input"].join(newline))
-    assert.equal(referenceText([{ ...referenced, reference: unitReferences(referenced, 30) }]), 'const state = "Open";')
-    assert.equal(referenceText([{ ...referenced, reference: unitReferences(referenced, 10) }]), "")
+    assert.equal(referenceText([{ ...referenced, reference: await unitReferences(referenced, 2000) }]), ["// Electrical input", 'const state = "Open";', "// End input"].join(newline))
+    assert.equal(referenceText([{ ...referenced, reference: await unitReferences(referenced, 30) }]), 'const state = "Open";')
+    assert.equal(referenceText([{ ...referenced, reference: await unitReferences(referenced, 10) }]), "")
   }
 })
 
-test("reference equality removes duplicate body across entry points without ignoring meaningful internal differences", () => {
+test("reference equality removes duplicate body across entry points without ignoring meaningful internal differences", async () => {
   const unit = { id: "one", start: 0, end: 15, text: "Read this text.", format: "text" as const }
   const same = { ...unit, reference: [{ kind: "Reference", text: "\r\nRead this text.\r\n" }] }
-  assert.deepEqual(unitReferences(same, 2000), [])
+  assert.deepEqual(await unitReferences(same, 2000), [])
   assert.equal(referenceText([same]), "")
   const different = { ...unit, reference: [{ kind: "Reference", text: "Read  this text." }] }
-  assert.equal(unitReferences(different, 2000).length, 1)
+  assert.equal((await unitReferences(different, 2000)).length, 1)
   assert.ok(referenceText([different]).includes("Read  this text."))
-  assert.deepEqual(unitReferences(different, 0), [])
+  assert.deepEqual(await unitReferences(different, 0), [])
   for (const text of ["- Read this text.", "2. Read this text."])
-    assert.deepEqual(unitReferences({ ...unit, text, end: text.length, format: "markdown", reference: [{ kind: "Reference", text: "Read this text." }] }, 2000), [])
+    assert.deepEqual(await unitReferences({ ...unit, text, end: text.length, format: "markdown", reference: [{ kind: "Reference", text: "Read this text." }] }, 2000), [])
   assert.deepEqual(
-    unitReferences(
+    await unitReferences(
       {
         ...unit,
         reference: [
@@ -246,42 +246,45 @@ test("reference equality removes duplicate body across entry points without igno
   )
 })
 
-test("Markdown references preserve heading ownership, parent list and table relationships without later chapters", () => {
+test("Markdown references preserve heading ownership, parent list and table relationships without later chapters", async () => {
   const source = "# Document title\n\n## Current section\n\n- Parent item.\n  - Child item.\n\n| Mode | Output |\n| --- | --- |\n| Garden | Brief |\n\n## Later section\n\nLater body."
   const units = parseMarkdown(source).groups.flatMap((group) => group.units)
   const child = units.find((unit) => unit.text.includes("Child item."))!
-  const childContext = referenceText([{ ...child, reference: unitReferences(child, 2000) }])
+  const childContext = referenceText([{ ...child, reference: await unitReferences(child, 2000) }])
   assert.ok(childContext.includes("Document title") && childContext.includes("Current section") && childContext.includes("Parent item."))
   assert.ok(!childContext.includes("Later section") && !childContext.includes("Child item."))
   const title = units.find((unit) => unit.text === "# Document title")!
-  assert.equal(referenceText([{ ...title, reference: unitReferences(title, 2000) }]), "")
+  assert.equal(referenceText([{ ...title, reference: await unitReferences(title, 2000) }]), "")
   const cell = units.find((unit) => unit.text === "Garden")!
-  const cellContext = referenceText([{ ...cell, reference: unitReferences(cell, 2000) }])
+  const cellContext = referenceText([{ ...cell, reference: await unitReferences(cell, 2000) }])
   assert.ok(cellContext.includes("| Mode | Output |\n| --- | --- |\n| Garden | Brief |") && !cellContext.includes("Later section"))
   assert.equal(prepareTranslation(cell, 32).text, "Garden")
   assert.equal(referenceText([cell, cell]), cellContext, "Repeated raw context was emitted once per item.")
   const header = units.find((unit) => unit.text === "Mode")!
-  assert.ok(referenceText([{ ...header, reference: unitReferences(header, 2000) }]).includes("| Mode | Output |\n| --- | --- |"), "Header context lost its original table separator row.")
+  assert.ok(
+    referenceText([{ ...header, reference: await unitReferences(header, 2000) }]).includes("| Mode | Output |\n| --- | --- |"),
+    "Header context lost its original table separator row."
+  )
 })
 
-test("masked Markdown retains original local context without duplicating plain source or exceeding reference budgets", () => {
+test("masked Markdown retains original local context without duplicating plain source or exceeding reference budgets", async () => {
   const source = "# Links and tables\n\n**R**ead [the guide][guide] and keep `sourceId_abcdefghijklmnopqrstuvwxyz_123456789` unchanged."
   const unit = inputOf(parseMarkdown(source)).units[1]
-  const selected = { ...unit, reference: unitReferences(unit, 2000) }
+  const selected = { ...unit, reference: await unitReferences(unit, 2000) }
   const context = referenceText([selected])
   assert.ok(context.includes(unit.text), "The model cannot see the source hidden by inline protection markers.")
   assert.ok(context.includes("# Links and tables"))
   const prepared = prepareTranslation(unit, 32, context)
   assert.ok(!prepared.text.includes("sourceId_abcdefghijklmnopqrstuvwxyz") && prepared.hasMarkers)
   assert.equal(prepared.restore(prepared.text), unit.text)
-  assert.equal(referenceText([{ ...unit, reference: unitReferences(unit, 0) }]), "")
-  assert.ok(referenceText([{ ...unit, reference: unitReferences(unit, 25) }]).length <= 25)
+  assert.equal(referenceText([{ ...unit, reference: await unitReferences(unit, 0) }]), "")
+  assert.ok(referenceText([{ ...unit, reference: await unitReferences(unit, 25) }]).length <= 25)
   const longSource = "x".repeat(1200) + "\n" + unit.text
   const surrounded = { ...unit, start: 1201, end: longSource.length }
-  const bounded = { ...surrounded, reference: unitReferences({ ...surrounded, reference: sourceReferences(longSource, surrounded, "markdown") }, 150) }
+  const bounded = { ...surrounded, reference: await unitReferences({ ...surrounded, reference: sourceReferences(longSource, surrounded, "markdown") }, 150) }
   assert.equal(referenceText([bounded]), unit.text, "An oversized surrounding window discarded the smaller original context needed to understand markers.")
   const plain = inputOf(parseMarkdown("Read the complete guide.")).units[0]
-  assert.equal(referenceText([{ ...plain, reference: unitReferences(plain, 2000) }]), "")
+  assert.equal(referenceText([{ ...plain, reference: await unitReferences(plain, 2000) }]), "")
 })
 
 test("nested fenced units inherit only their outer headings and list ancestors with exact LF and CRLF source ranges", async () => {
@@ -305,7 +308,7 @@ test("nested fenced units inherit only their outer headings and list ancestors w
     ].join(newline)
     const parsed = await embeddedMarkdown(source)
     const unit = inputOf(parsed).units.find((item) => item.content === "Read the guide.")!
-    const context = referenceText([{ ...unit, reference: unitReferences(unit, 2000) }])
+    const context = referenceText([{ ...unit, reference: await unitReferences(unit, 2000) }])
     assert.ok(context.includes("# Guide") && context.includes("## Current section") && context.includes("### Inner section"), "A nested fence lost its owning heading path.")
     assert.ok(context.includes("- Parent instructions") && !context.includes("Later section"))
     for (const block of unit.reference ?? []) if (block.range) assert.equal(source.slice(block.range.start, block.range.end), block.text)
@@ -313,14 +316,14 @@ test("nested fenced units inherit only their outer headings and list ancestors w
   }
 })
 
-test("YAML context retains raw field syntax while translation still splits key and scalar value", () => {
+test("YAML context retains raw field syntax while translation still splits key and scalar value", async () => {
   const units = parseMarkdown("---\nmetadata:\n  description: |\n    Read both lines.\n    Keep their meaning.\n---").groups.flatMap((group) => group.units)
   const value = units.find((unit) => unit.text.includes("Read both lines."))!
   const raw = "metadata:\n  description: |\n    Read both lines.\n    Keep their meaning."
-  assert.equal(referenceText([{ ...value, reference: unitReferences(value, 2000) }]), raw)
+  assert.equal(referenceText([{ ...value, reference: await unitReferences(value, 2000) }]), raw)
   assert.equal(prepareTranslation(value, 32).text, "Read both lines.")
   const key = units.find((unit) => unit.content === "description")!
-  const context = referenceText([{ ...key, reference: unitReferences(key, 2000) }])
+  const context = referenceText([{ ...key, reference: await unitReferences(key, 2000) }])
   assert.equal(context, raw)
   assert.equal(prepareTranslation(key, 32).text, "description")
   const preparedValue = prepareTranslation(value, 32)
@@ -328,7 +331,7 @@ test("YAML context retains raw field syntax while translation still splits key a
   assert.equal(preparedValue.restore(preparedValue.text), value.text)
 })
 
-test("YAML collection keys reference complete values while descendants keep only ancestor headers and their own field", () => {
+test("YAML collection keys reference complete values while descendants keep only ancestor headers and their own field", async () => {
   for (const newline of ["\n", "\r\n"]) {
     const metadata = "metadata:\n  availability: active\n  flags:\n    - enabled\n    - disabled\n  nested:\n    read_only: false".replaceAll("\n", newline)
     const source = ["---", metadata, "outside: ignored", "---"].join(newline)
@@ -340,16 +343,16 @@ test("YAML collection keys reference complete values while descendants keep only
       ["availability", "metadata:" + newline + "  availability: active"]
     ]) {
       const unit = units.find((item) => item.content === name)!
-      assert.equal(referenceText([{ ...unit, reference: unitReferences(unit, 2000) }]), expected)
+      assert.equal(referenceText([{ ...unit, reference: await unitReferences(unit, 2000) }]), expected)
       assert.equal(prepareTranslation(unit, 32).text, name)
     }
     const parent = units.find((unit) => unit.content === "metadata")!
-    assert.deepEqual(unitReferences(parent, metadata.length - 1), [], "An oversized collection reference was truncated to its field header.")
+    assert.deepEqual(await unitReferences(parent, metadata.length - 1), [], "An oversized collection reference was truncated to its field header.")
     assert.equal(source.slice(parent.display!.start, parent.display!.end), "metadata:", "Full reference expanded the parent's editor display range.")
   }
 })
 
-test("source context keeps a contiguous raw excerpt with two neighboring lines and omits duplicate body", () => {
+test("source context keeps a contiguous raw excerpt with two neighboring lines and omits duplicate body", async () => {
   const source = "old\r\nbefore2\r\nbefore1\r\nTARGET\r\nafter1\r\nafter2\r\nfar"
   const unit = { start: source.indexOf("TARGET"), end: source.indexOf("TARGET") + 6 }
   const blocks = sourceReferences(source, unit, "typescript")
@@ -357,7 +360,7 @@ test("source context keeps a contiguous raw excerpt with two neighboring lines a
   assert.equal(blocks[0].text, "before2\r\nbefore1\r\nTARGET\r\nafter1\r\nafter2\r\n")
   assert.equal(sourceReferences(source, { ...unit, end: unit.end + 2 }, "typescript")[0].text, blocks[0].text, "Selecting the line ending acquired a third following line.")
   const standalone = { id: "code", start: 0, end: 6, text: "TARGET", format: "text" as const }
-  assert.deepEqual(unitReferences({ ...standalone, reference: sourceReferences("TARGET", standalone, "typescript") }, 2000), [])
+  assert.deepEqual(await unitReferences({ ...standalone, reference: sourceReferences("TARGET", standalone, "typescript") }, 2000), [])
 })
 
 test("overlapping source and selection windows merge by source position without adding distant or duplicate lines", async () => {
@@ -381,7 +384,7 @@ test("overlapping source and selection windows merge by source position without 
   }
 })
 
-test("Markdown references retain unique heading ancestry and the full raw list ancestry", () => {
+test("Markdown references retain unique heading ancestry and the full raw list ancestry", async () => {
   for (const newline of ["\n", "\r\n"]) {
     const source = ["# Guide", "", "## Section", "", "First target.", "", "### Detail", "", "- Parent context.", "  - Child context.", "    - Grandchild target."].join(newline)
     const units = inputOf(parseMarkdown(source)).units
@@ -398,7 +401,7 @@ test("Markdown references retain unique heading ancestry and the full raw list a
   const introduction = inputOf(parseMarkdown("Intro target.\n\n# Later title\n\nLater body.")).units[0]
   assert.equal(referenceText([introduction]), "", "A future heading leaked into an earlier paragraph's reference.")
   const repeatedTitle = inputOf(parseMarkdown("# Guide\n\n# Guide\n\nTarget paragraph.")).units.at(-1)!
-  assert.equal(referenceText([{ ...repeatedTitle, reference: unitReferences(repeatedTitle, 2000) }]).match(/# Guide/g)?.length, 2)
+  assert.equal(referenceText([{ ...repeatedTitle, reference: await unitReferences(repeatedTitle, 2000) }]).match(/# Guide/g)?.length, 2)
 })
 
 test("nested tables keep their own header delimiter, quote prefixes and container while YAML keeps original line endings", () => {

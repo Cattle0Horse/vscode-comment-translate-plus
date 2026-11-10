@@ -39,8 +39,8 @@ test("quoted headings remain local and identical headings or list parents do not
   const quote = inputOf(parseMarkdown("# Manual\n\n> ## Electrical switch\n>\n> Close it.\n\nOutside target."))
   const inside = quote.units.find((unit) => unit.text.includes("Close it."))!
   const outside = quote.units.at(-1)!
-  assert.ok(referenceText([{ ...inside, reference: unitReferences(inside, 2000) }]).includes("> ## Electrical switch"))
-  assert.equal(referenceText([{ ...outside, reference: unitReferences(outside, 2000) }]), "# Manual", "A heading escaped its quote container.")
+  assert.ok(referenceText([{ ...inside, reference: await unitReferences(inside, 2000) }]).includes("> ## Electrical switch"))
+  assert.equal(referenceText([{ ...outside, reference: await unitReferences(outside, 2000) }]), "# Manual", "A heading escaped its quote container.")
   const fixture = await chatFixture(t, (_body, items) => items.join("\n%%\n"))
   for (const source of ["## State\n\nFirst target.\n\n## State\n\nSecond target.", "- First parent.\n  - First target.\n- Second parent.\n  - Second target."]) {
     const input = { units: inputOf(parseMarkdown(source)).units.filter((unit) => unit.text.includes("target.")) }
@@ -60,9 +60,9 @@ test("local reference plans are independent of batch neighbors and their absolut
   const source = "## Charge\n\nApply an electrical charge to the capacitor.\n\nKeep it."
   const fixture = await chatFixture(t, (_body, items) => items.join("\n%%\n"))
   const input = inputOf(parseMarkdown(source))
-  const prepared = prepareInput(fixture.settings, input)
+  const prepared = await prepareInput(fixture.settings, input)
   const target = input.units.at(-1)!
-  const alone = prepareInput(fixture.settings, { units: [target] })
+  const alone = await prepareInput(fixture.settings, { units: [target] })
   assert.equal(referenceText(alone.units), referenceText([prepared.units.at(-1)!]))
   let calls = 0
   const action: Parameters<TranslationStore["translate"]>[2] = async (input) => {
@@ -70,10 +70,10 @@ test("local reference plans are independent of batch neighbors and their absolut
     return input.units.map((unit) => ({ id: unit.id, text: unit.text }))
   }
   await store.translate("reference-plan", alone, action, new AbortController().signal)
-  const moved = prepareInput(fixture.settings, { units: [inputOf(parseMarkdown("\n\n" + source)).units.at(-1)!] })
+  const moved = await prepareInput(fixture.settings, { units: [inputOf(parseMarkdown("\n\n" + source)).units.at(-1)!] })
   await store.translate("reference-plan", moved, action, new AbortController().signal)
   assert.equal(calls, 1, "Moving the same source invalidated the unchanged local reference plan.")
-  const changed = prepareInput(fixture.settings, { units: [inputOf(parseMarkdown(source.replace("electrical", "magnetic"))).units.at(-1)!] })
+  const changed = await prepareInput(fixture.settings, { units: [inputOf(parseMarkdown(source.replace("electrical", "magnetic"))).units.at(-1)!] })
   await store.translate("reference-plan", changed, action, new AbortController().signal)
   assert.equal(calls, 2, "Changing the explanatory paragraph reused a translation with different meaning.")
 })
@@ -389,7 +389,7 @@ test("reference accounting follows actual template expansion, including repeated
   events.length = 0
   const restored = await translate("Rules only.", "Target language: ${targetLang}.\n\nSource items:\n${content}")
   assert.deepEqual(
-    prepareInput({ ...settings, systemPrompt: "Rules only.", userPrompt: "${content}" }, { units: [unit] }).units[0].reference,
+    (await prepareInput({ ...settings, systemPrompt: "Rules only.", userPrompt: "${content}" }, { units: [unit] })).units[0].reference,
     [],
     "Unsent references remained in cache identity."
   )
@@ -507,7 +507,7 @@ test("request-layer feedback reaches custom and empty templates without modifyin
     "Diagnostic data was reinterpreted as a template or source was omitted."
   )
   const provider = getProvider("openai")
-  assert.equal(provider.prepare({ ...request, settings: { ...settings, userPrompt: "" } }).characters, rendered.payload.messages[1].content.length)
+  assert.equal((await provider.prepare({ ...request, settings: { ...settings, userPrompt: "" } })).characters, rendered.payload.messages[1].content.length)
 })
 
 test("changing retry instructions retains the full original message prefix for default, custom and empty templates", () => {
@@ -678,9 +678,15 @@ test("request context budget keeps complete blocks without a unit-specific limit
       included
     )
   }
-  const prepared = prepareInput({ ...fixture.settings, maxContextCharacters: 2000 }, { units: [{ ...unit, reference: [...unit.reference, { kind: "Extra", text: "y".repeat(400) }] }] })
+  const prepared = await prepareInput(
+    { ...fixture.settings, maxContextCharacters: 2000 },
+    { units: [{ ...unit, reference: [...unit.reference, { kind: "Extra", text: "y".repeat(400) }] }] }
+  )
   assert.equal(referenceText(prepared.units), reference + "\n\n" + "y".repeat(400), "A complete reference block was discarded by a unit-specific limit.")
-  const bounded = prepareInput({ ...fixture.settings, maxContextCharacters: 1500 }, { units: [{ ...unit, reference: [...unit.reference, { kind: "Extra", text: "y".repeat(400) }] }] })
+  const bounded = await prepareInput(
+    { ...fixture.settings, maxContextCharacters: 1500 },
+    { units: [{ ...unit, reference: [...unit.reference, { kind: "Extra", text: "y".repeat(400) }] }] }
+  )
   assert.equal(referenceText(bounded.units), reference, "The total request context budget did not keep the highest-priority complete block.")
 })
 

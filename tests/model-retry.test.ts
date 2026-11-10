@@ -179,7 +179,7 @@ test("line-break validation preserves multiline source, boundary whitespace and 
 test("repeated new internal line breaks exhaust existing attempts and never enter the result cache", async (t) => {
   const fixture = await chatFixture(t, () => "这部分的翻译是：\n阅读原始文档。")
   const settings = { ...fixture.settings, maxTranslationAttempts: 2 }
-  const input = prepareInput(settings, inputOf(parseMarkdown("Read the original document.")))
+  const input = await prepareInput(settings, inputOf(parseMarkdown("Read the original document.")))
   const store = new TranslationStore()
   const published: string[] = []
   const run = () =>
@@ -211,7 +211,7 @@ test("added internal line breaks in single-line source retry without publishing 
             : { id: "comment", start: 0, end: source.length, text: source, format: "text" as const, kind: "comment" as const }
       const fixture = await chatFixture(t, (_body, _items, call) => (call === 1 ? "这部分的翻译是：" + newline + "阅读原始文档。" : "阅读原始文档。"))
       const settings = { ...fixture.settings, maxTranslationAttempts: 2 }
-      const input = prepareInput(settings, { units: [unit] })
+      const input = await prepareInput(settings, { units: [unit] })
       const store = new TranslationStore()
       const published: string[] = []
       const events: TranslationEvent[] = []
@@ -248,7 +248,7 @@ test("context continuation after an internal line break is rejected, regenerated
     const published: string[] = []
     const fixture = await chatFixture(t, (_body, _items, call) => (recover && call > 1 ? translation : output))
     const target = inputOf(parseMarkdown(source + "\n" + reference)).units[0]
-    const prepared = prepareInput(fixture.settings, { units: [target] })
+    const prepared = await prepareInput(fixture.settings, { units: [target] })
     const store = new TranslationStore()
     const action: Parameters<TranslationStore["translate"]>[2] = (input, signal, completed, interests) =>
       fixture.service.request(fixture.settings, input, signal, fixture.gate, completed, { details: false, emit: (event) => events.push(event) }, interests)

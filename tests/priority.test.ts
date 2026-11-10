@@ -71,7 +71,9 @@ test("a new viewport overtakes the unplanned tail of the same whole-document tra
   const input = paragraphs(4)
   const settings = { ...fixture.settings, targetLanguage: "en", maxItemsPerRequest: 1 }
   let viewport = input.units[0].id
-  const result = fixture.service.request(settings, prepareInput(settings, input), new AbortController().signal, gate, undefined, undefined, undefined, (id) => (id === viewport ? 0 : 1))
+  const result = fixture.service.request(settings, await prepareInput(settings, input), new AbortController().signal, gate, undefined, undefined, undefined, (id) =>
+    id === viewport ? 0 : 1
+  )
   await waitFor(() => !!release)
   viewport = input.units[3].id
   release()
@@ -99,7 +101,9 @@ test("a queued recovery cannot block newly visible units in the same document", 
   const input = paragraphs(4)
   const settings = { ...fixture.settings, targetLanguage: "en", maxItemsPerRequest: 1 }
   let viewport = "0"
-  const pending = fixture.service.request(settings, prepareInput(settings, input), new AbortController().signal, gate, undefined, undefined, undefined, (id) => (id === viewport ? 0 : 1))
+  const pending = fixture.service.request(settings, await prepareInput(settings, input), new AbortController().signal, gate, undefined, undefined, undefined, (id) =>
+    id === viewport ? 0 : 1
+  )
   await waitFor(() => !!release)
   viewport = "3"
   release()
@@ -128,9 +132,9 @@ test("tab focus prioritizes viewport then the current document while background 
   const a = paragraphs(3)
   const b = { units: paragraphs(5).units.slice(3) }
   const priority = (document: string, viewport: string) => (id: string) => (active !== document ? 2 : id === viewport ? 0 : 1)
-  const first = fixture.service.request(settings, prepareInput(settings, a), new AbortController().signal, gate, undefined, undefined, undefined, priority("a", a.units[0].id))
+  const first = fixture.service.request(settings, await prepareInput(settings, a), new AbortController().signal, gate, undefined, undefined, undefined, priority("a", a.units[0].id))
   await waitFor(() => !!release)
-  const second = fixture.service.request(settings, prepareInput(settings, b), new AbortController().signal, gate, undefined, undefined, undefined, priority("b", b.units[1].id))
+  const second = fixture.service.request(settings, await prepareInput(settings, b), new AbortController().signal, gate, undefined, undefined, undefined, priority("b", b.units[1].id))
   active = "b"
   release()
   const results = await Promise.all([first, second])
@@ -233,7 +237,7 @@ test("Google and Bing prioritize a new viewport inside queued batches and beyond
     let viewport = "0"
     // Start with one tier; the final unit can belong to this batch or its unplanned tail.
     let scrolling = false
-    const pending = fixture.service.request(settings, prepareInput(settings, input), controller.signal, gate, undefined, undefined, undefined, (id) =>
+    const pending = fixture.service.request(settings, await prepareInput(settings, input), controller.signal, gate, undefined, undefined, undefined, (id) =>
       scrolling && id === viewport ? 0 : 1
     )
     await waitFor(() => !!release)
@@ -287,7 +291,7 @@ test("workspace priority reaches provider requests without dropping pending unit
   t.after(() => gate.dispose())
   const input = paragraphs(2)
   const settings = { ...fixture.settings, targetLanguage: "en", maxItemsPerRequest: 1 }
-  const result = await fixture.service.request(settings, prepareInput(settings, input), new AbortController().signal, gate, undefined, undefined, undefined, () => 3)
+  const result = await fixture.service.request(settings, await prepareInput(settings, input), new AbortController().signal, gate, undefined, undefined, undefined, () => 3)
   assert.equal(result.length, input.units.length)
   assert.deepEqual(
     fixture.seen.flatMap(({ items }) => items),

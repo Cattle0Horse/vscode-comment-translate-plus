@@ -60,7 +60,7 @@ export async function requestTranslation(
   completed?: Parameters<TranslationService["request"]>[4],
   trace?: Parameters<TranslationService["request"]>[5]
 ) {
-  return service.request(settings, prepareInput(settings, input), signal, gate, completed, trace)
+  return service.request(settings, await prepareInput(settings, input), signal, gate, completed, trace)
 }
 
 export function inputOf(parsed: ParsedDocument): TranslationInput {
@@ -71,24 +71,26 @@ export function referenceText(units: TranslationInput["units"]): string {
   return mergeReferences(units.map((source) => ({ source, hasMarkers: prepareTranslation(source, 32).hasMarkers })))
 }
 
-export function unitReferences(unit: TranslationInput["units"][number], budget: number) {
-  return prepareInput(
-    {
-      ...limits,
-      maxContextCharacters: budget,
-      provider: "openai",
-      apiUrl: "http://fixture.invalid/v1/chat/completions",
-      apiKey: "",
-      model: "fixture",
-      systemPrompt: defaultSystemPrompt,
-      userPrompt: defaultUserPrompt,
-      languageNames: defaultLanguageNames,
-      preserveTerms: emptyPreserveTerms,
-      sourceLanguage: "auto",
-      targetLanguage: "zh-CN",
-      skipSameLanguage: false
-    },
-    { units: [unit] }
+export async function unitReferences(unit: TranslationInput["units"][number], budget: number) {
+  return (
+    await prepareInput(
+      {
+        ...limits,
+        maxContextCharacters: budget,
+        provider: "openai",
+        apiUrl: "http://fixture.invalid/v1/chat/completions",
+        apiKey: "",
+        model: "fixture",
+        systemPrompt: defaultSystemPrompt,
+        userPrompt: defaultUserPrompt,
+        languageNames: defaultLanguageNames,
+        preserveTerms: emptyPreserveTerms,
+        sourceLanguage: "auto",
+        targetLanguage: "zh-CN",
+        skipSameLanguage: false
+      },
+      { units: [unit] }
+    )
   ).units[0].reference
 }
 

@@ -19,7 +19,7 @@ test("Sources recovery appends correction instructions after the unchanged templ
     })
     const settings = { ...fixture.settings, ...(custom ? { systemPrompt: "", userPrompt: "${content}" } : {}) }
     const unit = inputOf(parseMarkdown("## Sources")).units[0]
-    const input = prepareInput(settings, { units: [{ ...unit, reference: [{ kind: "Section", text: "# Museum Visitor Guide\n\nDescribe the imaginary map gallery." }] }] })
+    const input = await prepareInput(settings, { units: [{ ...unit, reference: [{ kind: "Section", text: "# Museum Visitor Guide\n\nDescribe the imaginary map gallery." }] }] })
     const store = new TranslationStore()
     const run = () =>
       store.translate("appended-correction", input, (input, signal, completed) => fixture.service.request(settings, input, signal, fixture.gate, completed), new AbortController().signal)
@@ -63,7 +63,7 @@ test("synthetic visitor notes recover a single style-boundary line break before 
   for (const { source, output } of cases) {
     for (const newline of ["\n", "\r\n"]) {
       const fixture = await chatFixture(t, () => output.replaceAll("\n", newline))
-      const input = prepareInput(fixture.settings, inputOf(parseMarkdown(source)))
+      const input = await prepareInput(fixture.settings, inputOf(parseMarkdown(source)))
       const unit = input.units[0]
       const store = new TranslationStore()
       const run = () =>

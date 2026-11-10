@@ -116,12 +116,12 @@ test("custom preserved terms complete and cache only as whole units while mixed 
   const local: TranslationInput = { units: [...inputOf(parseMarkdown("**Feature**")).units, { id: "code", start: 13, end: 23, text: "`sourceId`", format: "markdown" }] }
   const store = new TranslationStore()
   const events: TranslationEvent[] = []
-  const translate = () =>
+  const translate = async () =>
     store.translate(
       serviceIdentity(settings),
-      prepareInput(settings, local),
-      (input, signal, completed, interests) =>
-        fixture.service.request(settings, prepareInput(settings, input), signal, fixture.gate, completed, { details: false, emit: (event) => events.push(event) }, interests),
+      await prepareInput(settings, local),
+      async (input, signal, completed, interests) =>
+        fixture.service.request(settings, await prepareInput(settings, input), signal, fixture.gate, completed, { details: false, emit: (event) => events.push(event) }, interests),
       new AbortController().signal
     )
   assert.deepEqual([...(await translate()).values()], ["**Feature**", "`sourceId`"])
@@ -141,7 +141,7 @@ test("custom preserved terms complete and cache only as whole units while mixed 
   const changedSettings = { ...settings, preserveTerms: emptyPreserveTerms }
   const afterChange = await store.translate(
     serviceIdentity(changedSettings),
-    prepareInput(changedSettings, local),
+    await prepareInput(changedSettings, local),
     (input, signal) => requestTranslation(fixture.service, changedSettings, input, signal, fixture.gate),
     new AbortController().signal
   )
@@ -310,7 +310,7 @@ test("unit interests cancel unused HTTP and queued units while preserving a shar
   })
   t.after(() => releases.forEach((release) => release()))
   const settings = { ...fixture.settings, userPrompt: "${content}", maxItemsPerRequest: 1 }
-  const input = prepareInput(settings, inputOf(parseMarkdown("Original A.\n\nOriginal B.\n\nOriginal C.")))
+  const input = await prepareInput(settings, inputOf(parseMarkdown("Original A.\n\nOriginal B.\n\nOriginal C.")))
   const store = new TranslationStore()
   t.after(() => store.clear())
   const events: TranslationEvent[] = []
@@ -388,7 +388,7 @@ test("unit cancellation skips queued work without failing the remaining browse u
   })
   t.after(() => releases.forEach((release) => release()))
   const settings = { ...fixture.settings, userPrompt: "${content}", maxItemsPerRequest: 1 }
-  const input = prepareInput(settings, inputOf(parseMarkdown("Original A.\n\nOriginal B.\n\nOriginal C.")))
+  const input = await prepareInput(settings, inputOf(parseMarkdown("Original A.\n\nOriginal B.\n\nOriginal C.")))
   const controllers = input.units.map(() => new AbortController())
   const store = new TranslationStore()
   t.after(() => store.clear())
@@ -909,7 +909,7 @@ test("default logging shows a task lifecycle without successful request or cache
 test("YAML keys and values with identical text keep separate pending work and cached normalized results", async (t) => {
   const fixture = await chatFixture(t, (_body, items) => items.map(() => "标签：").join("\n%%\n"))
   const settings = { ...fixture.settings, maxContextCharacters: 0 }
-  const input = prepareInput(settings, inputOf(parseMarkdown("---\nlabel: label\n---")))
+  const input = await prepareInput(settings, inputOf(parseMarkdown("---\nlabel: label\n---")))
   const [key, value] = input.units
   const store = new TranslationStore()
   const action = (batch: TranslationInput, signal: AbortSignal, completed: (item: TranslationItem) => void) =>
@@ -1002,11 +1002,11 @@ test("changing preserve regex matching isolates local completion while equivalen
   const input = inputOf(parseMarkdown("HTTP"))
   const store = new TranslationStore()
   t.after(() => store.clear())
-  const translate = (pattern: string, flags: string) => {
+  const translate = async (pattern: string, flags: string) => {
     const settings = { ...fixture.settings, preserveTerms: parsePreserveTerms([{ pattern, flags }]), skipSameLanguage: false }
     return store.translate(
       serviceIdentity(settings),
-      prepareInput(settings, input),
+      await prepareInput(settings, input),
       (batch, signal) => requestTranslation(fixture.service, settings, batch, signal, fixture.gate),
       new AbortController().signal
     )

@@ -3,6 +3,8 @@ import { referenceText } from "../documents/references.ts"
 import type { ServiceSettings } from "./settings.ts"
 import type { TranslationRequest, PreparedRequest, TranslationProvider } from "./providers/protocol.ts"
 import type { TranslationUnit } from "./unit.ts"
+import { redactSensitiveText } from "../documents/secrets.ts"
+import { modelRequest } from "./providers/prompts.ts"
 
 export interface CompiledBatch {
   readonly payload: TranslationRequest
@@ -29,12 +31,14 @@ export class BatchPolicy {
       }
   }
 
-  compile(units: readonly TranslationUnit[], review?: ModelRetry, previousOutput?: string | readonly string[]): CompiledBatch {
-    const redact = (text: string): string => (this.settings.apiKey ? text.split(this.settings.apiKey).join("[REDACTED]") : text)
+  private payload(units: readonly TranslationUnit[], review?: ModelRetry, previousOutput?: string | readonly string[]): TranslationRequest {
+    const sensitiveValues = [this.settings.apiKey, ...units.flatMap((unit) => unit.source.sensitiveValues ?? [])]
+    const redact = (text: string): string => redactSensitiveText(text, sensitiveValues)
     const payload: TranslationRequest = {
       settings: this.settings,
+      sensitiveValues,
       previousOutput: typeof previousOutput === "string" ? redact(previousOutput) : previousOutput?.map(redact),
-      context: this.settings.includeContext ? referenceText(units.map((unit) => ({ source: unit.source, hasMarkers: unit.prepared!.hasMarkers }))) : "",
+      context: this.settings.includeContext ? redact(referenceText(units.map((unit) => ({ source: unit.source, hasMarkers: unit.prepared!.hasMarkers })))) : "",
       retryFeedback: units.flatMap((unit, index) => {
         const feedback = (review ?? unit.feedback)?.feedback
         return feedback ? [{ index, reason: redact(feedback.reason), instruction: redact(feedback.instruction) }] : []
@@ -44,7 +48,17 @@ export class BatchPolicy {
         return { id: unit.source.id, format: unit.source.format, kind: unit.source.kind, text: prepared.text, hasMarkers: prepared.hasMarkers }
       })
     }
-    return { payload, request: this.provider.prepare(payload) }
+    return payload
+  }
+
+  async compile(units: readonly TranslationUnit[], review?: ModelRetry, previousOutput?: string | readonly string[]): Promise<CompiledBatch> {
+    const payload = this.payload(units, review, previousOutput)
+    return { payload, request: await this.provider.prepare(payload) }
+  }
+
+  canReview(unit: TranslationUnit, review: ModelRetry, previousOutput: string): boolean {
+    const { payload, referenceCharacters } = modelRequest(this.payload([unit], review, previousOutput))
+    return payload.messages.reduce((sum, message) => sum + message.content.length, 0) <= this.settings.maxRequestCharacters && referenceCharacters <= this.settings.maxContextCharacters
   }
 
   fits(batch: CompiledBatch): boolean {
@@ -59,7 +73,7 @@ export class BatchPolicy {
     })
   }
 
-  plan(candidates: readonly TranslationUnit[]): PlannedBatch {
+  async plan(candidates: readonly TranslationUnit[]): Promise<PlannedBatch> {
     const maximum = Math.min(this.settings.maxItemsPerRequest, this.capacity?.items ?? this.settings.maxItemsPerRequest)
     let compiled: CompiledBatch | undefined
     let size = 0
@@ -73,7 +87,7 @@ export class BatchPolicy {
         reason = "语义范围变化"
         break
       }
-      const candidate = this.compile(candidates.slice(0, size + 1))
+      const candidate = await this.compile(candidates.slice(0, size + 1))
       if (!this.fits(candidate)) {
         reason = candidate.request.referenceCharacters > this.settings.maxContextCharacters ? "达到参考预算" : "达到请求字符上限"
         if (!size) return { kind: "oversized", unit: candidates[0], characters: candidate.request.characters }

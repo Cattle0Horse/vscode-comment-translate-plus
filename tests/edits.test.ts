@@ -22,10 +22,10 @@ test("completed units survive neighbouring edits across Markdown, YAML, tables a
     ]
     for (const scenario of cases) {
       const store = new TranslationStore()
-      const before = prepareInput(fixture.settings, inputOf(await scenario.parse(scenario.source)))
+      const before = await prepareInput(fixture.settings, inputOf(await scenario.parse(scenario.source)))
       const edit = { rangeOffset: scenario.source.indexOf(scenario.target), rangeLength: scenario.target.length, text: scenario.replacement }
       const source = scenario.source.slice(0, edit.rangeOffset) + edit.text + scenario.source.slice(edit.rangeOffset + edit.rangeLength)
-      const after = prepareInput(fixture.settings, inputOf(await scenario.parse(source)))
+      const after = await prepareInput(fixture.settings, inputOf(await scenario.parse(source)))
       const calls: PreparedInput[] = []
       const action: Parameters<TranslationStore["translate"]>[2] = async (input) => {
         calls.push(input)

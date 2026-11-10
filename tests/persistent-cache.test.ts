@@ -430,11 +430,11 @@ test("result identity ignores unrelated settings while preserving prompts, langu
   const store = new TranslationStore()
   const raw = inputOf(parseMarkdown("Widget"))
   let calls = 0
-  const run = (preserve: string[]) => {
+  const run = async (preserve: string[]) => {
     const configured = { ...settings, preserveTerms: parsePreserveTerms(preserve) }
     return store.translate(
       serviceIdentity(configured),
-      prepareInput(configured, raw),
+      await prepareInput(configured, raw),
       async (input) => {
         calls++
         return input.units.map((unit) => ({ id: unit.id, text: unit.preserved ? unit.text : "控件" }))
@@ -506,7 +506,7 @@ test("real batch admission stops HTTP at disk capacity and reuses completed unit
   const fixture = await chatFixture(t, (_body, items) => items.join("\n%%\n"))
   t.after(() => fixture.gate.dispose())
   const settings = { ...fixture.settings, targetLanguage: "en", maxItemsPerRequest: 1, initialItemsPerRequest: 1 }
-  const input = prepareInput(settings, inputOf(parseMarkdown(Array.from({ length: 8 }, (_, index) => "Original paragraph " + index + ".").join("\n\n"))))
+  const input = await prepareInput(settings, inputOf(parseMarkdown(Array.from({ length: 8 }, (_, index) => "Original paragraph " + index + ".").join("\n\n"))))
   const store = new TranslationStore(cache)
   t.after(() => store.clear())
   const action: Parameters<TranslationStore["translate"]>[2] = (batch, signal, accepted, interests, priority, admit) =>
@@ -534,7 +534,7 @@ test("a rejected background batch lets previously reserved HTTP finish and retai
   fixture.gate.configure(100, 2)
   t.after(() => fixture.gate.dispose())
   const settings = { ...fixture.settings, targetLanguage: "en", maxItemsPerRequest: 1, initialItemsPerRequest: 1, slowStart: false }
-  const input = prepareInput(settings, inputOf(parseMarkdown("First paragraph.\n\nLater paragraph.")))
+  const input = await prepareInput(settings, inputOf(parseMarkdown("First paragraph.\n\nLater paragraph.")))
   const store = new TranslationStore(cache)
   t.after(() => store.clear())
   const action: Parameters<TranslationStore["translate"]>[2] = (batch, signal, accepted, interests, priority, admit) =>

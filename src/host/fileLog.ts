@@ -2,6 +2,7 @@ import { appendFile, mkdir } from "node:fs/promises"
 import { dirname } from "node:path"
 import { randomUUID } from "node:crypto"
 import { redact, redactionTokens } from "./logging.ts"
+import { sensitiveValues } from "../documents/secrets.ts"
 
 /** Serializes appends and keeps already accepted entries bound to their original file. */
 export class FileLog {
@@ -28,16 +29,19 @@ export class FileLog {
   record(event: object, secrets: readonly string[] = []): void {
     const target = this.target
     if (!target || target.failed) return
-    const tokens = redactionTokens(secrets)
-    const entry = JSON.stringify(
-      { timestamp: new Date().toISOString(), sessionId: this.sessionId, ...event },
-      tokens.length ? (_key, value: unknown) => (typeof value === "string" ? redact(value, tokens) : value) : undefined
-    )
+    const texts: string[] = []
+    JSON.stringify(event, (_key, value: unknown) => {
+      if (typeof value === "string") texts.push(value)
+      return value
+    })
+    const entry = JSON.stringify({ timestamp: new Date().toISOString(), sessionId: this.sessionId, ...event })
     this.pending = this.pending.then(async () => {
       if (target.failed) return
       try {
+        const tokens = redactionTokens(await sensitiveValues(texts, secrets))
+        const redacted = JSON.stringify(JSON.parse(entry, (_key, value: unknown) => (typeof value === "string" ? redact(value, tokens) : value)))
         await mkdir(dirname(target.path), { recursive: true })
-        await appendFile(target.path, entry + "\n", "utf8")
+        await appendFile(target.path, redacted + "\n", "utf8")
       } catch {
         target.failed = true
         this.reportFailure()

@@ -32,6 +32,7 @@ export class RequestGate {
   private timer: ReturnType<typeof setTimeout> | undefined
   private disposed = false
   private pumping = false
+  private planning = false
   private continuation: ReturnType<typeof setImmediate> | undefined
   private readonly recovery = new Map<string, Recovery>()
   private readonly activeScopes = new Map<string, number>()
@@ -52,7 +53,7 @@ export class RequestGate {
   }
 
   /** Plan the next batch at admission without spending an HTTP slot or rate token. */
-  plan(work: () => void, signal: AbortSignal, priority: () => number, scope = ""): Promise<void> {
+  plan(work: () => void | Promise<void>, signal: AbortSignal, priority: () => number, scope = ""): Promise<void> {
     return this.enqueue(work, signal, priority, "planning", scope, 0)
   }
 
@@ -166,6 +167,7 @@ export class RequestGate {
         kind,
         start: () => {
           signal.removeEventListener("abort", request.cancel)
+          if (kind === "planning") this.planning = true
           if (kind === "http") {
             this.active++
             this.activeScopes.set(scope, (this.activeScopes.get(scope) ?? 0) + 1)
@@ -193,7 +195,10 @@ export class RequestGate {
                   this.continuation = undefined
                   this.pump()
                 })
-            } else if (!this.timer) this.pump()
+            } else {
+              this.planning = false
+              if (!this.timer) this.pump()
+            }
           })
         },
         cancel: () => {
@@ -210,13 +215,13 @@ export class RequestGate {
   }
 
   private pump(): void {
-    if (this.pumping || this.disposed || this.continuation) return
+    if (this.pumping || this.disposed || this.continuation || this.planning) return
     this.pumping = true
     try {
       if (this.timer) clearTimeout(this.timer)
       this.timer = undefined
       let wakeAt = Infinity
-      while (this.waiting.length && this.active < this.concurrency) {
+      while (this.waiting.length && this.active < this.concurrency && !this.planning) {
         const now = performance.now()
         this.starts = this.starts.filter((start) => now - start < 1000)
         if (this.starts.length >= this.rate) {

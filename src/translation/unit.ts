@@ -6,6 +6,7 @@ import { validateTranslation, translationIsUnchanged } from "../documents/valida
 import { isTargetLanguage, unlikelyTargetLanguage } from "../documents/languageDetection.ts"
 import type { ServiceSettings } from "./settings.ts"
 import type { TranslationProvider } from "./providers/protocol.ts"
+import { protectSensitiveText, sensitiveValues } from "../documents/secrets.ts"
 
 export class TranslationUnit {
   prepared?: ReturnType<typeof prepareTranslation>
@@ -36,15 +37,26 @@ export class TranslationUnit {
     return this.pending && this.attempts < this.settings.maxTranslationAttempts
   }
 
-  prepare(collisions: string): void {
-    if (this.source.preserved) {
+  async prepare(collisions: string): Promise<void> {
+    if (this.source.preserved || (this.source.kind === "identifier" && this.source.sensitiveValues?.some((value) => this.source.text.includes(value)))) {
       const failure = validateTranslation(this.source, this.source.text)
       if (failure) throw failure
       this.translation = this.source.text
     } else if (this.settings.skipSameLanguage && isTargetLanguage(this.source, this.settings.targetLanguage, this.settings.preserveTerms)) {
       this.skipped = true
       this.translation = this.source.text
-    } else this.prepared = prepareTranslation(this.source, this.settings.minimumMarkerCharacters, collisions)
+    } else {
+      const prepared = prepareTranslation(this.source, this.settings.minimumMarkerCharacters, collisions)
+      const secrets = await sensitiveValues([prepared.text], this.source.sensitiveValues ?? [this.settings.apiKey])
+      const protectedText = protectSensitiveText(prepared.text, secrets, collisions)
+      this.prepared = {
+        ...prepared,
+        text: protectedText.text,
+        hasMarkers: prepared.hasMarkers || protectedText.hasSecrets,
+        needsTranslation: prepared.needsTranslation && !/^\s*<REDACTED\d+_\d+>\s*$/u.test(protectedText.text),
+        restore: (text, normalized) => prepared.restore(protectedText.restore(text), normalized)
+      }
+    }
   }
 
   beginAttempt(): void {

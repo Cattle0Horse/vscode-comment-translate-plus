@@ -18,6 +18,7 @@ export interface ProviderSettings {
 export interface TranslationRequest {
   readonly settings: ProviderSettings
   readonly context: string
+  readonly sensitiveValues?: readonly string[]
   readonly retryFeedback?: readonly (ModelFeedback & { readonly index: number })[]
   /** Exact prior response, or aligned prior items selected in the current source order. */
   readonly previousOutput?: string | readonly string[]
@@ -44,7 +45,7 @@ export interface TranslationProvider {
   readonly adaptive?: boolean
   readonly defaultPrompts?: { readonly system: string; readonly user: string }
   validate?(settings: ProviderSettings): void
-  prepare(request: TranslationRequest): PreparedRequest
+  prepare(request: TranslationRequest): PreparedRequest | Promise<PreparedRequest>
 }
 
 /** The measured messages and the sent messages belong to the same compiled request. */

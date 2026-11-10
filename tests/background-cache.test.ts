@@ -80,7 +80,7 @@ test("an actual HTTP result that cannot fit stops later batches without evicting
   const fixture = await chatFixture(t, () => "译".repeat(150000))
   t.after(() => fixture.gate.dispose())
   const settings = { ...fixture.settings, maxItemsPerRequest: 1, initialItemsPerRequest: 1 }
-  const pending = prepareInput(settings, input(2, "Pending"))
+  const pending = await prepareInput(settings, input(2, "Pending"))
   const action: typeof echo = (batch, signal, accepted, interests, priority, admit) =>
     fixture.service.request(settings, batch, signal, fixture.gate, accepted, undefined, interests, priority, admit)
   await assert.rejects(background(store, pending, action), /background-cache-full-memory/)

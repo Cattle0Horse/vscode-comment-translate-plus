@@ -40,8 +40,8 @@ export default {
   scenarios: [
     {
       id: "resolve-reference-and-render-200-single-unit-prompts",
-      run() {
-        const prepared = prepareInput(settings, input)
+      async run() {
+        const prepared = await prepareInput(settings, input)
         assert.equal(prepared.units.length, 200)
         for (const unit of prepared.units) {
           const original = prepareTranslation(unit, settings.minimumMarkerCharacters)

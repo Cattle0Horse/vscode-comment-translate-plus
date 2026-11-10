@@ -1,6 +1,7 @@
 import type { ProviderSettings, TranslationRequest } from "./protocol.ts"
 import { ModelRetry } from "../../model/diagnostics.ts"
 import manifest from "../../../package.json" with { type: "json" }
+import { redactSensitiveText } from "../../documents/secrets.ts"
 
 const defaults = manifest.contributes.configuration.properties["commentTranslatePlus.service.profiles"].items.properties
 
@@ -148,7 +149,11 @@ export function modelRequest(request: TranslationRequest): {
   return {
     separator,
     referenceCharacters,
-    payload: { model: request.settings.model, stream: false, messages }
+    payload: {
+      model: request.settings.model,
+      stream: false,
+      messages: messages.map((message) => ({ ...message, content: redactSensitiveText(message.content, [request.settings.apiKey, ...(request.sensitiveValues ?? [])]) }))
+    }
   }
 }
 

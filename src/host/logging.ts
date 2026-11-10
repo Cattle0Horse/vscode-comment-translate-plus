@@ -1,6 +1,7 @@
 import type { TranslationEvent } from "../model/events.ts"
 import type { FailedTranslation } from "../model/events.ts"
 import { describeError, describeCancellation } from "../model/diagnostics.ts"
+import { redactSensitiveText } from "../documents/secrets.ts"
 
 export type LogLevel = "info" | "warning" | "error"
 
@@ -10,6 +11,7 @@ export interface TranslationLogContext {
   readonly model: string
   readonly targetLanguage: string
   readonly apiKey: string
+  readonly sensitiveValues?: readonly string[]
   position(offset: number): string
 }
 
@@ -20,8 +22,7 @@ export function redactionTokens(secrets: readonly string[]): readonly string[] {
 }
 
 export function redact(text: string, tokens: readonly string[]): string {
-  for (const secret of tokens) text = text.replaceAll(secret, "[REDACTED]")
-  return text
+  return redactSensitiveText(text, tokens)
 }
 
 function excerpt(value: string, tokens: readonly string[]): string {
@@ -66,7 +67,7 @@ function finishMessage(event: Extract<TranslationEvent, { kind: "finish" }>, con
     if (event.code) message += "\n  原因：" + describeError(event.code)
     return message
   }
-  const tokens = redactionTokens([context.apiKey])
+  const tokens = redactionTokens([context.apiKey, ...(context.sensitiveValues ?? [])])
   for (const group of failureGroups(event.failures)) {
     const first = group[0]
     const positions = group
@@ -210,10 +211,10 @@ export class TranslationLog {
     if (event.kind === "start") {
       message += `任务开始：${event.total} 项 → ${context.targetLanguage}（${context.name} / ${context.model}）`
     } else if (event.kind === "request") {
-      message += this.requestMessage(event, context, redactionTokens([context.apiKey]))
+      message += this.requestMessage(event, context, redactionTokens([context.apiKey, ...(context.sensitiveValues ?? [])]))
     } else {
       message += finishMessage(event, context)
     }
-    this.write(level, message, [context.apiKey])
+    this.write(level, message, [context.apiKey, ...(context.sensitiveValues ?? [])])
   }
 }

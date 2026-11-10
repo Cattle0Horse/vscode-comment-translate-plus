@@ -69,15 +69,8 @@ if (args.has("--watch")) {
           continue
         }
         if (licenses.has(manifest.name)) break
-        let license
-        for (const name of ["license", "LICENSE", "LICENSE.md", "license.md", "LICENSE.txt", "LICENSE-MIT.txt"]) {
-          try {
-            license = await readFile(resolve(directory, name), "utf8")
-            break
-          } catch (error) {
-            if (error.code !== "ENOENT") throw error
-          }
-        }
+        const licenseFiles = (await readdir(directory)).filter((name) => /^licen[cs]e(?:[.-]|$)/iu.test(name)).sort()
+        let license = (await Promise.all(licenseFiles.map((name) => readFile(resolve(directory, name), "utf8")))).join("\n\n")
         if (!license) throw Error(`Missing bundled license: ${manifest.name}`)
         for (const name of ["NOTICES.txt", "NOTICE", "ThirdPartyNotices.txt"]) {
           try {

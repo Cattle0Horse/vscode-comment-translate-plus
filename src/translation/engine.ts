@@ -127,7 +127,7 @@ class TranslationRun {
   private publish(unit: TranslationUnit, text: string, diagnosticCodes: readonly string[] = []): void {
     this.combined.throwIfAborted()
     if (!unit.pending) return
-    unit.accept(text, (review) => this.policy.fits(this.policy.compile([unit], review, text)), diagnosticCodes)
+    unit.accept(text, (review) => this.policy.canReview(unit, review, text), diagnosticCodes)
     this.deliver(unit)
   }
 
@@ -142,9 +142,10 @@ class TranslationRun {
   }
 
   private async prepare(): Promise<void> {
-    const collisions = [
-      ...new Set(this.units.flatMap(({ source }) => [source.text, ...source.reference.map((block) => block.text)]).flatMap((text) => text.match(/<CTP(?:\d+_)?/g) ?? []))
+    let collisions = [
+      ...new Set(this.units.flatMap(({ source }) => [source.text, ...source.reference.map((block) => block.text)]).flatMap((text) => text.match(/<CTP(?:\d+_)?|<REDACTED\d+_/g) ?? []))
     ].join("\n")
+    collisions += "\n" + [this.settings.systemPrompt, this.settings.userPrompt].flatMap((text) => text.match(/<REDACTED\d+_/gu) ?? []).join("\n")
     let started = performance.now()
     for (const unit of this.units) {
       if (performance.now() - started >= 8) {
@@ -153,7 +154,9 @@ class TranslationRun {
       }
       this.combined.throwIfAborted()
       if (!unit.wanted) continue
-      unit.prepare(collisions)
+      await unit.prepare(collisions)
+      this.combined.throwIfAborted()
+      collisions += "\n" + (unit.prepared?.text.match(/<REDACTED\d+_/gu)?.join("\n") ?? "")
       if (unit.translation !== undefined) this.deliver(unit)
       else if (!unit.prepared!.needsTranslation) this.publish(unit, unit.prepared!.text)
     }
@@ -169,7 +172,7 @@ class TranslationRun {
         : previous && units.every((unit) => previous.items.has(unit))
           ? units.map((unit) => previous.items.get(unit)!)
           : undefined
-    const batch = compiled && units.length === candidates.length ? compiled : this.policy.compile(units, undefined, previousOutput)
+    const batch = compiled && units.length === candidates.length ? compiled : await this.policy.compile(units, undefined, previousOutput)
     const { payload, request: measurement } = batch
     if (!this.policy.fits(batch)) {
       if (units.length > 1) {
@@ -365,7 +368,7 @@ class TranslationRun {
         // Choose units only when the shared HTTP budget has room. A new
         // viewport can then overtake the unplanned tail of a whole document.
         await this.gate.plan(
-          () => {
+          async () => {
             if (failure) return
             let highest = Infinity
             let candidates: TranslationUnit[] = []
@@ -382,7 +385,7 @@ class TranslationRun {
               remaining.clear()
               return
             }
-            const batch = this.policy.plan(candidates)
+            const batch = await this.policy.plan(candidates)
             if (batch.kind === "oversized") {
               batch.unit.reject(this.policy.oversized(batch.characters))
               remaining.delete(batch.unit)

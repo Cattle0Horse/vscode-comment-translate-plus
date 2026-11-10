@@ -13,6 +13,7 @@ import { runCommentParagraphs } from "./comments.ts"
 import { runParsing } from "./parsing.ts"
 import { runPersistentCache } from "./cache.ts"
 import { runTransport } from "./transport.ts"
+import { runSecrets } from "./secrets.ts"
 import { runBackgroundRules } from "./background.ts"
 import { runProgress } from "./progress.ts"
 import { runFileLogging } from "./logging.ts"
@@ -77,6 +78,7 @@ export async function run(): Promise<void> {
   try {
     for (const [key, value] of Object.entries(settings)) await config.update(key, value, vscode.ConfigurationTarget.Global)
     checks.push(...(await runIdentifiers(workspace, controller, test.origin)))
+    checks.push(...(await runSecrets(workspace, controller)))
     editor = await vscode.window.showTextDocument(document, { viewColumn: vscode.ViewColumn.One, preserveFocus: false, preview: false })
     checks.push(...(await runBackgroundRules(workspace, controller, test.origin)))
     await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
