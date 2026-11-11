@@ -623,7 +623,7 @@ test("unchanged results stay completed and cached while representation noise is 
     { format: "text", original: "// AcmeSDK product name.", returned: "  // AcmeSDK product name.  ", unchanged: true },
     { format: "text", kind: "string", original: '"AcmeSDK "', returned: '"AcmeSDK"', unchanged: false },
     { format: "yaml", original: '"AcmeSDK "', content: "AcmeSDK ", returned: "AcmeSDK", unchanged: false },
-    { format: "markdown", original: "AcmeSDK product name.", returned: "acmesdk product name.", unchanged: false },
+    { format: "markdown", original: "AcmeSDK product name.", returned: "acmesdk product name.", unchanged: true },
     { format: "markdown", original: "AcmeSDK product name.", returned: "AcmeSDK product name!", unchanged: true },
     { format: "markdown", original: "检查队列与索引", returned: "检查 队列与索引。", unchanged: true },
     { format: "text", kind: "comment", original: "// Inspect the queue", returned: "// Inspect the queue.", unchanged: true },

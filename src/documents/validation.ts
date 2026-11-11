@@ -377,12 +377,12 @@ function comparisonProse(unit: TextUnit, literal = false): string {
   return result + equivalentProse(source.slice(cursor), !literal)
 }
 
-/** Ignore prose punctuation; protected data and syntax never enter here. */
+/** Ignore prose punctuation and case; protected data and syntax never enter here. */
 function equivalentProse(text: string, ignoreWhitespace: boolean): string {
-  return text.replace(ignoreWhitespace ? /[\s\p{P}]/gu : /\p{P}/gu, "")
+  return text.replace(ignoreWhitespace ? /[\s\p{P}]/gu : /\p{P}/gu, "").toLowerCase()
 }
 
-/** Compare validated results with equivalent prose punctuation; literal whitespace and protected data stay exact. */
+/** Compare validated results with equivalent prose punctuation and case; literal whitespace and protected data stay exact. */
 export function translationIsUnchanged(unit: TextUnit, translated: string): boolean {
   if (translated === unit.text) return true
   let literal = unit.kind === "string"
