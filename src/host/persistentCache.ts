@@ -14,7 +14,6 @@ export interface PersistentCacheSnapshot {
   readonly state: "disabled" | "ready" | "failed"
   readonly entries: number | undefined
   readonly bytes: number | undefined
-  readonly pendingChanges: number
   readonly maxEntries: number
   readonly maxBytes: number
   readonly directory: string
@@ -72,7 +71,6 @@ export class PersistentCache {
       state: this.failed ? "failed" : this.options.enabled ? "ready" : "disabled",
       entries,
       bytes,
-      pendingChanges: this.changes.size,
       maxEntries: this.options.maxEntries,
       maxBytes: this.options.maxBytes,
       directory: dirname(this.path)

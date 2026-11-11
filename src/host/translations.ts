@@ -125,7 +125,7 @@ export class TranslationRuntime implements vscode.Disposable {
     }
     while (!this.disposed) {
       const snapshot = this.persistent.snapshot()
-      const items: (vscode.QuickPickItem & { action?: "toggle" | "refresh" | "flush" | "directory" | "settings" })[] = [
+      const items: (vscode.QuickPickItem & { action?: "toggle" | "refresh" | "directory" | "settings" })[] = [
         {
           label: "持久化缓存",
           description: snapshot.state === "failed" ? "存储故障，仅使用内存缓存" : snapshot.state === "ready" ? "已开启" : "已关闭",
@@ -142,7 +142,6 @@ export class TranslationRuntime implements vscode.Disposable {
           detail: "已提交的摘要与译文有效载荷，受条数和容量上限约束。",
           action: "refresh"
         },
-        { label: "待写入变更", description: `${snapshot.pendingChanges} 项`, detail: "当前窗口尚未提交的新增、更新或删除；不计入上方已提交统计。", action: "flush" },
         { label: "打开缓存目录", description: snapshot.directory, action: "directory" },
         { label: "打开缓存设置", action: "settings" }
       ]
@@ -150,10 +149,6 @@ export class TranslationRuntime implements vscode.Disposable {
       if (!selected || this.disposed) return
       if (selected.action === "toggle") {
         await this.togglePersistentCache()
-        continue
-      }
-      if (selected.action === "flush") {
-        await this.persistent.flush()
         continue
       }
       if (selected.action === "refresh") continue

@@ -34,7 +34,7 @@ export async function runPersistentCache(workspace: vscode.Uri, owner: Applicati
       signal()
     )
     const pending = cache.snapshot()
-    assert(pending.entries === 0 && pending.pendingChanges === input.units.length, "Inspecting usage flushed pending translations or lost their count.")
+    assert(pending.entries === 0, "Inspecting usage flushed pending translations.")
     await cache.close()
     restored = await open()
     const usage = restored.snapshot()
@@ -111,7 +111,7 @@ export async function runPersistentCache(workspace: vscode.Uri, owner: Applicati
   }
   return [
     "native desktop SQLite persists independent validated units, restores a fresh store and deletes invalidations before reopening",
-    "native cache usage separates pending writes and committed payload without committing on inspection",
+    "native cache usage reports committed payload without committing on inspection",
     "native persistent-cache settings enable and disable the production runtime without discarding memory results or editing source",
     "native cache disable preserves disk records and explicit clearing removes committed and buffered records through shared SQLite connections",
     "registered clear command works with persistence enabled or disabled while retaining memory translations and source text"

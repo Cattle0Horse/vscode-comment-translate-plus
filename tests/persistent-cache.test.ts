@@ -56,7 +56,7 @@ function storage(t: TestContext) {
   }
 }
 
-test("usage snapshots separate committed payload and pending mutations without flushing", async (t) => {
+test("usage snapshots do not flush pending mutations", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] })
   const disk = storage(t)
   const cache = await disk.open()
@@ -67,7 +67,6 @@ test("usage snapshots separate committed payload and pending mutations without f
   assert.equal(snapshot.state, "ready")
   assert.equal(snapshot.entries, 0)
   assert.equal(snapshot.bytes, 0)
-  assert.equal(snapshot.pendingChanges, 2)
   assert.equal(disk.query("SELECT COUNT(*) AS count FROM translations")[0].count, 0)
   await cache.flush()
   const other = await disk.open()
@@ -81,13 +80,11 @@ test("usage snapshots separate committed payload and pending mutations without f
     snapshot.bytes,
     [text, "another translation", "另一窗口"].reduce((total, value) => total + Buffer.byteLength(value, "utf8") + 64, 0)
   )
-  assert.equal(snapshot.pendingChanges, 2)
   assert.equal(disk.query("SELECT COUNT(*) AS count FROM translations")[0].count, 3)
   await cache.configure({ ...options, maxEntries: 1 })
   snapshot = cache.snapshot()
   assert.equal(snapshot.entries, Number(disk.query("SELECT COUNT(*) AS count FROM translations")[0].count))
   assert.equal(snapshot.maxEntries, 1)
-  assert.equal(snapshot.pendingChanges, 0)
 })
 
 test("disabled usage does not create storage and reports remaining records", async (t) => {
@@ -229,7 +226,6 @@ test("explicit clear removes committed and pending records without disabling fut
   await cache.clear()
   assert.equal(await other.get("saved"), undefined)
   assert.equal(await cache.get("pending"), undefined)
-  assert.equal(cache.snapshot().pendingChanges, 0)
   t.mock.timers.tick(3000)
   await cache.flush()
   assert.equal(disk.query("SELECT * FROM translations").length, 0)
@@ -469,7 +465,6 @@ test("background disk admission counts buffered writes and inflight reservations
   const disk = storage(t)
   const cache = await disk.open({ ...options, maxEntries: 2, maxBytes: 1024 })
   cache.set("existing", "saved")
-  assert.equal(cache.snapshot().pendingChanges, 1)
   assert.equal(cache.reserve([{ key: "foreground", text: "pending" }], true), "reserved")
   assert.equal(cache.reserve([{ key: "background", text: "next" }], false), "full")
   cache.releaseReservation("foreground")
