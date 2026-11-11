@@ -62,7 +62,7 @@ export class TranslationHover implements vscode.Disposable, vscode.HoverProvider
       } else {
         unit = await this.documents.target(document, offset)
         if (unit?.kind && !config.get<boolean>("hover." + (unit.kind === "comment" ? "comments" : "strings"), unit.kind === "comment")) unit = undefined
-        if (!unit && config.get<boolean>("hover.identifiers", false)) unit = await this.documents.identifier(document, offset)
+        if (!unit && config.get<boolean>("hover.identifiers", true)) unit = await this.documents.identifier(document, offset)
       }
       controller.signal.throwIfAborted()
       if (token.isCancellationRequested || document.isClosed || document.version !== version) return

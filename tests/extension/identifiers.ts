@@ -4,7 +4,7 @@ import type { Application } from "../../src/host/application.ts"
 
 export async function runIdentifiers(workspace: vscode.Uri, owner: Application, origin: string): Promise<string[]> {
   const config = vscode.workspace.getConfiguration("commentTranslatePlus")
-  const keys = ["hover.enabled", "hover.identifiers", "hover.documentation", "hover.comments", "hover.strings", "includeContext", "maxContextCharacters", "auto.enabled"]
+  const keys = ["hover.enabled", "hover.identifiers", "hover.documentation", "hover.comments", "hover.strings", "request.includeContext", "request.maxContextCharacters", "auto.enabled"]
   const previous = keys.map((key) => config.inspect(key)?.globalValue)
   const originalEditor = vscode.window.activeTextEditor
   const uri = vscode.Uri.joinPath(workspace, "identifier-hover.ts")
@@ -52,10 +52,14 @@ export async function runIdentifiers(workspace: vscode.Uri, owner: Application, 
     assert.equal((await owner.documents.identifier(document, 10))?.text, "getUserProfile", "Real TypeScript grammar did not recognize the name.")
     const hover = async (line = 0, character = 10) => vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", uri, new vscode.Position(line, character))
     const before = (await requests()).length
-    await hover()
-    assert.equal((await requests()).length, before, "Default hover submitted a code name for translation.")
-    await config.update("hover.identifiers", true, vscode.ConfigurationTarget.Global)
-    assert.ok(values(await hover()).includes("获取用户资料"), "Name without documentation did not translate.")
+    assert.ok(values(await hover()).includes("获取用户资料"), "Default name hover without documentation did not translate.")
+    assert.equal((await requests()).length, before + 1, "Default name hover did not submit exactly its target.")
+    await config.update("hover.identifiers", false, vscode.ConfigurationTarget.Global)
+    assert.ok(!values(await hover()).includes("获取用户资料"), "Explicitly disabled name hover still displayed a cached translation.")
+    assert.equal((await requests()).length, before + 1, "Explicitly disabled name hover submitted translation.")
+    await config.update("hover.identifiers", undefined, vscode.ConfigurationTarget.Global)
+    assert.ok(values(await hover()).includes("获取用户资料"), "Removing the override did not restore default name translation.")
+    assert.equal((await requests()).length, before + 1, "Restoring the default repeated a cached name request.")
     documentation = vscode.languages.registerHoverProvider(
       { pattern: "**/identifier-hover.ts" },
       {
@@ -123,7 +127,9 @@ export async function runIdentifiers(workspace: vscode.Uri, owner: Application, 
     await hover(0, 9)
     assert.equal((await requests()).length, afterDisabled, "Disabled name hover still submitted translation.")
     console.log("Identifier hover: real grammar, HTTP, native docs, cache, in-flight sharing and configuration cancellation passed.")
-    return ["identifier hover defaults off, recognizes real code scopes, preserves native docs and source, shares cache/in-flight work and rejects disabled late results"]
+    return [
+      "identifier hover defaults on, respects explicit disable and restores the default, preserves native docs and source, shares cache/in-flight work and rejects disabled late results"
+    ]
   } finally {
     await control({ hold: false })
     documentation?.dispose()

@@ -1208,7 +1208,7 @@
         },
         "commentTranslatePlus.hover.identifiers": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "scope": "resource",
           "description": "悬停代码中的变量、函数、方法或类型名称时翻译其含义，仅供阅读，不提供源码替换。"
         },

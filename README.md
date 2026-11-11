@@ -59,18 +59,6 @@
 
 **Comment Translate Plus: 开启或关闭当前文档翻译浏览**
 
-### 可选：名称悬停翻译
-
-名称悬停翻译默认关闭。在 `settings.json` 中开启后，将鼠标停在代码名称上即可查看释义：
-
-```json
-{
-  "commentTranslatePlus.hover.identifiers": true
-}
-```
-
-智能识别 camelCase、PascalCase 和下划线命名，将 `getUserProfile`、`get_user_profile` 等名称转换为自然语言词组再翻译。上下文限定为当前代码行与原生悬浮说明，并受参考长度预算约束，帮助准确理解名称含义。名称译文仅供阅读，不提供替换按钮。
-
 ## 自定义模型
 
 接入云端或本地的 **OpenAI 兼容 Chat Completions 服务**，为不同模型保存各自的配置，再从状态栏切换。
