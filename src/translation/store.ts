@@ -1,4 +1,4 @@
-import { validateTranslations, validateTranslationValue } from "../translation/results.ts"
+import { finalizeTranslation, validateTranslations } from "./results.ts"
 import { validateTranslation } from "../documents/validation.ts"
 import { unchangedUnitRanges, unitContentKey } from "../documents/edits.ts"
 import type { SourceEdit } from "../documents/edits.ts"
@@ -161,18 +161,17 @@ export class TranslationStore {
         const task = byId.get(item.id)
         if (task?.interest.signal.aborted) return
         if (!task) throw Error("translation-structure-invalid")
-        const failure = validateTranslationValue(task.unit, item.text)
-        if (failure) throw failure
+        const text = finalizeTranslation(task.unit, item.text)
         if (task.value !== undefined) return
         if (task.cacheable) {
           const allowEviction = [...task.consumers.values()].some((consumer) => !consumer.background)
-          this.remember(task.key, item.text, persist, allowEviction)
+          this.remember(task.key, text, persist, allowEviction)
         }
         this.releaseReservation(task)
-        for (const notify of task.consumers.values()) notify.accept(item.text)
-        task.value = item.text
+        for (const notify of task.consumers.values()) notify.accept(text)
+        task.value = text
         this.changed?.()
-        task.resolve(item.text)
+        task.resolve(text)
       }
       void Promise.resolve()
         .then(async () => {

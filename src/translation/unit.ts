@@ -2,7 +2,8 @@ import type { PreparedInput, TranslationValue, TranslationCandidate } from "../m
 import type { FailedTranslation } from "../model/events.ts"
 import { ModelRetry, TranslationFailure, describeError, failureCode } from "../model/diagnostics.ts"
 import { prepareTranslation } from "../documents/terms.ts"
-import { validateTranslation, translationIsUnchanged } from "../documents/validation.ts"
+import { validateTranslation } from "../documents/validation.ts"
+import { finalizeTranslation } from "./results.ts"
 import { isTargetLanguage, unlikelyTargetLanguage } from "../documents/languageDetection.ts"
 import type { ServiceSettings } from "./settings.ts"
 import type { TranslationProvider } from "./providers/protocol.ts"
@@ -78,8 +79,7 @@ export class TranslationUnit {
       restored = this.prepared!.restore(text, (normalized) => {
         body = normalized
       })
-      const failure = validateTranslation(this.source, restored)
-      if (failure) throw failure
+      const translation = finalizeTranslation(this.source, restored)
       if (leaked)
         throw new ModelRetry(
           {
@@ -91,9 +91,8 @@ export class TranslationUnit {
             difference: { reason: "模型将重试错误标识混入译文。", expected: "仅翻译当前原文，不翻译或引用重试诊断。", actual: leaked }
           }
         )
-      const unchanged = translationIsUnchanged(this.source, restored)
-      this.reviewLanguage(text, unchanged, canReview)
-      this.translation = unchanged ? this.source.text : restored
+      this.reviewLanguage(text, translation === this.source.text, canReview)
+      this.translation = translation
       this.failure = undefined
       this.feedback = undefined
       this.candidate = undefined

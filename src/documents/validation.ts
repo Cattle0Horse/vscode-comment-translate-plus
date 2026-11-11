@@ -377,17 +377,9 @@ function comparisonProse(unit: TextUnit, literal = false): string {
   return result + equivalentProse(source.slice(cursor), !literal)
 }
 
-/** Normalize punctuation forms only in prose; protected data and syntax never enter here. */
+/** Ignore prose punctuation; protected data and syntax never enter here. */
 function equivalentProse(text: string, ignoreWhitespace: boolean): string {
-  let result = ""
-  for (const character of text) {
-    if (ignoreWhitespace && /\s/u.test(character)) continue
-    const code = character.codePointAt(0)!
-    if (character === "。") result += "."
-    else if (code >= 0xff01 && code <= 0xff5e && /\p{P}/u.test(character)) result += String.fromCodePoint(code - 0xfee0)
-    else result += character
-  }
-  return result
+  return text.replace(ignoreWhitespace ? /[\s\p{P}]/gu : /\p{P}/gu, "")
 }
 
 /** Compare validated results with equivalent prose punctuation; literal whitespace and protected data stay exact. */

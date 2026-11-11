@@ -102,6 +102,7 @@ const translatedText = (text) =>
     .replace("Read /gallery/final-candidate.md before entering.", "进入前阅读画廊指南。")
     .replace("Gallery choice <pick from the list>.", "画廊选项<列表中的一个>。")
     .replace(/^Codex:$/u, "Codex：")
+    .replace(/^索引、队列与文件回归，类型\/lint 和最终检查$/u, "索引、队列 与 文件回归，类型 / lint 和最终检查。")
     .replace(/^Missing exhibit (\{record\.title\}) in (\{record\.gallery\})\.$/u, "在 $2 中找不到藏品 $1。")
     .replace(/^Open the sample sheet at (<CTP(?:\d+_)?\d+>)\.$/u, "打开示例表格 $1。")
     .replaceAll("example_catalog_snapshot", "示例目录快照")

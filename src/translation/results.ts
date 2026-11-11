@@ -1,12 +1,23 @@
 import type { TranslationInput, TranslationValue } from "../model/translation.ts"
 import type { TextUnit } from "../model/document.ts"
-import { validateTranslation, validateTranslationText } from "../documents/validation.ts"
+import { translationIsUnchanged, validateTranslation, validateTranslationText } from "../documents/validation.ts"
 
-export function validateTranslationValue(unit: TextUnit, value: TranslationValue) {
-  if (typeof value === "string") return validateTranslation(unit, value)
+/** Every accepted source-compatible result has one representation before it reaches caches or consumers. */
+export function finalizeTranslation(unit: TextUnit, value: string): string
+
+export function finalizeTranslation(unit: TextUnit, value: TranslationValue): TranslationValue
+
+export function finalizeTranslation(unit: TextUnit, value: TranslationValue): TranslationValue {
+  if (typeof value === "string") {
+    const failure = validateTranslation(unit, value)
+    if (failure) throw failure
+    return translationIsUnchanged(unit, value) ? unit.text : value
+  }
   if (!value || value.kind !== "candidate" || typeof value.text !== "string" || !Number.isInteger(value.attempt) || value.attempt < 1 || !/^translation-[a-z-]+$/u.test(value.code))
     throw Error("translation-item-invalid")
-  return validateTranslationText(value.text)
+  const failure = validateTranslationText(value.text)
+  if (failure) throw failure
+  return value
 }
 
 export function validateTranslations(batch: TranslationInput, parsed: unknown): Map<string, TranslationValue> {
@@ -17,10 +28,7 @@ export function validateTranslations(batch: TranslationInput, parsed: unknown): 
     if (!item || typeof item !== "object" || !("id" in item) || typeof item.id !== "string" || !("text" in item)) throw Error("translation-item-invalid")
     const unit = expected.get(item.id)
     if (!unit || translations.has(item.id)) throw Error("translation-structure-invalid")
-    const value = item.text as TranslationValue
-    const failure = validateTranslationValue(unit, value)
-    if (failure) throw failure
-    translations.set(item.id, value)
+    translations.set(item.id, finalizeTranslation(unit, item.text as TranslationValue))
   }
   return translations
 }

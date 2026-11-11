@@ -328,6 +328,29 @@ test("store restores validated units and force refresh replaces persisted result
   assert.deepEqual(await new TranslationStore(await disk.open()).translate("identity", input, offline, signal()), refreshed)
 })
 
+test("restored prose punctuation and whitespace differences reuse the source while real translations stay visible", async (t) => {
+  const disk = storage(t)
+  const cache = await disk.open()
+  const input = inputOf(parseMarkdown("检查队列与索引\n\nRead the guide."))
+  const signal = () => new AbortController().signal
+  const expected = await new TranslationStore(cache).translate(
+    "punctuation",
+    input,
+    async (input) => input.units.map((unit) => ({ id: unit.id, text: unit.text.replace("Read the guide.", "阅读指南。") })),
+    signal()
+  )
+  await cache.close()
+  disk.execute("UPDATE translations SET text = REPLACE(text, '检查队列与索引', '检查 队列与索引。')")
+  disk.execute("UPDATE translations SET bytes = length(CAST(text AS BLOB)) + 64")
+  const store = new TranslationStore(await disk.open())
+  t.after(() => store.clear())
+  const offline = () => assert.fail("Validated disk results must not request translation again.")
+  const completed: string[] = []
+  assert.deepEqual(await store.translate("punctuation", input, offline, signal(), false, (item) => completed.push(String(item.text))), expected)
+  assert.deepEqual(completed, [...expected.values()])
+  assert.deepEqual(await store.translate("punctuation", input, offline, signal()), expected)
+})
+
 test("store rejects corrupted cached syntax and retries through the normal action", async (t) => {
   const disk = storage(t)
   const cache = await disk.open()

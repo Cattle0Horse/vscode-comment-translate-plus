@@ -554,21 +554,34 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
   await config.update("browse.strings", false, vscode.ConfigurationTarget.Global)
   checks.push("JSON and JSONL display reassemble translated strings with source colons, punctuation and native values per physical line")
 
-  const punctuation = await open("punctuation-only.md", "markdown", "Codex:\n")
-  await start(punctuation.document, 1)
-  const punctuationUnits = owner.browse.inspect(punctuation.document.uri)!.units
-  assert(punctuationUnits[0].translation === "Codex:", "Punctuation-only translation did not complete as unchanged.")
-  assert(displayTranslations(punctuation.document.getText(), punctuationUnits).length === 0, "Punctuation-only translation produced a duplicate row.")
-  assert(
-    (await vscode.commands.executeCommand<vscode.CodeLens[]>("vscode.executeCodeLensProvider", punctuation.document.uri))?.length === 0,
-    "Punctuation-only translation reserved an immersive row."
-  )
-  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
-  const beforePunctuationCache = (await requests()).length
-  await start(punctuation.document, 1)
-  assert((await requests()).length === beforePunctuationCache, "Completed punctuation-only result was requested again.")
-  await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
-  checks.push("punctuation-only translation completes and caches as unchanged without an immersive translation row")
+  const previousPunctuationSkip = config.inspect<boolean>("language.skipSameLanguage")?.globalValue
+  await updateObserved("language.skipSameLanguage", false)
+  try {
+    for (const [index, source] of ["Codex:", "索引、队列与文件回归，类型/lint 和最终检查"].entries()) {
+      const punctuation = await open(`punctuation-only-${index}.md`, "markdown", source + "\n")
+      const beforePunctuation = (await requests()).length
+      await start(punctuation.document, 1)
+      assert((await requests()).length === beforePunctuation + 1, "Punctuation-only fixture did not exercise one successful HTTP request.")
+      const punctuationUnits = owner.browse.inspect(punctuation.document.uri)!.units
+      assert(punctuationUnits[0].translation === source, "Punctuation-only translation did not complete as unchanged.")
+      assert(displayTranslations(punctuation.document.getText(), punctuationUnits).length === 0, "Punctuation-only translation produced a duplicate row.")
+      assert(
+        (await vscode.commands.executeCommand<vscode.CodeLens[]>("vscode.executeCodeLensProvider", punctuation.document.uri))?.length === 0,
+        "Punctuation-only translation reserved an immersive row."
+      )
+      const hover = await vscode.commands.executeCommand<vscode.Hover[]>("vscode.executeHoverProvider", punctuation.document.uri, new vscode.Position(0, 1))
+      assert(!values(hover).includes("[注释翻译+]"), "Punctuation-only translation exposed a duplicate hover or replacement action.")
+      assert(punctuation.document.getText() === source + "\n" && !punctuation.document.isDirty, "Punctuation-only translation modified source.")
+      await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
+      const beforePunctuationCache = (await requests()).length
+      await start(punctuation.document, 1)
+      assert((await requests()).length === beforePunctuationCache, "Completed punctuation-only result was requested again.")
+      await vscode.commands.executeCommand("commentTranslatePlus.browse.toggle")
+    }
+  } finally {
+    await updateObserved("language.skipSameLanguage", previousPunctuationSkip)
+  }
+  checks.push("punctuation forms, additions and whitespace changes complete and cache as unchanged without immersive rows, hover or source edits")
 
   const angleSource = "**Gallery choice <pick from the list>.**\n"
   const angle = await open("angle-prose.md", "markdown", angleSource)
