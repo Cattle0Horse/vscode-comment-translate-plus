@@ -139,7 +139,6 @@ export class TranslationRuntime implements vscode.Disposable {
         {
           label: "缓存容量",
           description: snapshot.bytes === undefined ? "无法读取" : `${size(snapshot.bytes)} / ${size(snapshot.maxBytes)}（${((snapshot.bytes / snapshot.maxBytes) * 100).toFixed(1)}%）`,
-          detail: "已提交的摘要与译文有效载荷，受条数和容量上限约束。",
           action: "refresh"
         },
         { label: "打开缓存目录", description: snapshot.directory, action: "directory" },
