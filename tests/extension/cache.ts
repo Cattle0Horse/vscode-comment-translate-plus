@@ -38,10 +38,7 @@ export async function runPersistentCache(workspace: vscode.Uri, owner: Applicati
     await cache.close()
     restored = await open()
     const usage = restored.snapshot()
-    assert(
-      usage.state === "ready" && usage.entries === input.units.length && usage.bytes! > 0 && usage.diskBytes! > usage.bytes!,
-      "Native usage lost committed payload or physical database overhead."
-    )
+    assert(usage.state === "ready" && usage.entries === input.units.length && usage.bytes! > 0, "Native usage lost committed payload.")
     const next = new TranslationStore(restored)
     const recovered = await next.translate(
       "synthetic-config",
@@ -114,7 +111,7 @@ export async function runPersistentCache(workspace: vscode.Uri, owner: Applicati
   }
   return [
     "native desktop SQLite persists independent validated units, restores a fresh store and deletes invalidations before reopening",
-    "native cache usage separates pending writes, committed payload and disk files without committing on inspection",
+    "native cache usage separates pending writes and committed payload without committing on inspection",
     "native persistent-cache settings enable and disable the production runtime without discarding memory results or editing source",
     "native cache disable preserves disk records and explicit clearing removes committed and buffered records through shared SQLite connections",
     "registered clear command works with persistence enabled or disabled while retaining memory translations and source text"

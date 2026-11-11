@@ -142,12 +142,6 @@ export class TranslationRuntime implements vscode.Disposable {
           detail: "已提交的摘要与译文有效载荷，受条数和容量上限约束。",
           action: "refresh"
         },
-        {
-          label: "磁盘文件大小",
-          description: snapshot.diskBytes === undefined ? "无法读取" : size(snapshot.diskBytes),
-          detail: "数据库、WAL 与 SHM 文件合计，包含索引、空闲页及事务日志，可能大于缓存容量。",
-          action: "refresh"
-        },
         { label: "待写入变更", description: `${snapshot.pendingChanges} 项`, detail: "当前窗口尚未提交的新增、更新或删除；不计入上方已提交统计。", action: "flush" },
         { label: "打开缓存目录", description: snapshot.directory, action: "directory" },
         { label: "打开缓存设置", action: "settings" }
@@ -164,7 +158,7 @@ export class TranslationRuntime implements vscode.Disposable {
       }
       if (selected.action === "refresh") continue
       if (selected.action === "settings") {
-        await vscode.commands.executeCommand("workbench.action.openSettings", "@ext:cattle-horse.vscode-comment-translate-plus persistentCache")
+        await vscode.commands.executeCommand("workbench.action.openSettings", "@ext:cattle-horse.vscode-comment-translate-plus cache.disk")
         return
       }
       if (selected.action === "directory") {

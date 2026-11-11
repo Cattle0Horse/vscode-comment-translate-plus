@@ -14,7 +14,6 @@ export interface PersistentCacheSnapshot {
   readonly state: "disabled" | "ready" | "failed"
   readonly entries: number | undefined
   readonly bytes: number | undefined
-  readonly diskBytes: number | undefined
   readonly pendingChanges: number
   readonly maxEntries: number
   readonly maxBytes: number
@@ -69,17 +68,10 @@ export class PersistentCache {
     } finally {
       reader?.close()
     }
-    let diskBytes: number | undefined
-    try {
-      diskBytes = ["", "-wal", "-shm"].reduce((total, suffix) => total + (statSync(this.path + suffix, { throwIfNoEntry: false })?.size ?? 0), 0)
-    } catch {
-      // File access failures are distinct from absent cache files.
-    }
     return {
       state: this.failed ? "failed" : this.options.enabled ? "ready" : "disabled",
       entries,
       bytes,
-      diskBytes,
       pendingChanges: this.changes.size,
       maxEntries: this.options.maxEntries,
       maxBytes: this.options.maxBytes,
