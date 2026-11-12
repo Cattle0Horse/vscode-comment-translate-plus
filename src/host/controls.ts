@@ -237,10 +237,15 @@ export class Controls implements vscode.Disposable {
     const config = vscode.workspace.getConfiguration("commentTranslatePlus", resource)
     const key = "auto." + kind
     const rules = config.get<string[]>(key, kind === "include" ? ["**/*"] : [])
+    const label = kind === "include" ? "包含" : "排除"
+    const note = kind === "include" ? "；仍遵循自动翻译开关、排除规则和手动阅读状态" : ""
+    if (rules.includes(pattern)) {
+      void vscode.window.showInformationMessage("自动翻译" + label + "规则已存在：" + pattern + note)
+      return
+    }
     try {
       await config.update(key, [...rules, pattern], vscode.ConfigurationTarget.WorkspaceFolder)
-      const note = kind === "include" ? "；仍遵循自动翻译开关、排除规则和手动阅读状态" : ""
-      void vscode.window.showInformationMessage("已添加当前文件到自动翻译" + (kind === "include" ? "包含" : "排除") + "规则：" + pattern + note)
+      void vscode.window.showInformationMessage("已添加当前文件到自动翻译" + label + "规则：" + pattern + note)
     } catch (error) {
       void vscode.window.showErrorMessage("无法保存自动翻译规则：" + (error instanceof Error ? error.message : String(error)))
     }

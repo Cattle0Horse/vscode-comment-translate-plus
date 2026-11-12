@@ -1,3 +1,4 @@
+import { deepEqual } from "node:assert/strict"
 import { validatedText } from "../support/assertions.ts"
 import { automatic as automaticScope } from "../../src/host/configuration.ts"
 import { prepareTranslation } from "../../src/documents/terms.ts"
@@ -1602,10 +1603,10 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     await vscode.commands.executeCommand("commentTranslatePlus.auto.includeCurrentFile")
     const updatedRules = vscode.workspace.getConfiguration("commentTranslatePlus", ruleTarget.document.uri)
     const exclusions = updatedRules.get<string[]>("auto.exclude")!
-    assert(exclusions.length === saved.length + 1 && exclusions.at(-1) === saved.at(-1), "Repeated exclusion did not append the current file again.")
+    deepEqual(exclusions, saved, "Repeated exclusion changed the existing rules.")
     assert(!automaticScope(ruleTarget.document), "The include command bypassed an exclusion.")
     const inclusions = updatedRules.get<string[]>("auto.include")!
-    assert(inclusions.length === 2 && inclusions[0] === inclusions[1], "Repeated inclusion did not append the current file again.")
+    deepEqual(inclusions, [saved.at(-1)], "Repeated inclusion duplicated the current file rule.")
     assert(exclusions.includes("**/generated/**"), "Adding a file discarded inherited exclusion rules.")
     assert(updatedRules.inspect<string[]>("auto.include")?.globalValue?.length === 0, "A file rule changed global settings.")
     assert(ruleTarget.document.getText() === "Read the original document." && !ruleTarget.document.isDirty, "Adding automatic rules changed the source.")
@@ -1617,8 +1618,9 @@ export async function runFeatures(workspace: vscode.Uri, owner: Application, ori
     await config.update("auto.exclude", undefined, vscode.ConfigurationTarget.Global)
   }
   checks.push(
-    "current-file commands append exact folder-scoped rules even on repeat, escape glob characters, preserve inherited exclusions and re-evaluate automatic browsing without source edits"
+    "current-file commands deduplicate exact folder-scoped rules on repeat, escape glob characters, preserve inherited exclusions and re-evaluate automatic browsing without source edits"
   )
+  console.log(checks.at(-1))
   const diffOriginalUri = vscode.Uri.parse("ctp-auto-diff:/history/previous.md?ref=previous")
   const diffSource = "Read the original document."
   const diffProvider = vscode.workspace.registerTextDocumentContentProvider(diffOriginalUri.scheme, { provideTextDocumentContent: () => diffSource })
