@@ -9,6 +9,134 @@ import type { TranslationInput } from "../src/model/translation.ts"
 import { renderPrompt } from "../src/translation/providers/prompts.ts"
 import { embeddedMarkdown, requestTranslation, source, sessionResponse, sessionFor, waitFor, settled, modelInput, chatFixture, listBatch } from "./support/fixtures.ts"
 
+test("large document browse prepares a bounded tail while newly visible units overtake it without cancelling submitted work", async () => {
+  const parsed = parseMarkdown(Array.from({ length: 320 }, (_, index) => `Read synthetic orchard paragraph ${index}.`).join("\n\n"))
+  const units = parsed.groups.flatMap((group) => group.units)
+  const requests: { input: TranslationInput; signal: AbortSignal; finish: () => void }[] = []
+  const session = new BrowseSession(
+    (input, signal) => new Promise((resolve) => requests.push({ input, signal, finish: () => resolve(new Map(input.units.map((unit) => [unit.id, unit.text]))) })),
+    () => {},
+    undefined,
+    "document",
+    "document"
+  )
+  try {
+    session.update(parsed, 1)
+    session.setVisibleRanges([units[0]])
+    assert.ok(requests[0].input.units.length < units.length, "The first viewport must not wait for preparation of the whole document.")
+    const first = requests[0]
+    const tail = units.at(-1)!
+    assert.ok(!first.input.units.some((unit) => unit.id === tail.id))
+    session.setVisibleRanges([tail])
+    assert.ok(
+      requests.some(({ input }) => input.units.some((unit) => unit.id === tail.id)),
+      "Newly visible work was held behind the preparation window."
+    )
+    assert.equal(first.signal.aborted, false)
+    let finished = 0
+    while (session.inspect().status === "working") {
+      const pending = requests.slice(finished)
+      assert.ok(pending.length, "Whole-document browse stopped before finishing its tail.")
+      finished = requests.length
+      pending.forEach(({ finish }) => finish())
+      await delay(0)
+    }
+    assert.equal(session.inspect().units.length, units.length)
+    const submitted = requests.flatMap(({ input }) => input.units.map((unit) => unit.id))
+    assert.equal(submitted.length, units.length)
+    assert.equal(new Set(submitted).size, units.length)
+    assert.ok(requests.every(({ signal }) => !signal.aborted))
+  } finally {
+    session.dispose()
+  }
+})
+
+test("document browse stops replenishing on failure, cancellation and invalidation and retries only unfinished units", async () => {
+  const parsed = parseMarkdown(Array.from({ length: 220 }, (_, index) => `Read synthetic greenhouse paragraph ${index}.`).join("\n\n"))
+  const units = parsed.groups.flatMap((group) => group.units)
+  const requests: { input: TranslationInput; publish: (item: TranslationItem) => void; finish: () => void; fail: () => void }[] = []
+  const session = new BrowseSession(
+    (input, _signal, _force, publish) =>
+      new Promise((resolve, reject) =>
+        requests.push({
+          input,
+          publish: publish!,
+          finish: () => resolve(new Map(input.units.map((unit) => [unit.id, unit.text]))),
+          fail: () => reject(Error("service-http-401"))
+        })
+      ),
+    () => {},
+    undefined,
+    "document",
+    "document"
+  )
+  try {
+    session.update(parsed, 1)
+    session.setVisibleRanges([units[0]])
+    requests[0].publish({ id: units[0].id, text: units[0].text })
+    requests[0].fail()
+    await delay(0)
+    assert.equal(session.inspect().status, "error")
+    assert.equal(requests.length, 1, "A failed service request must not keep preparing the document tail.")
+    session.restart()
+    assert.ok(requests[1].input.units.every((unit) => unit.id !== units[0].id))
+    session.cancel()
+    requests[1].finish()
+    await delay(0)
+    assert.equal(requests.length, 2)
+    assert.equal(session.inspect().units.length, 1)
+    session.restart()
+    session.invalidate(2)
+    requests[2].finish()
+    await delay(0)
+    assert.equal(requests.length, 3)
+    assert.equal(session.inspect().units.length, 0)
+    session.update(parsed, 2)
+    session.setVisibleRanges([units[0]])
+    let finished = 3
+    while (session.inspect().status === "working") {
+      const pending = requests.slice(finished)
+      assert.ok(pending.length)
+      finished = requests.length
+      pending.forEach(({ finish }) => finish())
+      await delay(0)
+    }
+    assert.equal(session.inspect().units.length, units.length)
+    assert.equal(session.inspect().version, 2)
+  } finally {
+    session.dispose()
+  }
+})
+
+test("retranslating one block of a cancelled document does not resume its unsubmitted tail", async () => {
+  const parsed = parseMarkdown(Array.from({ length: 220 }, (_, index) => `Read synthetic orchard paragraph ${index}.`).join("\n\n"))
+  const units = parsed.groups.flatMap((group) => group.units)
+  const requests: TranslationInput[] = []
+  const session = new BrowseSession(
+    async (input) => {
+      requests.push(input)
+      return new Map(input.units.map((unit) => [unit.id, unit.text]))
+    },
+    () => {},
+    undefined,
+    "document",
+    "document"
+  )
+  try {
+    session.update(parsed, 1)
+    session.cancel()
+    session.retranslate(units.at(-1)!)
+    await settled(session)
+    assert.deepEqual(
+      requests.flatMap((input) => input.units.map((unit) => unit.id)),
+      [units.at(-1)!.id]
+    )
+    assert.equal(session.inspect().units.length, 1)
+  } finally {
+    session.dispose()
+  }
+})
+
 test("document browse mode fills offscreen units in viewport order without repeating completed or inflight work", async () => {
   const parsed = parseMarkdown("First paragraph.\n\nSecond paragraph.\n\nThird paragraph.")
   const units = parsed.groups.flatMap((group) => group.units)

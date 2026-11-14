@@ -22,6 +22,9 @@ class TranslationLens extends vscode.CodeLens {
 }
 
 export class BrowseRenderer implements vscode.Disposable, vscode.CodeLensProvider {
+  private timer: ReturnType<typeof setTimeout> | undefined
+  private refreshLenses = false
+  private disposed = false
   private readonly changed = new vscode.EventEmitter<void>()
   readonly onDidChangeCodeLenses = this.changed.event
   private readonly contrast = vscode.window.createTextEditorDecorationType({
@@ -57,8 +60,9 @@ export class BrowseRenderer implements vscode.Disposable, vscode.CodeLensProvide
       vscode.languages.registerCodeLensProvider("*", this),
       vscode.window.onDidChangeTextEditorSelection((event) => {
         if (displayMode(event.textEditor.document.uri) !== "inplace") return
-        this.paint(event.textEditor)
+        this.schedule(false)
       }),
+      vscode.window.onDidChangeTextEditorVisibleRanges(() => this.schedule(false)),
       vscode.workspace.onDidChangeConfiguration((event) => {
         if (["editor.codeLens", "editor.fontSize", "editor.lineHeight", "editor.codeLensFontSize"].some((key) => event.affectsConfiguration(key))) {
           this.resolved.clear()
@@ -71,17 +75,22 @@ export class BrowseRenderer implements vscode.Disposable, vscode.CodeLensProvide
     ]
   }
 
-  private units(document: vscode.TextDocument): DisplayUnit[] {
-    const snapshot = this.snapshot(document.uri)
+  private units(document: vscode.TextDocument, snapshot = this.snapshot(document.uri), ranges?: readonly { start: number; end: number }[]): DisplayUnit[] {
     if (snapshot?.version !== document.version) return []
-    return displayTranslations(document.getText(), snapshot.units)
+    const units = ranges
+      ? snapshot.units.filter((unit) => {
+          const bounds = unit.display ?? unit
+          return ranges.some((range) => bounds.start <= range.end && bounds.end >= range.start)
+        })
+      : snapshot.units
+    const tabSize = Number(vscode.workspace.getConfiguration("editor", document.uri).get("tabSize", 4))
+    return displayTranslations(document.getText(), units)
       .map((unit) => {
         const position = document.positionAt(unit.start)
         const first = unit.text.split(/\r?\n/, 1)[0]
         const stripped = unit.format === "yaml" ? first.trimStart() : readingText(first, { ...unit.source, text: first })
         const index = first.indexOf(stripped)
         const prefix = document.lineAt(position.line).text.slice(0, position.character) + first.slice(0, stripped && index >= 0 ? index : (first.match(/^\s*/)?.[0].length ?? 0))
-        const tabSize = Number(vscode.workspace.getConfiguration("editor", document.uri).get("tabSize", 4))
         const column = [...prefix].reduce((column, character) => (character === "\t" ? column + tabSize - (column % tabSize) : column + 1), 0)
         return { unit, text: readingText(unit.translation, unit.candidate ? unit : unit.source), column, nextLine: document.positionAt(unit.end).line + 1 }
       })
@@ -106,13 +115,25 @@ export class BrowseRenderer implements vscode.Disposable, vscode.CodeLensProvide
     resolved.lines.add(lens.range.start.line)
     this.resolved.set(id, resolved)
     lens.command = { title: " ", command: "" }
-    for (const editor of vscode.window.visibleTextEditors) if (editor.document === lens.document) this.paint(editor)
+    this.schedule(false)
     return lens
   }
 
   render(): void {
-    for (const editor of vscode.window.visibleTextEditors) this.paint(editor)
-    this.changed.fire()
+    this.schedule(true)
+  }
+
+  private schedule(refreshLenses: boolean): void {
+    if (this.disposed) return
+    this.refreshLenses ||= refreshLenses
+    if (this.timer !== undefined) return
+    this.timer = setTimeout(() => {
+      this.timer = undefined
+      const refresh = this.refreshLenses
+      this.refreshLenses = false
+      for (const editor of vscode.window.visibleTextEditors) this.paint(editor)
+      if (refresh) this.changed.fire()
+    }, 0)
   }
 
   edited(document: vscode.TextDocument, edits: readonly vscode.TextDocumentContentChangeEvent[]): void {
@@ -135,12 +156,19 @@ export class BrowseRenderer implements vscode.Disposable, vscode.CodeLensProvide
 
   private paint(editor: vscode.TextEditor): void {
     const snapshot = this.snapshot(editor.document.uri)
-    const lines = snapshot?.version === editor.document.version ? [...new Set(snapshot.loading.map((unit) => editor.document.positionAt(unit.end).line))] : []
+    const document = editor.document
+    const visible = editor.visibleRanges.map((range) => ({ start: document.offsetAt(range.start), end: document.offsetAt(document.lineAt(range.end.line).range.end) }))
+    const lines =
+      snapshot?.version === document.version
+        ? [...new Set(snapshot.loading.filter((unit) => visible.some((range) => unit.end >= range.start && unit.end <= range.end)).map((unit) => document.positionAt(unit.end).line))]
+        : []
     editor.setDecorations(
       this.loading,
       lines.map((line) => ({ range: new vscode.Range(editor.document.lineAt(line).range.end, editor.document.lineAt(line).range.end), hoverMessage: "正在翻译…" }))
     )
-    const units = this.units(editor.document)
+    // A contrast row can be visible while its source ends on the preceding line.
+    const ranges = editor.visibleRanges.map((range, index) => ({ start: document.offsetAt(new vscode.Position(Math.max(0, range.start.line - 1), 0)), end: visible[index].end }))
+    const units = this.units(document, snapshot, ranges)
     if (displayMode(editor.document.uri) === "inplace") {
       this.resolved.delete(editor.document.uri.toString())
       editor.setDecorations(this.contrast, [])
@@ -196,6 +224,9 @@ export class BrowseRenderer implements vscode.Disposable, vscode.CodeLensProvide
   }
 
   dispose(): void {
+    this.disposed = true
+    if (this.timer !== undefined) clearTimeout(this.timer)
+    this.timer = undefined
     this.resolved.clear()
     this.contrast.dispose()
     this.tail.dispose()

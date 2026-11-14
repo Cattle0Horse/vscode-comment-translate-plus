@@ -43,6 +43,7 @@ interface BrowseRequest {
 }
 
 export class BrowseSession {
+  private readonly preparationWindow: number
   private readonly inflight = new Set<BrowseRequest>()
   private units: readonly TextUnit[] = []
   private planningErrors: readonly string[] = []
@@ -59,8 +60,12 @@ export class BrowseSession {
     private readonly changed: () => void,
     private readonly failed?: (error: unknown) => void,
     private scope: BrowseSnapshot["scope"] = "document",
-    private readonly translationScope: BrowseTranslationScope = "viewport"
-  ) {}
+    private readonly translationScope: BrowseTranslationScope = "viewport",
+    maxItemsPerRequest = 0
+  ) {
+    // Allow four default maximum batches, or one larger configured batch.
+    this.preparationWindow = Math.max(120, maxItemsPerRequest)
+  }
 
   update(document: ParsedDocument, version: number): void {
     const retained = this.editing && this.version === version ? new Map([...this.translations.values()].map((unit) => [unit.start + ":" + unit.end, unit])) : undefined
@@ -122,7 +127,10 @@ export class BrowseSession {
       if (ranges.some((range) => unit.start <= range.end && unit.end >= range.start)) visible.push(unit)
       else if (this.scope === "document" && this.translationScope === "document") offscreen.push(unit)
     }
-    this.request(visible.concat(offscreen), force)
+    // Bound preparation and consumer state before the shared HTTP queue. A newly
+    // visible unit can still overtake this window without cancelling its tail.
+    const available = this.failures.size ? 0 : Math.max(0, this.preparationWindow - pending.size - visible.length)
+    this.request(visible.concat(offscreen.slice(0, available)), force, true)
   }
 
   retranslate(range: VisibleRange): boolean {
@@ -132,6 +140,7 @@ export class BrowseSession {
       return range.start === range.end ? display.start <= range.start && range.start < display.end : display.start < range.end && range.start < display.end
     })
     if (!units.length) return false
+    const continueDocument = !this.paused
     this.paused = false
     for (const unit of units) {
       if (this.scope === "blocks") this.selected.add(unit.id)
@@ -147,11 +156,11 @@ export class BrowseSession {
         }
       }
     }
-    this.request(units, true)
+    this.request(units, true, continueDocument)
     return true
   }
 
-  private request(units: readonly TextUnit[], force: boolean): void {
+  private request(units: readonly TextUnit[], force: boolean, continueDocument: boolean): void {
     if (!units.length) return
     const input: TranslationInput = { units }
     const controller = new AbortController()
@@ -163,6 +172,7 @@ export class BrowseSession {
       const unit = request.units.get(item.id)?.unit
       if (!unit) return
       this.translations.set(unit.id, { ...unit, translation: item.text })
+      request.units.delete(item.id)
       this.changed()
     }
     void this.translate(input, signal, force, accept, new Map([...request.units].map(([id, pending]) => [id, pending.controller.signal])))
@@ -182,7 +192,10 @@ export class BrowseSession {
         if (missing.length) this.failed?.(error)
       })
       .finally(() => {
-        if (this.inflight.delete(request)) this.changed()
+        if (this.inflight.delete(request)) {
+          if (continueDocument && !this.failures.size && this.scope === "document" && this.translationScope === "document") this.setVisibleRanges(this.ranges)
+          this.changed()
+        }
       })
     this.changed()
   }

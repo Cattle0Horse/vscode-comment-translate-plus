@@ -18,6 +18,7 @@ import { runBackgroundRules } from "./background.ts"
 import { runProgress } from "./progress.ts"
 import { runFileLogging } from "./logging.ts"
 import { runFileRules } from "./fileRules.ts"
+import { runRendering } from "./rendering.ts"
 
 function assert(value: unknown, message: string): asserts value {
   if (!value) throw Error(message)
@@ -78,6 +79,7 @@ export async function run(): Promise<void> {
   }
   try {
     for (const [key, value] of Object.entries(settings)) await config.update(key, value, vscode.ConfigurationTarget.Global)
+    checks.push(...(await runRendering(workspace, controller, test.origin)))
     checks.push(...(await runFileRules(workspace, controller)))
     checks.push(...(await runIdentifiers(workspace, controller, test.origin)))
     checks.push(...(await runSecrets(workspace, controller)))
