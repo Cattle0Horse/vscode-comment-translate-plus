@@ -82,6 +82,20 @@ export async function runFileRules(workspace: vscode.Uri, owner: Application): P
 
   try {
     await config.update("auto.enabled", false, vscode.ConfigurationTarget.Global)
+    await vscode.window.showTextDocument(current, { preview: false })
+    await config.update("auto.include", undefined, vscode.ConfigurationTarget.Global)
+    await config.update("auto.include", undefined, vscode.ConfigurationTarget.Workspace)
+    await config.update("auto.include", undefined, vscode.ConfigurationTarget.WorkspaceFolder)
+    await vscode.commands.executeCommand("commentTranslatePlus.auto.includeCurrentFile")
+    assert.deepEqual(config.inspect<string[]>("auto.include")?.workspaceFolderValue, [expected], "Adding the first include rule must not save the default wildcard")
+
+    await config.update("auto.include", ["**/*"], vscode.ConfigurationTarget.Global)
+    await config.update("auto.include", undefined, vscode.ConfigurationTarget.WorkspaceFolder)
+    await vscode.commands.executeCommand("commentTranslatePlus.auto.includeCurrentFile")
+    assert.deepEqual(config.inspect<string[]>("auto.include")?.workspaceFolderValue, ["**/*", expected], "An explicitly configured wildcard must be preserved")
+    await config.update("auto.include", previous["auto.include"]?.globalValue, vscode.ConfigurationTarget.Global)
+    checks.push("the first current-file include rule omits the default wildcard and preserves an explicitly configured wildcard")
+
     await diffConfig.update("useInlineViewWhenSpaceIsLimited", false, vscode.ConfigurationTarget.Global)
     const history = await vscode.workspace.openTextDocument(before.with({ path: before.path + ".git" }))
     await vscode.window.showTextDocument(history, { preview: false })
@@ -169,6 +183,7 @@ export async function runFileRules(workspace: vscode.Uri, owner: Application): P
     await config.update("auto.enabled", false, vscode.ConfigurationTarget.Global)
     await vscode.commands.executeCommand("workbench.action.closeAllEditors")
     await vscode.commands.executeCommand("workbench.action.joinAllGroups")
+    await config.update("auto.include", previous["auto.include"]?.workspaceValue, vscode.ConfigurationTarget.Workspace)
     for (const [key, value] of Object.entries(previous)) {
       if (key !== "auto.enabled") await config.update(key, value?.workspaceFolderValue, vscode.ConfigurationTarget.WorkspaceFolder)
       await config.update(key, value?.globalValue, vscode.ConfigurationTarget.Global)

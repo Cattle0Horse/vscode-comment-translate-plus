@@ -236,7 +236,8 @@ export class Controls implements vscode.Disposable {
     const pattern = vscode.workspace.asRelativePath(resource, false).replace(/[[\]*?{}]/g, (character) => "[" + character + "]")
     const config = vscode.workspace.getConfiguration("commentTranslatePlus", resource)
     const key = "auto." + kind
-    const rules = config.get<string[]>(key, kind === "include" ? ["**/*"] : [])
+    const configured = config.inspect<string[]>(key)
+    const rules = kind === "include" ? (configured?.workspaceFolderValue ?? configured?.workspaceValue ?? configured?.globalValue ?? []) : config.get<string[]>(key, [])
     const label = kind === "include" ? "包含" : "排除"
     const note = kind === "include" ? "；仍遵循自动翻译开关、排除规则和手动阅读状态" : ""
     if (rules.includes(pattern)) {
