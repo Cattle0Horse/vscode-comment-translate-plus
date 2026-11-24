@@ -108,7 +108,7 @@ test("document browse stops replenishing on failure, cancellation and invalidati
   }
 })
 
-test("retranslating one block of a cancelled document does not resume its unsubmitted tail", async () => {
+test("retranslating one block keeps a cancelled document paused until explicitly resumed", async () => {
   const parsed = parseMarkdown(Array.from({ length: 220 }, (_, index) => `Read synthetic orchard paragraph ${index}.`).join("\n\n"))
   const units = parsed.groups.flatMap((group) => group.units)
   const requests: TranslationInput[] = []
@@ -132,6 +132,15 @@ test("retranslating one block of a cancelled document does not resume its unsubm
       [units.at(-1)!.id]
     )
     assert.equal(session.inspect().units.length, 1)
+    assert.equal(session.inspect().status, "cancelled")
+    session.setVisibleRanges([units[0]])
+    await settled(session)
+    assert.equal(session.inspect().units.length, 1)
+    session.restart()
+    await settled(session)
+    assert.equal(session.inspect().status, "ready")
+    assert.equal(session.inspect().units.length, units.length)
+    assert.equal(requests.flatMap((input) => input.units).length, units.length)
   } finally {
     session.dispose()
   }
@@ -237,6 +246,10 @@ test("document browse mode respects cancellation, isolates old results and persi
     "document"
   )
   try {
+    session.invalidate(1)
+    assert.equal(session.inspect().status, "planning")
+    session.setVisibleRanges([])
+    assert.equal(requests.length, 0)
     session.update(parsed, 1)
     session.setVisibleRanges([])
     session.cancel()
@@ -245,6 +258,7 @@ test("document browse mode respects cancellation, isolates old results and persi
     assert.equal(requests.length, 1)
     session.restart()
     session.invalidate(2, [{ rangeOffset: 0, rangeLength: 1, text: "X" }])
+    assert.equal(session.inspect().status, "planning")
     assert.ok(requests[1].signal.aborted)
     requests.forEach(({ finish }) => finish())
     await delay(0)

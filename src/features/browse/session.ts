@@ -19,10 +19,11 @@ export interface TranslatedUnit extends TextUnit {
 
 export interface BrowseSnapshot {
   readonly scope: "document" | "blocks"
+  readonly translationScope: BrowseTranslationScope
   readonly version: number
-  readonly status: "working" | "ready" | "cancelled" | "error"
+  readonly status: "planning" | "working" | "ready" | "cancelled" | "error"
   readonly pending: number
-  readonly total: number
+  readonly total: number | undefined
   readonly failedUnits: readonly { readonly unit: TextUnit; readonly code: string }[]
   readonly loading: readonly TextUnit[]
   readonly units: readonly TranslatedUnit[]
@@ -53,7 +54,7 @@ export class BrowseSession {
   private paused = false
   private ranges: readonly VisibleRange[] = []
   private version = 0
-  private editing = false
+  private awaitingParse = false
 
   constructor(
     private readonly translate: Translate,
@@ -68,7 +69,7 @@ export class BrowseSession {
   }
 
   update(document: ParsedDocument, version: number): void {
-    const retained = this.editing && this.version === version ? new Map([...this.translations.values()].map((unit) => [unit.start + ":" + unit.end, unit])) : undefined
+    const retained = this.awaitingParse && this.version === version ? new Map([...this.translations.values()].map((unit) => [unit.start + ":" + unit.end, unit])) : undefined
     this.reset(version)
     this.units = document.groups.flatMap((group) => group.units)
     for (const unit of this.units) {
@@ -89,8 +90,11 @@ export class BrowseSession {
   invalidate(version: number, edits?: readonly SourceEdit[]): void {
     const retained = edits && this.scope === "document" ? [...this.translations.values()] : []
     this.reset(version)
-    this.editing = edits !== undefined
-    edits ??= []
+    this.awaitingParse = true
+    if (!edits) {
+      this.changed()
+      return
+    }
     const batches = [edits]
     for (const unit of retained) {
       const bounds = unit.display ?? unit
@@ -107,7 +111,7 @@ export class BrowseSession {
   private reset(version: number): void {
     this.stopRequests("document-changed")
     this.version = version
-    this.editing = false
+    this.awaitingParse = false
     this.translations.clear()
     this.failures.clear()
     this.selected.clear()
@@ -117,7 +121,7 @@ export class BrowseSession {
 
   setVisibleRanges(ranges: readonly VisibleRange[], force = false): void {
     this.ranges = ranges
-    if (this.paused || this.editing) return
+    if (this.paused || this.awaitingParse) return
     const pending = new Set([...this.inflight].flatMap((request) => [...request.units.keys()]))
     const visible: TextUnit[] = []
     const offscreen: TextUnit[] = []
@@ -130,18 +134,17 @@ export class BrowseSession {
     // Bound preparation and consumer state before the shared HTTP queue. A newly
     // visible unit can still overtake this window without cancelling its tail.
     const available = this.failures.size ? 0 : Math.max(0, this.preparationWindow - pending.size - visible.length)
-    this.request(visible.concat(offscreen.slice(0, available)), force, true)
+    this.request(visible.concat(offscreen.slice(0, available)), force)
   }
 
   retranslate(range: VisibleRange): boolean {
-    if (this.editing) return false
+    if (this.awaitingParse) return false
     const units = this.units.filter((unit) => {
       const display = unit.display ?? unit
       return range.start === range.end ? display.start <= range.start && range.start < display.end : display.start < range.end && range.start < display.end
     })
     if (!units.length) return false
-    const continueDocument = !this.paused
-    this.paused = false
+    if (this.scope === "blocks") this.paused = false
     for (const unit of units) {
       if (this.scope === "blocks") this.selected.add(unit.id)
       this.translations.delete(unit.id)
@@ -156,11 +159,11 @@ export class BrowseSession {
         }
       }
     }
-    this.request(units, true, continueDocument)
+    this.request(units, true)
     return true
   }
 
-  private request(units: readonly TextUnit[], force: boolean, continueDocument: boolean): void {
+  private request(units: readonly TextUnit[], force: boolean): void {
     if (!units.length) return
     const input: TranslationInput = { units }
     const controller = new AbortController()
@@ -193,7 +196,7 @@ export class BrowseSession {
       })
       .finally(() => {
         if (this.inflight.delete(request)) {
-          if (continueDocument && !this.failures.size && this.scope === "document" && this.translationScope === "document") this.setVisibleRanges(this.ranges)
+          if (!this.failures.size && this.scope === "document" && this.translationScope === "document") this.setVisibleRanges(this.ranges)
           this.changed()
         }
       })
@@ -228,10 +231,11 @@ export class BrowseSession {
     const errors = [...this.planningErrors, ...new Set(this.failures.values())]
     return {
       scope: this.scope,
+      translationScope: this.translationScope,
       version: this.version,
-      status: this.paused ? "cancelled" : this.inflight.size ? "working" : errors.length ? "error" : "ready",
+      status: this.inflight.size ? "working" : this.paused ? "cancelled" : this.awaitingParse ? "planning" : errors.length ? "error" : "ready",
       pending: this.inflight.size,
-      total: this.scope === "document" ? this.units.length : this.selected.size,
+      total: this.awaitingParse ? undefined : this.scope === "document" ? this.units.length : this.selected.size,
       failedUnits: this.units.filter((unit) => this.failures.has(unit.id)).map((unit) => ({ unit, code: this.failures.get(unit.id)! })),
       loading,
       units: [...this.translations.values()].sort((a, b) => a.start - b.start),

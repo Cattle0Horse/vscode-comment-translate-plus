@@ -108,6 +108,10 @@ export class Controls implements vscode.Disposable {
     let state = "未开启浏览"
     if (snapshot) {
       switch (snapshot.status) {
+        case "planning":
+          icon = "loading~spin"
+          state = "准备翻译"
+          break
         case "working":
           icon = "loading~spin"
           state = "翻译中"
@@ -138,7 +142,8 @@ export class Controls implements vscode.Disposable {
       details.push("翻译配置不完整或无效，请检查设置。")
     }
     if (snapshot) {
-      details.push("已处理：" + snapshot.units.length + "/" + snapshot.total)
+      if (browsing) details.push("浏览范围：" + (snapshot.translationScope === "document" ? "全文" : "当前视口"))
+      if (snapshot.total !== undefined) details.push("已处理：" + snapshot.units.length + "/" + snapshot.total)
       if (snapshot.failedUnits.length) details.push("需重试：" + snapshot.failedUnits.length + " 项")
       for (const code of snapshot.errors) details.push(describeError(code))
     }

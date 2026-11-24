@@ -16,6 +16,7 @@ export async function runRendering(workspace: vscode.Uri, owner: Application, or
   const units = (await owner.documents.parse(document)).groups.flatMap((group) => group.units)
   let snapshot: BrowseSnapshot | undefined = {
     scope: "document",
+    translationScope: "document",
     version: document.version,
     status: "working",
     total: units.length,
@@ -70,7 +71,7 @@ export async function runRendering(workspace: vscode.Uri, owner: Application, or
     "CodeLens resolution does not invalidate itself and renderer disposal cancels queued refreshes"
   ]
   const config = vscode.workspace.getConfiguration("commentTranslatePlus", uri)
-  const previous = config.inspect("browse.translationScope")?.workspaceFolderValue
+  const previous = config.inspect("browse.translationScope")?.globalValue
   const liveSource = Array.from({ length: 240 }, (_, index) => "Read the original document. `orchard-window-" + index + "`").join("\n\n")
   const liveUri = vscode.Uri.joinPath(workspace, "rendering-window.md")
   const control = async (hold: boolean) => {
@@ -88,7 +89,7 @@ export async function runRendering(workspace: vscode.Uri, owner: Application, or
   ]
   const previousBatch = batchKeys.map((key) => config.inspect(key)?.globalValue)
   try {
-    await config.update("browse.translationScope", "document", vscode.ConfigurationTarget.WorkspaceFolder)
+    await config.update("browse.translationScope", "document", vscode.ConfigurationTarget.Global)
     await vscode.workspace.fs.writeFile(liveUri, new TextEncoder().encode(liveSource))
     const live = await vscode.workspace.openTextDocument(liveUri)
     const liveEditor = await vscode.window.showTextDocument(live, { preview: false })
@@ -103,7 +104,18 @@ export async function runRendering(workspace: vscode.Uri, owner: Application, or
     }
     await waitFor(() => owner.translations.progress(liveUri).current > 0)
     const initial = owner.browse.inspect(liveUri)!
-    assert(initial.loading.length > 0 && initial.loading.length < initial.total, "The desktop reading path submitted the whole document before its first response.")
+    assert(
+      initial.total !== undefined && initial.loading.length > 0 && initial.loading.length < initial.total,
+      "The desktop reading path submitted the whole document before its first response."
+    )
+    await vscode.commands.executeCommand("commentTranslatePlus.translation.cancel")
+    await control(false)
+    assert(await vscode.commands.executeCommand<boolean>("commentTranslatePlus.browse.retranslateBlock"), "Could not retranslate the selected paragraph after cancellation.")
+    await waitFor(() => owner.browse.inspect(liveUri)?.status !== "working")
+    const paused = owner.browse.inspect(liveUri)!
+    assert(paused.status === "cancelled" && paused.units.length === 1, "Local retranslation lost the whole-document pause or translated unrelated content.")
+    await control(true)
+    await vscode.commands.executeCommand("commentTranslatePlus.document.retry")
     const tail = (await owner.documents.parse(live)).groups.flatMap((group) => group.units).at(-1)!
     const position = live.positionAt(tail.start)
     liveEditor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.AtTop)
@@ -113,7 +125,19 @@ export async function runRendering(workspace: vscode.Uri, owner: Application, or
     const completed = owner.browse.inspect(liveUri)!
     assert(completed.units.length === completed.total && completed.units.length === 240, "Bounded preparation did not automatically finish the document tail.")
     assert(completed.loading.length === 0 && live.getText() === liveSource && !live.isDirty, "Document completion retained loading or changed source.")
+    assert(!liveEditor.visibleRanges.some((range) => range.contains(new vscode.Position(0, 0))), "The edited paragraph must be offscreen.")
+    const editedParagraph = "Read the original document. `orchard-edited`"
+    assert(await liveEditor.edit((edit) => edit.replace(live.lineAt(0).range, editedParagraph)), "Could not edit the offscreen paragraph.")
+    const awaitingParse = owner.browse.inspect(liveUri)
+    assert(awaitingParse?.status === "planning" && awaitingParse.total === undefined && awaitingParse.units.length === 239, "The edit reported readiness before parsing the new version.")
+    await waitFor(() => owner.browse.inspect(liveUri)?.status === "ready")
+    assert(
+      owner.browse.inspect(liveUri)?.units.length === 240 && owner.browse.inspect(liveUri)?.units[0].text === editedParagraph,
+      "The offscreen edit was not translated after preparation."
+    )
     owner.browse.stop(liveUri, true)
+    checks.push("offscreen edits retain unaffected translations, report preparation and automatically complete the current document")
+    checks.push("global document browse remains paused after a local retranslation and the continue command finishes the document")
     checks.push("official desktop HTTP fills a bounded document tail, admits a distant viewport during a held request and completes all units without editing source")
     const records = async () => ((await (await fetch(origin + "/state")).json()) as { requests: { count: number }[] }).requests
     const beforeLarge = (await records()).length
@@ -137,7 +161,7 @@ export async function runRendering(workspace: vscode.Uri, owner: Application, or
   } finally {
     owner.browse.stop(liveUri, true)
     await control(false)
-    await config.update("browse.translationScope", previous, vscode.ConfigurationTarget.WorkspaceFolder)
+    await config.update("browse.translationScope", previous, vscode.ConfigurationTarget.Global)
     for (const [index, value] of previousBatch.entries()) await config.update(batchKeys[index], value, vscode.ConfigurationTarget.Global)
   }
   console.log("Document browse performance: bounded HTTP preparation, complete results, coalesced CodeLens refresh, scrolling and disposal passed.")
